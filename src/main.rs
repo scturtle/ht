@@ -472,6 +472,11 @@ const CORE_ONLY_UNAVAILABLE: &str = "the legacy Herdr runtime has been removed; 
 /// Test harnesses and the isolated launcher use it to run against a private
 /// Core. It is an argument rather than an environment variable so a client can
 /// never be retargeted by something that merely exported a variable.
+/// Pull `--core-home <path>` or `--core-session <name>` out of the arguments.
+///
+/// `--core-home` moves client-local state; `--core-session` selects which `hc`
+/// session socket to drive, which is how an isolated test runs without touching
+/// the session a person is working in.
 fn take_core_home(args: &mut Vec<String>) -> io::Result<Option<PathBuf>> {
     let Some(index) = args.iter().position(|arg| arg == "--core-home") else {
         return Ok(None);
@@ -494,6 +499,33 @@ fn take_core_home(args: &mut Vec<String>) -> io::Result<Option<PathBuf>> {
     }))
 }
 
+fn take_core_session(args: &mut Vec<String>) -> io::Result<Option<String>> {
+    let Some(index) = args.iter().position(|arg| arg == "--core-session") else {
+        return Ok(None);
+    };
+    let name = args
+        .get(index + 1)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--core-session needs a name argument",
+            )
+        })?
+        .clone();
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--core-session accepts letters, digits, '-' and '_' only",
+        ));
+    }
+    args.drain(index..=index + 1);
+    Ok(Some(name))
+}
+
 fn main() -> io::Result<()> {
     let args = args_as_utf8(std::env::args_os())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
@@ -501,13 +533,16 @@ fn main() -> io::Result<()> {
     if let Some(home) = take_core_home(&mut args)? {
         session::set_data_dir(home);
     }
+    if let Some(session_name) = take_core_session(&mut args)? {
+        session::set_core_session(session_name);
+    }
     let args = args;
     let tail = &args[1..];
     match tail {
         [] => {},
         [flag] if flag=="--core" => {},
         [flag] if flag=="--help" || flag=="-h" || flag=="help" => {
-            println!("herdr — existing TUI, powered exclusively by herdr-core\n\nUsage: herdr [--core]\n       herdr --version | --default-config\n       herdr config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nIsolated Core home: --core-home <dir> (default: the herdr state dir)\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
+            println!("herdr — existing TUI, powered exclusively by herdr-core\n\nUsage: herdr [--core]\n       herdr --version | --default-config\n       herdr config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nCore home (client state): --core-home <dir>\nCore session: --core-session <name> (default: default, the session hc uses)\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
             return Ok(())
         },
         [flag] if flag=="--version" || flag=="-V" => {println!("herdr {} (Core-only)",build_info::version());return Ok(())},

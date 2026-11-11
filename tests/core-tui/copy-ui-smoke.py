@@ -43,7 +43,7 @@ def main():
             HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color",
             HISTFILE=str(home / "history"), PS1="copy$ ",
             CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HERDR_CORE_CLIENT_ID="copy-smoke",
-            HC_SESSION="herdr-tui", HC_SOCKET=str(core / "core.sock"),
+            HC_SESSION="gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12],
             XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"),
             XDG_CONFIG_HOME=str(home / "config"),
             HERDR_CONFIG_PATH=str(home / "config.toml"),

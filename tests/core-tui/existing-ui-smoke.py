@@ -29,10 +29,21 @@ def until(check, description):
     raise AssertionError(f"timeout: {description}")
 
 
+def core_session(home):
+    """A private session name per isolated home, so a gate never drives the
+    session a person is working in."""
+    import hashlib
+
+    return "gate-" + hashlib.sha1(str(home).encode()).hexdigest()[:12]
+
+
 def argv(env):
-    """The client takes its Core home as an argument, never from the environment."""
+    """The client takes its Core home and session as arguments, never from the
+    environment."""
     home = env.get("CORE_TUI_HOME")
-    return [str(HERDR)] + (["--core-home", home] if home else [])
+    if not home:
+        return [str(HERDR)]
+    return [str(HERDR), "--core-home", home, "--core-session", core_session(home)]
 
 
 class Viewer:
@@ -113,7 +124,7 @@ def main():
         core = home / "core"
         env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))}
         env.update(CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(HC), TERM="xterm-256color",
-                   HC_SESSION="herdr-tui", HC_SOCKET=str(core / "core.sock"),
+                   HC_SESSION="gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12],
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"),
                    XDG_CONFIG_HOME=str(home / "config"), HERDR_CONFIG_PATH=str(home / "config.toml"),
                    HERDR_SOCKET_PATH=str(home / "forbidden-old.sock"),

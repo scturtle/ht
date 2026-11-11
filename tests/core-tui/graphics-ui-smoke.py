@@ -56,7 +56,20 @@ class Viewer:
             ),
         )
         self.process = subprocess.Popen(
-            [str(HERDR)] + (["--core-home", env["CORE_TUI_HOME"]] if env.get("CORE_TUI_HOME") else []),
+            [str(HERDR)]
+            + (
+                [
+                    "--core-home",
+                    env["CORE_TUI_HOME"],
+                    "--core-session",
+                    "gate-"
+                    + __import__("hashlib")
+                    .sha1(env["CORE_TUI_HOME"].encode())
+                    .hexdigest()[:12],
+                ]
+                if env.get("CORE_TUI_HOME")
+                else []
+            ),
             stdin=slave,
             stdout=slave,
             stderr=slave,
@@ -133,8 +146,7 @@ def main():
             CORE_TUI_HOME=str(core),
             HERDR_CORE_BIN=str(HC),
             TERM="xterm-256color",
-            HC_SESSION="herdr-tui",
-            HC_SOCKET=str(core / "core.sock"),
+            HC_SESSION="gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12],
             XDG_RUNTIME_DIR=str(core / "run"),
             XDG_STATE_HOME=str(home / "state"),
             XDG_CONFIG_HOME=str(home / "config"),

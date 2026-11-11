@@ -54,7 +54,7 @@ def main():
     env.update(HOME=str(private), XDG_RUNTIME_DIR=str(core / "run"),
                XDG_STATE_HOME=str(core / "state"), XDG_CONFIG_HOME=str(core / "config"),
                HERDR_CORE_BIN=UI.HC, CORE_TUI_HOME=str(core), HERDR_CONFIG_PATH=str(config),
-               HERDR_CORE_CLIENT_ID="keyboard-smoke", HC_SESSION="herdr-tui", HC_SOCKET=str(core / "core.sock"), TERM="xterm-256color")
+               HERDR_CORE_CLIENT_ID="keyboard-smoke", HC_SESSION="gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12], TERM="xterm-256color")
     control, records = private / "control.json", private / "records.jsonl"
     control.write_text('{"phase":0}')
     try:

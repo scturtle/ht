@@ -62,7 +62,20 @@ class Viewer:
             ),
         )
         self.process = subprocess.Popen(
-            [str(HERDR)] + (["--core-home", env["CORE_TUI_HOME"]] if env.get("CORE_TUI_HOME") else []),
+            [str(HERDR)]
+            + (
+                [
+                    "--core-home",
+                    env["CORE_TUI_HOME"],
+                    "--core-session",
+                    "gate-"
+                    + __import__("hashlib")
+                    .sha1(env["CORE_TUI_HOME"].encode())
+                    .hexdigest()[:12],
+                ]
+                if env.get("CORE_TUI_HOME")
+                else []
+            ),
             stdin=slave,
             stdout=slave,
             stderr=slave,
@@ -144,14 +157,16 @@ def main():
     with tempfile.TemporaryDirectory(prefix="hc-reconnect-ui-", dir="/var/tmp") as scratch:
         home = Path(scratch)
         core = home / "core"
-        socket = core / "core.sock"
+        # The client no longer keeps a socket of its own: it drives the `hc`
+        # session socket, so the gate derives the same path `hc` would.
+        session = "gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12]
+        socket = core / "run" / "herdr-core" / f"{session}.sock"
         env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))}
         env.update(
             CORE_TUI_HOME=str(core),
             HERDR_CORE_BIN=str(HC),
             TERM="xterm-256color",
-            HC_SESSION="herdr-tui",
-            HC_SOCKET=str(socket),
+            HC_SESSION=session,
             XDG_RUNTIME_DIR=str(core / "run"),
             XDG_STATE_HOME=str(home / "state"),
             XDG_CONFIG_HOME=str(home / "config"),

@@ -161,9 +161,19 @@ impl Session {
     /// so a failed attempt leaves this session exactly as it was.
     fn open_core(options: &super::Options, existing: bool) -> io::Result<(Core, Value)> {
         let mut core = if existing {
-            Core::connect_existing(&options.binary, &options.home, &options.socket)?
+            Core::connect_existing(
+                &options.binary,
+                &options.home,
+                &options.socket,
+                options.isolate,
+            )?
         } else {
-            Core::connect(&options.binary, &options.home, &options.socket)?
+            Core::connect(
+                &options.binary,
+                &options.home,
+                &options.socket,
+                options.isolate,
+            )?
         };
         let subscription = core.subscribe()?;
         Ok((core, subscription))

@@ -51,7 +51,9 @@ pub struct Core {
     pub hello: Value,
 }
 
-pub fn command(binary: &Path, home: &Path, socket: &Path) -> Command {
+/// `isolate` marks a Core this client owns end to end. A shared session must not
+/// redirect the Core's XDG dirs: `hc` and the client have to agree on them.
+pub fn command(binary: &Path, home: &Path, socket: &Path, isolate: bool) -> Command {
     let mut cmd = Command::new(binary);
     // Never inherit identity/socket overrides from the enclosing Herdr or Core.
     for (key, _) in std::env::vars_os() {
@@ -60,12 +62,13 @@ pub fn command(binary: &Path, home: &Path, socket: &Path) -> Command {
             cmd.env_remove(key);
         }
     }
-    cmd.env("HC_SESSION", "herdr-tui")
-        .env("HC_SOCKET", socket)
+    cmd.env("HC_SOCKET", socket);
+    if isolate {
         // A custom runtime dir bypasses Core's systemd/linger auto-setup.
-        .env("XDG_RUNTIME_DIR", home.join("run"))
-        .env("XDG_STATE_HOME", home.join("state"))
-        .env("XDG_CONFIG_HOME", home.join("config"));
+        cmd.env("XDG_RUNTIME_DIR", home.join("run"))
+            .env("XDG_STATE_HOME", home.join("state"))
+            .env("XDG_CONFIG_HOME", home.join("config"));
+    }
     cmd
 }
 
@@ -144,19 +147,30 @@ fn negotiate(input: &mut impl Write, output: &mut impl Read, existing: bool) -> 
 
 impl Core {
     /// Explicit launch: may start a Core that is not running yet.
-    pub fn connect(binary: &Path, home: &Path, socket: &Path) -> io::Result<Self> {
-        Self::open(binary, home, socket, false)
+    pub fn connect(binary: &Path, home: &Path, socket: &Path, isolate: bool) -> io::Result<Self> {
+        Self::open(binary, home, socket, isolate, false)
     }
 
     /// Recovery probe: reaches only a running Core. A probe must never undo an
     /// explicit `server stop` by auto-starting a replacement runtime.
-    pub fn connect_existing(binary: &Path, home: &Path, socket: &Path) -> io::Result<Self> {
-        Self::open(binary, home, socket, true)
+    pub fn connect_existing(
+        binary: &Path,
+        home: &Path,
+        socket: &Path,
+        isolate: bool,
+    ) -> io::Result<Self> {
+        Self::open(binary, home, socket, isolate, true)
     }
 
-    fn open(binary: &Path, home: &Path, socket: &Path, existing: bool) -> io::Result<Self> {
+    fn open(
+        binary: &Path,
+        home: &Path,
+        socket: &Path,
+        isolate: bool,
+        existing: bool,
+    ) -> io::Result<Self> {
         std::fs::create_dir_all(home.join("run"))?;
-        let mut command = command(binary, home, socket);
+        let mut command = command(binary, home, socket, isolate);
         command.arg("connect");
         if existing {
             command.arg("--existing");

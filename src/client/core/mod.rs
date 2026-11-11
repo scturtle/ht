@@ -38,11 +38,12 @@ use std::{
 pub(super) struct Options {
     pub binary: PathBuf,
     pub home: PathBuf,
-    /// Socket the spawned Core connects to: `<home>/core.sock`.
-    ///
-    /// The client owns this Core end to end, so the socket never points at one
-    /// another tool started. Use `HC_SOCKET` on the `hc` side to reach it.
+    /// Socket this client drives: `$XDG_RUNTIME_DIR/herdr-core/<session>.sock`,
+    /// the same convention `hc` uses, so both tools reach one Core. The client
+    /// never keeps a socket of its own.
     pub socket: PathBuf,
+    /// A private session owns its Core end to end and isolates its state dirs.
+    pub isolate: bool,
     pub client_id: Option<String>,
 }
 fn presentation_identity(
@@ -66,6 +67,23 @@ fn presentation_identity(
     }
     Ok(terminal.map(|name| format!("tty-{:x}", sha2::Sha256::digest(name.as_bytes()))))
 }
+/// `hc`'s socket for a session: `$XDG_RUNTIME_DIR/herdr-core/<session>.sock`.
+///
+/// Falling back to the state directory keeps the client usable where no runtime
+/// directory is exported, without giving it a socket of its own.
+fn session_socket(session: &str) -> io::Result<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            crate::config::state_dir()
+                .join("core-client-v1")
+                .join("run")
+        });
+    let dir = runtime.join("herdr-core");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join(format!("{session}.sock")))
+}
+
 impl Options {
     pub fn from_environment() -> io::Result<Self> {
         let binary = std::env::var_os("HERDR_CORE_BIN")
@@ -74,7 +92,8 @@ impl Options {
         // An explicit `--core-home` argument, or the default state directory. The
         // environment never moves it, so no enclosing process can retarget us.
         let home = crate::session::data_dir();
-        let socket = home.join("core.sock");
+        let isolate = crate::session::core_session_is_private();
+        let socket = session_socket(&crate::session::core_session())?;
         let explicit = match std::env::var("HERDR_CORE_CLIENT_ID") {
             Ok(id) => Some(id),
             Err(std::env::VarError::NotPresent) => None,
@@ -86,6 +105,7 @@ impl Options {
             binary,
             home,
             socket,
+            isolate,
             client_id,
         })
     }
