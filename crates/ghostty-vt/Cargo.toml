@@ -8,6 +8,7 @@ repository = "https://github.com/herdrdev/herdr"
 publish = false
 
 [build-dependencies]
+bindgen = { version = "0.73", default-features = false, features = ["runtime", "logging"] }
 sha2 = "0.10"
 
 [dependencies]

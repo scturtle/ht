@@ -64,6 +64,12 @@ build fails with that instruction when the tree is missing.
 `VERSION`/`LIB_VERSION` files the tag does not ship, and applies the local
 patches there before `zig build`, so the fetched tree stays pristine.
 
+The C bindings are generated into `OUT_DIR` from those patched headers by
+`bindgen`, not committed. That is deliberate: a patch that changes the C API
+would otherwise leave a stale binding that compiles cleanly and is silently
+unsound. Binding generation runs libclang, so a build also needs a libclang shared
+library on the machine.
+
 The pinned URL uses the tag form (`/archive/refs/tags/<tag>.tar.gz`). The
 commit form (`codeload.../tar.gz/<commit>`) is not byte-reproducible: two
 downloads of one commit returned identical content but different bytes, which

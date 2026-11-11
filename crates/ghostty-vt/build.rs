@@ -164,6 +164,36 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+/// Generate the FFI declarations from the patched headers actually used by the
+/// build. Doing this here instead of checking in a generated file keeps the Rust
+/// declarations and the linked archive from drifting apart: a patch that changes
+/// the C API can no longer leave a stale, silently unsound binding behind.
+fn generate_bindings(staged: &Path, out_dir: &Path) {
+    let include = staged.join("include");
+    let header = include.join("ghostty").join("vt.h");
+    println!("cargo:rerun-if-changed={}", include.display());
+    let bindings = bindgen::Builder::default()
+        .header(header.display().to_string())
+        .allowlist_type("Ghostty.*")
+        .allowlist_function("ghostty_.*")
+        .allowlist_var("GHOSTTY_.*")
+        .derive_default(true)
+        .clang_arg(format!("-I{}", include.display()))
+        .generate()
+        .unwrap_or_else(|err| {
+            panic!(
+                "failed to generate libghostty-vt bindings from {}: {err}. Binding \
+                 generation runs libclang through bindgen; install a libclang shared \
+                 library (or set LIBCLANG_PATH) and retry",
+                header.display()
+            );
+        });
+    let target = out_dir.join("bindings.rs");
+    bindings
+        .write_to_file(&target)
+        .unwrap_or_else(|err| panic!("failed to write {}: {err}", target.display()));
+}
+
 fn main() {
     // The vendored source stays at the repository root, shared with its maintenance scripts.
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -215,6 +245,7 @@ fn main() {
     // The upstream submodule stays pristine: every build compiles a staged copy
     // with the local patches applied.
     let vendored_dir = stage_patched_source(&source_dir, &patch_dir, &out_dir);
+    generate_bindings(&vendored_dir, &out_dir);
     let zig_prefix = out_dir.join("zig-out");
 
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".into());
