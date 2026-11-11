@@ -677,6 +677,30 @@ fn render_scale_profile_core() {
 }
 
 #[test]
+#[ignore = "explicit render-stage profiling, no production instrumentation"]
+fn render_stage_profile() {
+    for count in [1, 15] {
+        let (model, views, chrome) = fixture(count);
+        let mut renderer = view::Renderer::new().unwrap();
+        let size = ClientSurfaceSize {
+            cols: 120,
+            rows: 40,
+        };
+        for _ in 0..20 {
+            std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+        }
+        renderer.profile_ns = [0; 5];
+        for _ in 0..1000 {
+            std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+        }
+        eprintln!(
+            "render_stages panes={count} geometry/links/paint/frame/metadata_graphics mean_us={:?}",
+            renderer.profile_ns.map(|n| n as f64 / 1_000_000.0)
+        );
+    }
+}
+
+#[test]
 fn a_finished_screen_replays_each_row_from_column_zero() {
     // Core joins rows with a bare newline; a terminal would keep the column and
     // staircase the pane, which is what the client used to draw.

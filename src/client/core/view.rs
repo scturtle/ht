@@ -252,6 +252,8 @@ pub(super) struct Renderer {
     // Use ratatui only to supply a Frame over its semantic buffer. Never flush
     // diffs into TestBackend: it retains stale symbols under wide glyphs.
     terminal: Terminal<TestBackend>,
+    #[cfg(test)]
+    pub profile_ns: [u128; 5],
     revision: u64,
     retained: Option<RetainedSurface>,
     /// Host cell pixels; the graphics collector scales placements with it.
@@ -284,6 +286,8 @@ impl Renderer {
     pub fn new() -> io::Result<Self> {
         Ok(Self {
             terminal: Terminal::new(TestBackend::new(1, 1)).map_err(io::Error::other)?,
+            #[cfg(test)]
+            profile_ns: [0; 5],
             revision: 0,
             retained: None,
             cell_size: crate::kitty_graphics::HostCellSize::default(),
@@ -318,12 +322,19 @@ impl Renderer {
         size: ClientSurfaceSize,
         config: &ChromeConfig,
     ) -> io::Result<PaneSurfaceFrame> {
+        #[cfg(test)]
+        let mut stage = std::time::Instant::now();
         let area = Rect::new(0, 0, size.cols.max(1), size.rows.max(1));
         if self.terminal.size().map_err(io::Error::other)? != area.as_size() {
             self.terminal = Terminal::new(TestBackend::new(area.width, area.height))
                 .map_err(io::Error::other)?;
         }
         let infos = pane_infos(model, area, config);
+        #[cfg(test)]
+        {
+            self.profile_ns[0] += stage.elapsed().as_nanos();
+            stage = std::time::Instant::now();
+        }
         let mut cursor = None;
         let mut hyperlinks = Vec::new();
         for p in &infos {
@@ -338,6 +349,11 @@ impl Renderer {
                     });
                 }
             }
+        }
+        #[cfg(test)]
+        {
+            self.profile_ns[1] += stage.elapsed().as_nanos();
+            stage = std::time::Instant::now();
         }
         let mut canvas = self.terminal.get_frame();
         canvas.buffer_mut().reset();
@@ -357,11 +373,21 @@ impl Renderer {
                     .render(&mut canvas, p.inner_rect, p.is_focused);
             }
         }
+        #[cfg(test)]
+        {
+            self.profile_ns[2] += stage.elapsed().as_nanos();
+            stage = std::time::Instant::now();
+        }
         let frame = FrameData::from_ratatui_buffer_with_hyperlinks(
             canvas.buffer_mut(),
             cursor.clone(),
             &hyperlinks,
         );
+        #[cfg(test)]
+        {
+            self.profile_ns[3] += stage.elapsed().as_nanos();
+            stage = std::time::Instant::now();
+        }
         let panes: Vec<_> = infos
             .iter()
             .filter_map(|p| {
@@ -437,6 +463,10 @@ impl Renderer {
             hyperlinks,
             graphics: graphics.clone(),
         });
+        #[cfg(test)]
+        {
+            self.profile_ns[4] += stage.elapsed().as_nanos();
+        }
         self.revision += 1;
         Ok(PaneSurfaceFrame {
             boot_id: model.boot.clone(),
