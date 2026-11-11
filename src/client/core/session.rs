@@ -85,6 +85,21 @@ pub(super) fn configured_shell(config: &crate::config::Config) -> Vec<String> {
     }
 }
 
+/// Core returns a finished screen as rows joined by `\n`. A terminal emulator
+/// moves the cursor down on `\n` without returning to column 0, so replaying that
+/// text verbatim staircases every row further right than the one above it. Feed
+/// each row as its own line instead.
+pub(super) fn replay_lines(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() + 8);
+    for (index, line) in text.split('\n').enumerate() {
+        if index > 0 {
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(line.as_bytes());
+    }
+    out
+}
+
 impl Session {
     pub fn connect(
         options: super::Options,
@@ -327,13 +342,12 @@ impl Session {
             view.closed = true;
             view.visible = visible;
             view.terminal.apply_host_terminal_theme(self.theme);
-            let result = self.core.request(
-                "terminal.read",
-                json!({"terminal":address,"format":"ansi","lines":1000}),
-            );
+            let result = self
+                .core
+                .request("terminal.read", json!({"terminal":address,"lines":1000}));
             if let Ok(result) = result {
                 if let Some(text) = result["text"].as_str() {
-                    view.process_output(id, text.as_bytes());
+                    view.process_output(id, &replay_lines(text));
                 }
             }
             self.views.insert(id, view);

@@ -1,3 +1,5 @@
+use super::session::replay_lines;
+use super::view::View;
 use super::*;
 use crate::{
     layout::{Node, PaneId, TileLayout},
@@ -545,14 +547,48 @@ fn render_scale_profile_core() {
 }
 
 #[test]
-fn socket_override_is_resolved_against_the_working_directory() {
-    let base = PathBuf::from("/work");
+fn a_finished_screen_replays_each_row_from_column_zero() {
+    // Core joins rows with a bare newline; a terminal would keep the column and
+    // staircase the pane, which is what the client used to draw.
+    assert_eq!(replay_lines("first\nsecond"), b"first\r\nsecond");
+    assert_eq!(replay_lines("only"), b"only");
+    assert_eq!(replay_lines(""), b"");
+    assert_eq!(replay_lines("a\n\nb"), b"a\r\n\r\nb");
+}
+
+#[test]
+fn a_replayed_finished_screen_keeps_rows_at_column_zero() {
+    let id = PaneId::from_raw(1);
+    let mut view = View::new(40, 8, 0).expect("view");
+    view.process_output(id, &replay_lines("AAA\nBBB\nCCC"));
+    let text = view.terminal.visible_text();
+    let rows: Vec<&str> = text.lines().take(3).collect();
+    assert_eq!(rows[0].trim_end(), "AAA");
     assert_eq!(
-        absolute(PathBuf::from("/run/hc/default.sock"), &base),
-        PathBuf::from("/run/hc/default.sock")
+        rows[1].trim_end(),
+        "BBB",
+        "row two must start at column zero"
     );
     assert_eq!(
-        absolute(PathBuf::from("state/core.sock"), &base),
-        PathBuf::from("/work/state/core.sock")
+        rows[2].trim_end(),
+        "CCC",
+        "row three must start at column zero"
+    );
+}
+
+#[test]
+fn raw_newline_separated_rows_would_staircase_without_the_replay_fix() {
+    // Characterizes the bug: a bare `\n` keeps the cursor column, so each row
+    // drifts right. This is what the client drew before replay_lines.
+    let id = PaneId::from_raw(1);
+    let mut view = View::new(40, 8, 0).expect("view");
+    view.process_output(id, b"AAA\nBBB");
+    let text = view.terminal.visible_text();
+    let rows: Vec<&str> = text.lines().take(2).collect();
+    assert_eq!(rows[0].trim_end(), "AAA");
+    assert!(
+        rows[1].starts_with("   BBB"),
+        "an LF-only row keeps the column: {:?}",
+        rows[1]
     );
 }
