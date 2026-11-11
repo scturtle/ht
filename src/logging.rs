@@ -8,6 +8,8 @@ use tracing_subscriber::EnvFilter;
 
 const DEFAULT_MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 const DEFAULT_RETAINED_LOG_FILES: usize = 0;
+// The tracing target follows the Rust binary crate name, not the package name.
+const DEFAULT_LOG_FILTER: &str = concat!(env!("CARGO_CRATE_NAME"), "=info");
 
 pub(crate) fn init_file_logging(file_name: &str) {
     let Ok(make_writer) = RotatingFileMakeWriter::new(
@@ -20,7 +22,7 @@ pub(crate) fn init_file_logging(file_name: &str) {
     };
 
     let filter =
-        EnvFilter::try_from_env("HERDR_LOG").unwrap_or_else(|_| EnvFilter::new("herdr=info"));
+        EnvFilter::try_from_env("HERDR_LOG").unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -219,4 +221,39 @@ fn rotated_log_path(path: &Path, index: usize) -> PathBuf {
         })
         .unwrap_or_else(|| suffix.clone().into());
     path.with_file_name(file_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_filter_records_this_binary_without_enabling_dependency_or_debug_logs() {
+        let home = std::env::temp_dir().join(format!(
+            "ht-logging-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let writer = RotatingFileMakeWriter::new(home.clone(), "client.log", 4096, 0).unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::new(DEFAULT_LOG_FILTER))
+            .with_writer(writer)
+            .with_ansi(false)
+            .with_target(true)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!("own binary info is visible");
+            tracing::debug!("debug remains disabled");
+            tracing::info!(target: "unrelated_dependency", "dependency remains disabled");
+        });
+        let output = fs::read_to_string(home.join("client.log")).unwrap();
+        fs::remove_dir_all(home).unwrap();
+        assert!(output.contains("own binary info is visible"), "{output:?}");
+        assert!(output.contains(concat!(env!("CARGO_CRATE_NAME"), "::logging")));
+        assert!(!output.contains("debug remains disabled"));
+        assert!(!output.contains("dependency remains disabled"));
+    }
 }
