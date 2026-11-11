@@ -176,12 +176,17 @@ Core 使用独立 runtime dir，不自动配置 systemd/linger；不承诺注销
 ```sh
 just core-source-build
 HERDR_CORE_BIN="$PWD/.local/core-runtime/target/release/herdr-core" \
-HERDR_CORE_HOME=/absolute/path/to/a-private-core-home \
-  target/release/ht
+  target/release/ht --core-home /absolute/path/to/a-private-core-home
 ```
 
-`HERDR_CORE_BIN` 默认是 PATH 上的 `herdr-core`；`HERDR_CORE_HOME` 默认是 Herdr state dir 下的
-`core-client-v1/`。停止试用脚本启动的 Core **及其中全部程序**：
+`HERDR_CORE_BIN` 默认是 PATH 上的 `herdr-core`。Core home 只能由 `--core-home` 指定，
+**不读任何环境变量**，避免被外层进程悄悄改掉。
+
+不带 `--core-home` 时，客户端连 `$XDG_RUNTIME_DIR/herdr-core/default.sock`，也就是 `hc`
+默认那个 Core —— 这样 `ht` 里开的终端，`hc ls` 直接可见。带 `--core-home` 则使用
+`<home>/core.sock` 这个私有 Core，测试与试用脚本正是靠这一点不碰真实会话。
+
+停止试用脚本启动的 Core **及其中全部程序**：
 
 ```sh
 bash scripts/core-tui/run.sh --stop

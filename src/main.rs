@@ -1,6 +1,7 @@
 use ghostty_vt as ghostty;
 use ghostty_vt::pane_graphics_files;
 use std::io;
+use std::path::PathBuf;
 mod agent_resume;
 mod api;
 mod app;
@@ -465,16 +466,48 @@ where
         .collect()
 }
 
-const CORE_ONLY_UNAVAILABLE: &str = "the legacy Herdr runtime has been removed; this command/option is unavailable in the Core-only client. Remote Core transport and the CLI API bridge are not implemented. No legacy fallback is used. Manage terminals with hc and select a separate Core home with HERDR_CORE_HOME.";
+const CORE_ONLY_UNAVAILABLE: &str = "the legacy Herdr runtime has been removed; this command/option is unavailable in the Core-only client. Remote Core transport and the CLI API bridge are not implemented. No legacy fallback is used. Manage terminals with hc and select a separate Core home with --core-home <dir>.";
+/// Pull `--core-home <path>` out of the argument list.
+///
+/// Test harnesses and the isolated launcher use it to run against a private
+/// Core. It is an argument rather than an environment variable so a client can
+/// never be retargeted by something that merely exported a variable.
+fn take_core_home(args: &mut Vec<String>) -> io::Result<Option<PathBuf>> {
+    let Some(index) = args.iter().position(|arg| arg == "--core-home") else {
+        return Ok(None);
+    };
+    let path = args
+        .get(index + 1)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--core-home needs a directory argument",
+            )
+        })?
+        .clone();
+    args.drain(index..=index + 1);
+    let path = PathBuf::from(path);
+    Ok(Some(if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()?.join(path)
+    }))
+}
+
 fn main() -> io::Result<()> {
     let args = args_as_utf8(std::env::args_os())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    let mut args = args;
+    if let Some(home) = take_core_home(&mut args)? {
+        session::set_data_dir(home);
+    }
+    let args = args;
     let tail = &args[1..];
     match tail {
         [] => {},
         [flag] if flag=="--core" => {},
         [flag] if flag=="--help" || flag=="-h" || flag=="help" => {
-            println!("herdr — existing TUI, powered exclusively by herdr-core\n\nUsage: herdr [--core]\n       herdr --version | --default-config\n       herdr config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nIsolated Core home: HERDR_CORE_HOME\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
+            println!("herdr — existing TUI, powered exclusively by herdr-core\n\nUsage: herdr [--core]\n       herdr --version | --default-config\n       herdr config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nIsolated Core home: --core-home <dir> (default: the herdr state dir)\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
             return Ok(())
         },
         [flag] if flag=="--version" || flag=="-V" => {println!("herdr {} (Core-only)",build_info::version());return Ok(())},
@@ -543,6 +576,46 @@ mod tests {
     fn invalid_utf8_arg() -> std::ffi::OsString {
         use std::os::unix::ffi::OsStringExt;
         std::ffi::OsString::from_vec(vec![0xff])
+    }
+
+    #[test]
+    fn core_home_flag_is_taken_out_of_the_argument_list() {
+        let mut args = vec![
+            "herdr".to_owned(),
+            "--core-home".to_owned(),
+            "/x".to_owned(),
+        ];
+        assert_eq!(
+            take_core_home(&mut args).unwrap(),
+            Some(PathBuf::from("/x"))
+        );
+        assert_eq!(args, vec!["herdr".to_owned()]);
+    }
+
+    #[test]
+    fn core_home_flag_makes_a_relative_path_absolute() {
+        let mut args = vec![
+            "herdr".to_owned(),
+            "--core-home".to_owned(),
+            "rel".to_owned(),
+        ];
+        let home = take_core_home(&mut args).unwrap().unwrap();
+        assert!(home.is_absolute(), "{home:?} must be resolved");
+        assert!(home.ends_with("rel"));
+    }
+
+    #[test]
+    fn core_home_flag_requires_a_directory() {
+        let mut args = vec!["herdr".to_owned(), "--core-home".to_owned()];
+        let error = take_core_home(&mut args).expect_err("a missing value must be refused");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn args_without_a_core_home_flag_are_left_alone() {
+        let mut args = vec!["herdr".to_owned(), "--core".to_owned()];
+        assert_eq!(take_core_home(&mut args).unwrap(), None);
+        assert_eq!(args, vec!["herdr".to_owned(), "--core".to_owned()]);
     }
 
     #[test]

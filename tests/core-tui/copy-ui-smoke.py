@@ -42,7 +42,7 @@ def main():
         env.update(
             HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color",
             HISTFILE=str(home / "history"), PS1="copy$ ",
-            HERDR_CORE_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HERDR_CORE_CLIENT_ID="copy-smoke",
+            CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HERDR_CORE_CLIENT_ID="copy-smoke",
             HC_SESSION="herdr-tui", HC_SOCKET=str(core / "core.sock"),
             XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"),
             XDG_CONFIG_HOME=str(home / "config"),

@@ -31,7 +31,8 @@ class LauncherTests(unittest.TestCase):
         self.executable(self.root / "target/release/ht", '''#!/usr/bin/env python3
 import json, os, sys
 print(json.dumps({"stdin_tty": os.isatty(0), "stdout_tty": os.isatty(1),
-                  "core_home": os.environ.get("HERDR_CORE_HOME"),
+                  "argv": sys.argv[1:],
+                  "inherited_home": os.environ.get("HERDR_CORE_HOME"),
                   "inherited_socket": os.environ.get("HERDR_SOCKET_PATH"),
                   "client_id": os.environ.get("HERDR_CORE_CLIENT_ID"),
                   "input": sys.stdin.readline().rstrip("\\n")}), flush=True)
@@ -56,7 +57,9 @@ print(json.dumps({"args": sys.argv[1:], "socket": os.environ.get("HC_SOCKET")}),
                                 env=self.env, capture_output=True, timeout=10, check=True)
         record = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(record["input"], "PIPE_INPUT_PROOF")
-        self.assertEqual(record["core_home"], str(self.home))
+        self.assertEqual(record["argv"], ["--core-home", str(self.home)])
+        # The home must be an argument, not something the environment can move.
+        self.assertIsNone(record["inherited_home"])
         self.assertIsNone(record["inherited_socket"])
 
     def test_only_explicit_launcher_identity_selects_persistent_client_preferences(self):

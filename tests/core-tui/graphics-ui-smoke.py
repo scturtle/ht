@@ -56,7 +56,7 @@ class Viewer:
             ),
         )
         self.process = subprocess.Popen(
-            [str(HERDR)],
+            [str(HERDR)] + (["--core-home", env["CORE_TUI_HOME"]] if env.get("CORE_TUI_HOME") else []),
             stdin=slave,
             stdout=slave,
             stderr=slave,
@@ -130,7 +130,7 @@ def main():
         core = home / "core"
         env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))}
         env.update(
-            HERDR_CORE_HOME=str(core),
+            CORE_TUI_HOME=str(core),
             HERDR_CORE_BIN=str(HC),
             TERM="xterm-256color",
             HC_SESSION="herdr-tui",

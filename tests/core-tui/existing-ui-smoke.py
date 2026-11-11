@@ -29,13 +29,19 @@ def until(check, description):
     raise AssertionError(f"timeout: {description}")
 
 
+def argv(env):
+    """The client takes its Core home as an argument, never from the environment."""
+    home = env.get("CORE_TUI_HOME")
+    return [str(HERDR)] + (["--core-home", home] if home else [])
+
+
 class Viewer:
     def __init__(self, env):
         self.output = bytearray()
         self.resizes = []
         self.pid, self.fd = pty.fork()
         if not self.pid:
-            os.execve(HERDR, [str(HERDR)], env)
+            os.execve(HERDR, argv(env), env)
         self.resize(100, 28)
 
     def resize(self, cols, rows):
@@ -106,7 +112,7 @@ def main():
         home = Path(scratch)
         core = home / "core"
         env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))}
-        env.update(HERDR_CORE_HOME=str(core), HERDR_CORE_BIN=str(HC), TERM="xterm-256color",
+        env.update(CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(HC), TERM="xterm-256color",
                    HC_SESSION="herdr-tui", HC_SOCKET=str(core / "core.sock"),
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"),
                    XDG_CONFIG_HOME=str(home / "config"), HERDR_CONFIG_PATH=str(home / "config.toml"),

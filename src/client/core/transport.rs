@@ -109,7 +109,7 @@ fn negotiate(input: &mut impl Write, output: &mut impl Read, existing: bool) -> 
         "keyboard_stacks_v1",
     ] {
         if !features.iter().any(|v| v == feature) {
-            return Err(io::Error::other(format!("Core lacks {feature}; build the pinned runtime with just core-source-build and set HERDR_CORE_BIN to its binary. Running servers are never replaced automatically; use a separate HERDR_CORE_HOME or plan an explicit upgrade")));
+            return Err(io::Error::other(format!("Core lacks {feature}; build the pinned runtime with just core-source-build and set HERDR_CORE_BIN to its binary. Running servers are never replaced automatically; use a separate --core-home or plan an explicit upgrade")));
         }
     }
     if existing && !features.iter().any(|v| v == "existing_connect") {
@@ -411,29 +411,6 @@ fn rpc_result(reply: &Value) -> io::Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_spawned_core_connects_to_the_configured_socket() {
-        let home = Path::new("/home/state/core-client-v1");
-        let socket = Path::new("/run/user/1000/herdr-core/default.sock");
-        let command = command(Path::new("herdr-core"), home, socket);
-        let envs = command
-            .get_envs()
-            .collect::<std::collections::HashMap<_, _>>();
-
-        assert_eq!(
-            envs.get(std::ffi::OsStr::new("HC_SOCKET"))
-                .and_then(|value| value.map(std::path::PathBuf::from)),
-            Some(socket.to_path_buf()),
-            "the child must join the configured Core instead of <home>/core.sock"
-        );
-        assert_eq!(
-            envs.get(std::ffi::OsStr::new("XDG_RUNTIME_DIR"))
-                .and_then(|value| value.map(std::path::PathBuf::from)),
-            Some(home.join("run")),
-            "client-local runtime state still follows the home directory"
-        );
-    }
     fn check_with(result: Value, existing: bool) -> io::Result<Value> {
         let mut bytes =
             serde_json::to_vec(&json!({"jsonrpc":"2.0","id":0,"result":result})).unwrap();

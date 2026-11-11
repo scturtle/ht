@@ -87,7 +87,7 @@ def main():
         env = {key: value for key, value in os.environ.items() if not key.startswith(("HC_", "HERDR_")) and key not in {
             "DISPLAY", "WAYLAND_DISPLAY", "BASH_ENV", "ENV", "ZDOTDIR", "TMUX", "STY", "SSH_CONNECTION", "SSH_TTY", "VSCODE_IPC_HOOK_CLI"}}
         env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color", HISTFILE=str(home / "history"), PS1="org$ ",
-                   HERDR_CORE_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HERDR_CORE_CLIENT_ID="organization-smoke", HC_SESSION="herdr-tui", HC_SOCKET=str(core / "core.sock"),
+                   CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HERDR_CORE_CLIENT_ID="organization-smoke", HC_SESSION="herdr-tui", HC_SOCKET=str(core / "core.sock"),
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"), XDG_CONFIG_HOME=str(home / "config"),
                    HERDR_CONFIG_PATH=str(home / "config.toml"), HERDR_SOCKET_PATH=str(home / "forbidden-old.sock"),
                    HERDR_CLIENT_SOCKET_PATH=str(home / "forbidden-client.sock"))
