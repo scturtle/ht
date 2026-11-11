@@ -32,6 +32,54 @@ fn a_new_projection_epoch_accepts_restarted_revisions_but_its_stale_updates_do_n
     assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
 }
 
+#[test]
+fn core_settings_and_context_menu_only_offer_implemented_actions() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_endpoint_methods(Some(vec![]));
+    state.open_settings_overlay();
+    let Some(ClientShellOverlay::Settings(settings)) = &state.overlay else {
+        panic!("settings");
+    };
+    assert_eq!(
+        settings.sections,
+        vec![
+            ClientSettingsSection::Theme,
+            ClientSettingsSection::Indicators,
+            ClientSettingsSection::Sound
+        ]
+    );
+    let mut outcome = ClientShellInput::default();
+    state.select_settings_section(ClientSettingsSection::Integrations, &mut outcome);
+    assert!(outcome.actions.is_empty());
+    state.record_binding(
+        crate::input::KeybindMatch::Action(crate::input::KeybindAction::ReloadConfig),
+        &mut outcome,
+    );
+    assert!(
+        outcome.actions.is_empty(),
+        "Core config reload must remain client-local"
+    );
+    let menu = ClientContextMenuOverlay {
+        methods: Some(Default::default()),
+        target: ClientContextMenuTarget::Pane {
+            pane_id: "p".into(),
+            workspace_id: "w".into(),
+            source_pane_id: None,
+            has_manual_label: true,
+            right_click_passthrough: false,
+        },
+        x: 0,
+        y: 0,
+        highlighted: 0,
+    };
+    assert!(menu.items().iter().all(|i| matches!(
+        i.action,
+        ClientContextMenuAction::ToggleRightClickPassthrough
+            | ClientContextMenuAction::DumpPaneDiagnostics
+    )));
+}
+
 fn pending_worktree() -> (ClientShellState, Vec<ClientShellAction>) {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));

@@ -72,7 +72,7 @@ pub(super) fn render_settings_overlay(
             .any(|integration| integration.state == crate::api::schema::IntegrationState::Outdated);
     let mut tab_x = inner.x;
     let mut tab_hits = Vec::new();
-    for section in ClientSettingsSection::ALL {
+    for section in &settings.sections {
         let badge = *section == ClientSettingsSection::Integrations && integration_badge;
         let label = if badge {
             format!(" ● {} ", section.label())

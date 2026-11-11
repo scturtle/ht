@@ -5,7 +5,7 @@ impl ClientContextMenuOverlay {
         use ClientContextMenuAction as Action;
 
         let item = |label, action| ClientContextMenuItem { label, action };
-        match &self.target {
+        let mut items = match &self.target {
             ClientContextMenuTarget::Workspace { is_git: false, .. } => {
                 vec![item("Rename", Action::Rename), item("Close", Action::Close)]
             }
@@ -80,7 +80,35 @@ impl ClientContextMenuOverlay {
                 ]);
                 items
             }
-        }
+        };
+        items.retain(|item| {
+            let method = match item.action {
+                Action::RenamePane | Action::ClearPaneName => "pane.rename",
+                Action::SwapWithFocusedPane => "pane.swap",
+                Action::SplitRight | Action::SplitDown => "pane.split",
+                Action::Zoom => "pane.zoom",
+                Action::ClosePane => "pane.close",
+                Action::NewTab => "tab.create",
+                Action::NewWorktree => "worktree.create",
+                Action::OpenWorktree => "worktree.open",
+                Action::RemoveWorktree => "worktree.remove",
+                Action::Rename => match self.target {
+                    ClientContextMenuTarget::Workspace { .. } => "workspace.rename",
+                    _ => "tab.rename",
+                },
+                Action::Close => match self.target {
+                    ClientContextMenuTarget::Workspace { .. } => "workspace.close",
+                    _ => "tab.close",
+                },
+                Action::ToggleGroup
+                | Action::ToggleRightClickPassthrough
+                | Action::DumpPaneDiagnostics => return true,
+            };
+            self.methods
+                .as_ref()
+                .is_none_or(|methods| methods.contains(method))
+        });
+        items
     }
 }
 
@@ -110,6 +138,7 @@ impl ClientShellState {
             self.group_is_collapsed(&self.active_endpoint_id, &worktree.key)
         });
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            methods: self.endpoint.methods.clone(),
             target: ClientContextMenuTarget::Workspace {
                 workspace_id,
                 is_git: worktree.is_some() || workspace.branch.is_some(),
@@ -133,6 +162,7 @@ impl ClientShellState {
             return;
         };
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            methods: self.endpoint.methods.clone(),
             target: ClientContextMenuTarget::Tab {
                 tab_id,
                 workspace_id: tab.workspace_id.clone(),
@@ -155,6 +185,7 @@ impl ClientShellState {
             .clone()
             .filter(|focused| focused != &pane_id);
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            methods: self.endpoint.methods.clone(),
             target: ClientContextMenuTarget::Pane {
                 pane_id,
                 workspace_id: pane.workspace_id.clone(),

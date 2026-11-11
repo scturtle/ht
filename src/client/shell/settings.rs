@@ -33,7 +33,25 @@ pub(super) fn integration_needs_install(info: &crate::api::schema::IntegrationIn
 
 impl ClientShellState {
     pub(super) fn open_settings_overlay(&mut self) {
+        let integrations = self.supports_endpoint_method(
+            &crate::api::schema::Method::IntegrationList(Default::default()),
+        ) && self
+            .endpoint
+            .methods
+            .as_ref()
+            .is_none_or(|m| m.contains("integration.install"));
+        // Core forwards bells/clipboard, not semantic agent-notification events.
+        let sections = ClientSettingsSection::ALL
+            .iter()
+            .copied()
+            .filter(|section| match section {
+                ClientSettingsSection::Toast => self.endpoint.methods.is_none(),
+                ClientSettingsSection::Integrations => integrations,
+                _ => true,
+            })
+            .collect();
         self.overlay = Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
+            sections,
             section: ClientSettingsSection::Theme,
             selected: theme_index(&self.config.theme_name),
             original_theme_name: self.config.theme_name.clone(),
@@ -60,6 +78,11 @@ impl ClientShellState {
         section: ClientSettingsSection,
         outcome: &mut ClientShellInput,
     ) {
+        if let Some(ClientShellOverlay::Settings(settings)) = &self.overlay {
+            if !settings.sections.contains(&section) {
+                return;
+            }
+        }
         let selected = self.selected_index_for_settings_section(section);
         let request_integrations = matches!(section, ClientSettingsSection::Integrations)
             && matches!(
@@ -84,13 +107,13 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_ref() else {
             return;
         };
-        let current = ClientSettingsSection::ALL
+        let sections = &settings.sections;
+        let current = sections
             .iter()
             .position(|section| *section == settings.section)
             .unwrap_or(0);
-        let next = (current as isize + delta).rem_euclid(ClientSettingsSection::ALL.len() as isize)
-            as usize;
-        self.select_settings_section(ClientSettingsSection::ALL[next], outcome);
+        let next = (current as isize + delta).rem_euclid(sections.len() as isize) as usize;
+        self.select_settings_section(sections[next], outcome);
     }
 
     fn settings_choice_count(&self) -> usize {

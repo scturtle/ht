@@ -404,6 +404,7 @@ impl ClientSettingsSection {
 
 #[derive(Debug)]
 pub(super) struct ClientSettingsOverlay {
+    pub(super) sections: Vec<ClientSettingsSection>,
     pub(super) section: ClientSettingsSection,
     pub(super) selected: usize,
     pub(super) original_theme_name: String,
@@ -545,6 +546,7 @@ pub(super) enum ClientContextMenuTarget {
 
 #[derive(Debug)]
 pub(super) struct ClientContextMenuOverlay {
+    pub(super) methods: Option<HashSet<String>>,
     pub(super) target: ClientContextMenuTarget,
     pub(super) x: u16,
     pub(super) y: u16,

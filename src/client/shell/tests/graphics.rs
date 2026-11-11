@@ -299,6 +299,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             force_confirmation: false,
         }),
         ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            methods: None,
             target: ClientContextMenuTarget::Tab {
                 tab_id: "tab_1".into(),
                 workspace_id: "ws_1".into(),
@@ -309,6 +310,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
         }),
         ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay { highlighted: 0 }),
         ClientShellOverlay::Settings(ClientSettingsOverlay {
+            sections: ClientSettingsSection::ALL.to_vec(),
             section: ClientSettingsSection::Theme,
             selected: 0,
             original_theme_name: String::new(),

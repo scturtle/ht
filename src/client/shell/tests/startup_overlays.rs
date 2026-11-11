@@ -475,7 +475,7 @@ fn onboarding_completion_persists_and_opens_endpoint_integrations() {
 }
 
 #[test]
-fn unavailable_integration_list_does_not_wedge_settings() {
+fn unavailable_integrations_are_hidden_instead_of_wedging_settings() {
     let mut config =
         ClientShellConfig::from_config(&Config::default()).with_startup_onboarding(true);
     config.local_config_path = std::env::temp_dir().join(format!(
@@ -497,15 +497,12 @@ fn unavailable_integration_list_does_not_wedge_settings() {
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
-            section: ClientSettingsSection::Integrations,
+            section: ClientSettingsSection::Theme,
             loading_integrations: false,
             ..
         }))
     ));
-    assert!(state
-        .visible_endpoint_notice
-        .as_ref()
-        .is_some_and(|notice| notice.key.code == "integration.list"));
+    assert!(state.visible_endpoint_notice.is_none());
     let _ = std::fs::remove_file(&state.config.local_config_path);
 }
 

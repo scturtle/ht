@@ -67,13 +67,17 @@ impl ClientShellState {
                     return;
                 }
                 if action == crate::input::KeybindAction::ReloadConfig {
-                    self.push_endpoint_method_with_kind(
-                        crate::api::schema::Method::ServerReloadConfig(
-                            crate::api::schema::EmptyParams::default(),
-                        ),
-                        PendingEndpointKind::ReloadConfig,
-                        outcome,
-                    );
+                    if self.supports_endpoint_method(
+                        &crate::api::schema::Method::ServerReloadConfig(Default::default()),
+                    ) {
+                        self.push_endpoint_method_with_kind(
+                            crate::api::schema::Method::ServerReloadConfig(
+                                crate::api::schema::EmptyParams::default(),
+                            ),
+                            PendingEndpointKind::ReloadConfig,
+                            outcome,
+                        );
+                    }
                     self.reload_client_config();
                     self.invalidate_pane_surface();
                     outcome.repaint = true;
