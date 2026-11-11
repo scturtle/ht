@@ -105,6 +105,7 @@ just core-organization-smoke  just core-copy-smoke
 just core-keyboard-smoke      just core-graphics-smoke
 just core-reconnect-smoke     just core-launcher-test
 just core-diagnostics-smoke    just core-scheduling-smoke
+just core-network-smoke
 ```
 
 Build the pinned Core runtime with `just core-source-build`; `source.json` lists

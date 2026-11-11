@@ -19,8 +19,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="hc-multiclient-ui-", dir="/var/tmp") as scratch:
         home, viewers = Path(scratch), []
         core = home / "core"
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_")) and k not in {
-            "DISPLAY", "WAYLAND_DISPLAY", "BASH_ENV", "ENV", "ZDOTDIR", "TMUX", "STY", "SSH_CONNECTION", "SSH_TTY", "VSCODE_IPC_HOOK_CLI"}}
+        env = UI.isolated_env(home, core)
         env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color", HISTFILE=str(home / "history"), PS1="multi$ ",
                    CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HC_SESSION="gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12],
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"), XDG_CONFIG_HOME=str(home / "config"),
@@ -197,8 +196,8 @@ detach = "f10"
         finally:
             for viewer in viewers: viewer.cleanup()
             if rpc is not None: rpc.close()
-            if (core / "core.sock").exists():
-                subprocess.run([str(UI.HC),"server","stop"],env=env,capture_output=True,timeout=15,check=True)
+            if UI.private_socket(env).exists():
+                UI.stop_private_core(env)
 
 
 if __name__ == "__main__":

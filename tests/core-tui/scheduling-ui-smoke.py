@@ -108,9 +108,7 @@ while True:
         sys.stdout.flush()
         n += 1
 ''')
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_", "PI_"))
-               and k not in {"DISPLAY", "WAYLAND_DISPLAY", "BASH_ENV", "ENV", "ZDOTDIR", "TMUX", "STY",
-                             "SSH_CONNECTION", "SSH_TTY", "VSCODE_IPC_HOOK_CLI"}}
+        env = UI.isolated_env(home, core)
         env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color",
                    CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HC_SESSION=session,
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(core / "state"),
@@ -177,8 +175,7 @@ while True:
                 viewer.cleanup()
             if socket.exists():
                 assert str(socket).startswith(str(home) + "/")
-                subprocess.run([str(UI.HC), "server", "stop"], env=env,
-                               capture_output=True, check=True, timeout=15)
+                UI.stop_private_core(env)
 
 
 def main():

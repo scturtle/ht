@@ -8,6 +8,7 @@ restored collector end to end and is not full migration acceptance.
 """
 import base64
 import json
+from harness import isolated_env, private_socket, stop_private_core
 import os
 from pathlib import Path
 import select
@@ -141,7 +142,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="hc-graphics-ui-", dir="/var/tmp") as scratch:
         home = Path(scratch)
         core = home / "core"
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))}
+        env = isolated_env(home, core)
         env.update(
             CORE_TUI_HOME=str(core),
             HERDR_CORE_BIN=str(HC),
@@ -238,8 +239,11 @@ def main():
                 )
             )
         finally:
-            for viewer in viewers:
-                viewer.cleanup()
+            try:
+                for viewer in viewers:
+                    viewer.cleanup()
+            finally:
+                stop_private_core(env)
 
 
 if __name__ == "__main__":

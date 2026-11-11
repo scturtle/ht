@@ -20,8 +20,9 @@ DOCUMENT = "herdr-session-v1"
 
 class Rpc:
     """An independent Core document writer, never a second interactive viewer."""
-    def __init__(self, env):
-        self.child = subprocess.Popen([str(UI.HC), "connect"], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    def __init__(self, env, existing=True):
+        UI.private_socket(env)
+        self.child = subprocess.Popen([str(UI.HC), "connect"]+(["--existing"] if existing else []), env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.number = 0
         self.child.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 0, "method": "hello", "params": {"generation": 1, "framed": True}}).encode() + b"\n")
         self.child.stdin.flush()
@@ -84,8 +85,7 @@ def main():
         os.chdir(project)
         home = Path(scratch)
         core = home / "core"
-        env = {key: value for key, value in os.environ.items() if not key.startswith(("HC_", "HERDR_")) and key not in {
-            "DISPLAY", "WAYLAND_DISPLAY", "BASH_ENV", "ENV", "ZDOTDIR", "TMUX", "STY", "SSH_CONNECTION", "SSH_TTY", "VSCODE_IPC_HOOK_CLI"}}
+        env = UI.isolated_env(home, core)
         env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color", HISTFILE=str(home / "history"), PS1="org$ ",
                    CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(UI.HC), HERDR_CORE_CLIENT_ID="organization-smoke", HC_SESSION="gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12],
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"), XDG_CONFIG_HOME=str(home / "config"),
@@ -219,8 +219,8 @@ close_pane = "f12"
                 viewer.cleanup()
             if rpc is not None:
                 rpc.close()
-            if (core / "core.sock").exists():
-                subprocess.run([str(UI.HC), "server", "stop"], env=env, capture_output=True, timeout=15, check=True)
+            if UI.private_socket(env).exists():
+                UI.stop_private_core(env)
 
 
 if __name__ == "__main__":

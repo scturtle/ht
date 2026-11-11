@@ -15,6 +15,7 @@ migration acceptance.
 """
 import fcntl
 import json
+from harness import isolated_env, private_socket, stop_private_core
 import os
 import pty
 from pathlib import Path
@@ -161,7 +162,7 @@ def main():
         # session socket, so the gate derives the same path `hc` would.
         session = "gate-" + __import__("hashlib").sha1(str(core).encode()).hexdigest()[:12]
         socket = core / "run" / "herdr-core" / f"{session}.sock"
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))}
+        env = isolated_env(home, core)
         env.update(
             CORE_TUI_HOME=str(core),
             HERDR_CORE_BIN=str(HC),
@@ -268,7 +269,10 @@ def main():
                 )
             )
         finally:
-            view.cleanup()
+            try:
+                view.cleanup()
+            finally:
+                stop_private_core(env)
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ def facts(env, address):
 def main():
     private = Path(tempfile.mkdtemp(prefix="hc-keyboard-ui-", dir="/var/tmp"))
     viewers, rpc = [], None
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))}
+    env = UI.isolated_env(private, private / "core")
     for name in ("DISPLAY", "WAYLAND_DISPLAY", "SSH_TTY", "SSH_CONNECTION", "TMUX", "TMUX_PANE"):
         env.pop(name, None)
     core = private / "core"
@@ -58,7 +58,7 @@ def main():
     control, records = private / "control.json", private / "records.jsonl"
     control.write_text('{"phase":0}')
     try:
-        rpc = ORG.Rpc(env)
+        rpc = ORG.Rpc(env, existing=False)  # Explicit private fixture bootstrap.
         reply = rpc.request("terminal.run", {"argv": [sys.executable, str(HERE / "keyboard-program.py"), str(control), str(records)],
                                                "cwd": str(private), "labels": {"herdr": "tui"},
                                                "no_parent": True, "cols": 100, "rows": 27,
@@ -132,9 +132,8 @@ def main():
                     rpc.close()
             finally:
                 # Fail loudly and retain the directory if shutdown is not confirmed.
-                subprocess.run([str(UI.HC), "server", "stop"], env=env,
-                               capture_output=True, text=True, timeout=15, check=True)
-                UI.until(lambda: not (core / "core.sock").exists(), "private Core socket removed after shutdown")
+                UI.stop_private_core(env)
+                UI.until(lambda: not UI.private_socket(env).exists(), "private Core socket removed after shutdown")
                 shutil.rmtree(private)
     print(json.dumps({**result, "private_core_stopped": True}))
 

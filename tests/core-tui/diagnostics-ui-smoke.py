@@ -26,8 +26,7 @@ def main():
         core = home / "core"
         session = UI.core_session(str(core))
         socket = core / "run/herdr-core" / f"{session}.sock"
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_"))
-               and k not in {"DISPLAY", "WAYLAND_DISPLAY", "BASH_ENV", "ENV", "TMUX", "STY"}}
+        env = UI.isolated_env(home, core)
         env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color",
                    HISTFILE=str(home / "history"), CORE_TUI_HOME=str(core),
                    HERDR_CORE_BIN=str(UI.HC), HC_SESSION=session,
@@ -158,16 +157,14 @@ def main():
         finally:
             if moved_socket is not None:
                 if socket.exists():
-                    subprocess.run([str(UI.HC), "server", "stop"], env=dict(env, HC_SOCKET=str(socket)),
-                                   capture_output=True, check=True, timeout=15)
+                    UI.stop_private_core(env)
                 moved_socket.rename(socket)
             if stopped_pid is not None:
                 os.kill(stopped_pid, signal.SIGCONT)
             if viewer is not None:
                 viewer.cleanup()
             if socket.exists():
-                subprocess.run([str(UI.HC), "server", "stop"], env=env,
-                               capture_output=True, check=True, timeout=15)
+                UI.stop_private_core(env)
             for path in dumps:
                 shutil.rmtree(path)
 

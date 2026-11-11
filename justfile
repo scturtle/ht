@@ -8,6 +8,7 @@ vendor-libghostty:
 
 # Run tests
 test: vendor-libghostty
+    {{python}} tests/core-tui/test-harness.py
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
     just ui-hot-path-architecture-test
     just vendor-patches-test
@@ -50,6 +51,11 @@ core-diagnostics-smoke: build core-source-build core-ui-oracle
 [unix]
 core-scheduling-smoke: build core-source-build
     CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/scheduling-ui-smoke.py
+
+# Private userspace RTT/jitter/fragmentation/slow-read plus relay-recovery gate.
+[unix]
+core-network-smoke: build core-source-build core-ui-oracle
+    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/network-ui-smoke.py
 
 # Real-TUI shared organization/CAS lifecycle; not full migration acceptance.
 [unix]
@@ -118,6 +124,10 @@ install: build core-source-build
 # Non-gating full-render scaling profile for background workspaces and active panes
 bench-render-scale:
     cargo test --release --locked --bin ht render_scale_profile -- --ignored --nocapture --test-threads=1
+
+# Test-only stage clocks; no profiling checks or timers enter production rendering.
+bench-render-stages:
+    cargo test --release --locked --bin ht render_stage_profile -- --ignored --nocapture --test-threads=1
 
 # Profile terminal target name resolution at increasing pane counts.
 bench-terminal-targets:

@@ -31,14 +31,7 @@ def main():
         os.chdir(project)
         home = Path(scratch)
         core = home / "core"
-        env = {
-            key: value for key, value in os.environ.items()
-            if not key.startswith(("HC_", "HERDR_"))
-            and key not in {
-                "DISPLAY", "WAYLAND_DISPLAY", "BASH_ENV", "ENV", "ZDOTDIR",
-                "TMUX", "STY", "SSH_CONNECTION", "SSH_TTY", "VSCODE_IPC_HOOK_CLI",
-            }
-        }
+        env = UI.isolated_env(home, core)
         env.update(
             HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color",
             HISTFILE=str(home / "history"), PS1="copy$ ",
@@ -136,10 +129,7 @@ detach = "f10"
                 viewer.cleanup()
             socket = Path(env["XDG_RUNTIME_DIR"]) / "herdr-core" / f"{env['HC_SESSION']}.sock"
             if socket.exists():
-                subprocess.run(
-                    [str(UI.HC), "server", "stop"], env=env,
-                    capture_output=True, timeout=15, check=True,
-                )
+                UI.stop_private_core(env)
 
 
 if __name__ == "__main__":
