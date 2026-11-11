@@ -111,7 +111,10 @@ pub(super) fn bootstrap(
             }
         }
         if model.records.is_empty() {
-            let record = core.request("terminal.run", json!({"argv":shell,"labels":{"herdr":"tui"},"no_parent":true,
+            // `keep` lets Core replace a lost program with a shell in place, so a
+            // pane whose program died is never left as a screen nothing can type
+            // into.
+            let record = core.request("terminal.run", json!({"argv":shell,"labels":{"herdr":"tui"},"no_parent":true,"keep":true,
                 "cwd":std::env::current_dir()?.to_string_lossy(),"size":{"cols":size.cols.max(4),"rows":size.rows.max(2)},
                 "env":{"TERM":crate::pane::PANE_TERM,"COLORTERM":"truecolor"}}))?;
             if let Some(address) = record["address"].as_str() {
@@ -146,9 +149,75 @@ pub(super) fn bootstrap(
             Err(e) => return Err(e),
         }
     };
+    // `hydrate` fills in the panes the subscription did not carry, so the repair
+    // sees the real state of every terminal the document references.
     hydrate(core, &model, &document, &mut facts)?;
+    let (document, version) =
+        repair_finished_panes(core, document, &mut facts, size, shell, version)?;
     model.install(document, &facts)?;
     Ok((model, version))
+}
+
+/// Point every pane whose Core program is gone at a fresh shell.
+///
+/// A finished program leaves a screen nothing can type into, and Core keeps the
+/// terminal dead forever (`keep` only applies to programs it replaced itself).
+/// Re-creating the pane in place keeps a restart from stranding a workspace.
+fn repair_finished_panes(
+    core: &mut impl DocumentRpc,
+    mut document: Organization,
+    facts: &mut HashMap<String, Value>,
+    size: ClientSurfaceSize,
+    shell: &[String],
+    version: u64,
+) -> io::Result<(Organization, u64)> {
+    let finished = document
+        .addresses()
+        .into_iter()
+        .filter(|address| {
+            facts
+                .get(*address)
+                .is_some_and(|fact| fact["state"] != "live" || fact["pid"].as_u64().is_none())
+        })
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if finished.is_empty() {
+        return Ok((document, version));
+    }
+    for address in finished {
+        let old = facts.get(&address).cloned().unwrap_or(Value::Null);
+        let cols = old["cols"].as_u64().unwrap_or(u64::from(size.cols)) as u16;
+        let rows = old["rows"].as_u64().unwrap_or(u64::from(size.rows)) as u16;
+        let cwd = old["cwd"].as_str().map(str::to_owned);
+        let record = core.request(
+            "terminal.run",
+            json!({
+                "argv": shell,
+                "labels": {"herdr": "tui"},
+                "no_parent": true,
+                "keep": true,
+                "cwd": cwd,
+                "size": {"cols": cols.max(4), "rows": rows.max(2)},
+                "env": {"TERM": crate::pane::PANE_TERM, "COLORTERM": "truecolor"},
+            }),
+        )?;
+        let replacement = record["address"]
+            .as_str()
+            .ok_or_else(|| invalid("Core returned a terminal without an address"))?
+            .to_owned();
+        let mut repointed = false;
+        for workspace in &mut document.workspaces {
+            for tab in &mut workspace.tabs {
+                repointed |= tab.root.repoint(&address, &replacement);
+            }
+        }
+        if !repointed {
+            return Err(invalid("finished pane disappeared while it was replaced"));
+        }
+        facts.insert(replacement.clone(), record);
+    }
+    let version = write(core, version, &document)?;
+    Ok((document, version))
 }
 
 pub(super) fn restore_preferences(home: &Path, model: &mut Model) -> io::Result<()> {

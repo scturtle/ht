@@ -116,7 +116,9 @@ impl Session {
         let cwd = cwd.or_else(|| self.cwd_for_workspace(&self.model.active_workspace));
         env.insert("TERM".into(), crate::pane::PANE_TERM.into());
         env.insert("COLORTERM".into(), "truecolor".into());
-        self.core.request("terminal.run", json!({"argv":self.shell,"cwd":cwd,"env":env,"no_parent":true,
+        // `keep` keeps a pane usable after its program is lost: Core replaces it
+        // with a shell in place instead of leaving a dead screen behind.
+        self.core.request("terminal.run", json!({"argv":self.shell,"cwd":cwd,"env":env,"no_parent":true,"keep":true,
             "labels":{"herdr":"tui","herdr.operation":format!("{}-{}",std::process::id(),self.model.revision)},
             "size":{"cols":self.size.cols.max(4),"rows":self.size.rows.max(2)},"display":{}}))
     }

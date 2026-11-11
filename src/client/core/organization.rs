@@ -188,6 +188,22 @@ impl Branch {
         })
     }
 
+    /// Point a pane at a different terminal, keeping its place in the tree.
+    pub fn repoint(&mut self, from: &str, to: &str) -> bool {
+        match self {
+            Self::Pane { terminal } => {
+                if terminal != from {
+                    return false;
+                }
+                *terminal = to.to_owned();
+                true
+            }
+            Self::Split { first, second, .. } => {
+                first.repoint(from, to) || second.repoint(from, to)
+            }
+        }
+    }
+
     pub fn addresses<'a>(&'a self, out: &mut Vec<&'a str>) {
         match self {
             Self::Pane { terminal } => out.push(terminal),
