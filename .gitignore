@@ -1,6 +1,8 @@
 /target
+/tests/core-tui/target/
 node_modules/
 /vendor/libghostty-vt/zig-pkg/
+/vendor/libghostty-vt/.zig-cache/
 __pycache__/
 *.pyc
 *.swp
@@ -11,10 +13,6 @@ __pycache__/
 /docs/*
 !/docs/next/
 !/docs/next/**
-!/docs/preview/
-!/docs/preview/**
-!/docs/versions/
-!/docs/versions/**
 /.local/
 /backlog
 

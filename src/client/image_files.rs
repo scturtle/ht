@@ -11,12 +11,11 @@ use std::path::PathBuf;
 
 #[derive(Default)]
 pub(crate) struct FileTransport {
-    #[cfg(unix)]
     inner: Option<crate::platform::unix_image_files::Ledger>,
 }
 
 impl FileTransport {
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(crate) fn for_test(root: PathBuf) -> Self {
         Self {
             inner: Some(crate::platform::unix_image_files::Ledger::for_test(root)),
@@ -25,7 +24,6 @@ impl FileTransport {
 
     pub(crate) fn from_environment() -> Self {
         Self {
-            #[cfg(unix)]
             inner: environment_allows().then(crate::platform::unix_image_files::Ledger::new),
         }
     }
@@ -34,13 +32,8 @@ impl FileTransport {
     /// boundary must emit this as `a=q,t=t,f=32,s=1,v=1,q=2` before inline image
     /// output. No real upload is converted until Ghostty consumes this file.
     pub(crate) fn probe(&mut self) -> Option<PathBuf> {
-        #[cfg(unix)]
         {
             self.inner.as_mut()?.probe()
-        }
-        #[cfg(not(unix))]
-        {
-            None
         }
     }
 
@@ -48,24 +41,15 @@ impl FileTransport {
     /// inline fallback. The caller must preserve output ordering and encode the
     /// returned local path as Kitty's base64 filename payload with `t=t`.
     pub(crate) fn prepare(&mut self, data: &[u8]) -> Option<PathBuf> {
-        #[cfg(unix)]
         {
             self.inner.as_mut()?.prepare(data)
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = data;
-            None
         }
     }
 }
 
-#[cfg(unix)]
 use std::ffi::OsString;
-#[cfg(unix)]
 use std::io::IsTerminal;
 
-#[cfg(unix)]
 fn environment_allows() -> bool {
     allowed(
         std::io::stdin().is_terminal(),
@@ -74,7 +58,6 @@ fn environment_allows() -> bool {
     )
 }
 
-#[cfg(unix)]
 fn allowed(stdin_tty: bool, stdout_tty: bool, env: impl Fn(&str) -> Option<OsString>) -> bool {
     stdin_tty
         && stdout_tty
@@ -94,7 +77,7 @@ fn allowed(stdin_tty: bool, stdout_tty: bool, env: impl Fn(&str) -> Option<OsStr
     // deliberately do not affect client locality.
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

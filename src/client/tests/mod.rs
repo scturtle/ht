@@ -130,43 +130,6 @@ fn missing_pixel_geometry_keeps_a_valid_terminal_grid() {
     assert_eq!(geometry, (80, 24, 9, 18, false));
 }
 
-#[test]
-fn direct_graphics_profile_is_narrow_and_transport_safe() {
-    for (program, term, kitty, expected) in [
-        ("ghostty", "", false, true),
-        ("WezTerm", "", false, true),
-        ("", "xterm-kitty", false, true),
-        ("", "xterm-256color", true, true),
-        ("", "xterm-256color", false, false),
-    ] {
-        assert_eq!(
-            direct_graphics_profile_values(program, term, kitty, false, true),
-            expected
-        );
-    }
-    assert!(!direct_graphics_profile_values(
-        "ghostty", "", false, true, true
-    ));
-    assert!(!direct_graphics_profile_values(
-        "ghostty", "", false, false, false
-    ));
-}
-
-#[test]
-fn server_graphics_files_require_local_filesystem_not_just_local_terminal() {
-    let local = endpoint::ClientEndpointId::Local;
-    let ssh = endpoint::ClientEndpointId::Ssh(
-        endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
-    );
-    // Keep old local peers working without requiring a negotiated capability.
-    assert!(server_graphics_files_allowed(&local, false));
-    // Saved SSH endpoints run in the normal local client process.
-    assert!(!server_graphics_files_allowed(&ssh, false));
-    // A standalone --remote bridge can retain the Local endpoint identity.
-    assert!(!server_graphics_files_allowed(&local, true));
-    assert!(!server_graphics_files_allowed(&ssh, true));
-}
-
 fn restore_env_var(key: &str, value: Option<OsString>) {
     if let Some(value) = value {
         std::env::set_var(key, value);
@@ -249,14 +212,6 @@ impl Drop for EnvVarsRemovedGuard {
 }
 
 #[test]
-fn remote_client_uses_extended_handshake_timeout() {
-    let _guard = env_lock().lock().unwrap();
-    let _remote = EnvVarGuard::set(crate::remote::REMOTE_KEYBINDINGS_ENV_VAR, "local");
-
-    assert_eq!(handshake_read_timeout(), REMOTE_HANDSHAKE_READ_TIMEOUT);
-}
-
-#[test]
 fn host_cursor_policy_auto_uses_platform_default() {
     assert_eq!(
         should_draw_host_cursor(crate::config::HostCursorModeConfig::Auto),
@@ -297,7 +252,6 @@ fn image_bridge_follows_the_selected_remote_endpoint() {
     assert!(!endpoint_accepts_local_images(false, &remote, false));
 }
 
-#[cfg(unix)]
 #[test]
 fn clipboard_image_paste_bridge_triggers_on_configured_key_and_empty_paste() {
     let ctrl_v = crate::config::parse_key_combo("ctrl+v").unwrap();
@@ -339,12 +293,10 @@ fn clipboard_image_paste_bridge_triggers_on_configured_key_and_empty_paste() {
     ));
 }
 
-#[cfg(unix)]
 struct TempImageFile {
     path: std::path::PathBuf,
 }
 
-#[cfg(unix)]
 impl TempImageFile {
     fn new(extension: &str, bytes: &[u8]) -> Self {
         Self::with_name_fragment("test", extension, bytes)
@@ -364,13 +316,11 @@ impl TempImageFile {
     }
 }
 
-#[cfg(unix)]
 impl Drop for TempImageFile {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
 }
-#[cfg(unix)]
 #[test]
 fn remote_image_file_drop_bridge_reads_bracketed_absolute_image_path() {
     let file = TempImageFile::new("PNG", b"image-bytes");
@@ -382,7 +332,6 @@ fn remote_image_file_drop_bridge_reads_bracketed_absolute_image_path() {
     assert_eq!(image.bytes, b"image-bytes");
 }
 
-#[cfg(unix)]
 #[test]
 fn remote_image_file_drop_bridge_reads_plain_quoted_path_with_newline() {
     let file = TempImageFile::new("jpeg", b"jpeg-bytes");
@@ -394,7 +343,6 @@ fn remote_image_file_drop_bridge_reads_plain_quoted_path_with_newline() {
     assert_eq!(image.bytes, b"jpeg-bytes");
 }
 
-#[cfg(unix)]
 #[test]
 fn remote_image_file_drop_bridge_unescapes_spaces_in_paths() {
     let file = TempImageFile::with_name_fragment("space test", "png", b"image-bytes");
@@ -406,7 +354,6 @@ fn remote_image_file_drop_bridge_unescapes_spaces_in_paths() {
     assert_eq!(image.bytes, b"image-bytes");
 }
 
-#[cfg(unix)]
 #[test]
 fn remote_image_file_drop_bridge_ignores_non_remote_and_non_image_input() {
     let file = TempImageFile::new("png", b"image-bytes");
@@ -530,8 +477,8 @@ fn write_host_cell_size_query_emits_xtwinops_request() {
 }
 
 #[test]
-fn host_cell_size_query_is_disabled_on_windows() {
-    assert_eq!(should_query_host_cell_size(), !cfg!(windows));
+fn host_cell_size_query_is_enabled_for_this_platform() {
+    assert!(should_query_host_cell_size());
 }
 
 #[test]
@@ -563,10 +510,7 @@ fn reported_cell_size_is_taken_from_host_cell_size_events() {
 
 #[test]
 fn color_scheme_reports_are_enabled_only_for_full_clients() {
-    assert_eq!(
-        should_enable_host_color_scheme_reports(true),
-        !cfg!(windows)
-    );
+    assert!(should_enable_host_color_scheme_reports(true));
     assert!(!should_enable_host_color_scheme_reports(false));
 }
 
@@ -575,6 +519,41 @@ fn terminal_restore_postlude_restores_visible_default_cursor() {
     let mut output = Vec::new();
     write_terminal_restore_postlude(&mut output, false).unwrap();
     assert_eq!(output, b"\x1b[?25h\x1b[0 q");
+}
+
+#[test]
+fn host_mouse_capture_keeps_tui_preference_separate_from_program_demand() {
+    for shell in [false, true] {
+        for shell_preference in [false, true] {
+            for direct_preference in [false, true] {
+                for program in [false, true] {
+                    let mut state = super::state::ClientState::test_new();
+                    if !shell {
+                        state.shell = None;
+                    }
+                    state.shell_mouse_capture_preference = shell_preference;
+                    state.direct_mouse_capture_preference = direct_preference;
+                    state.endpoint_mouse_capture_requested = program;
+                    let local = if shell {
+                        shell_preference
+                    } else {
+                        direct_preference
+                    };
+                    assert_eq!(state.requested_host_mouse_capture(), local || program);
+                    // Program exit/mode disable must not disable the TUI controls.
+                    state.endpoint_mouse_capture_requested = false;
+                    assert_eq!(state.requested_host_mouse_capture(), local);
+                    // Reloaded local preference is effective even with no new program output.
+                    if shell {
+                        state.shell_mouse_capture_preference = !shell_preference;
+                    } else {
+                        state.direct_mouse_capture_preference = !direct_preference;
+                    }
+                    assert_eq!(state.requested_host_mouse_capture(), !local);
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -607,12 +586,12 @@ fn client_error_display_connection_failed() {
     ));
     let msg = err.to_string();
     assert!(
-        msg.contains("failed to connect to server"),
+        msg.contains("failed to connect to Core"),
         "should mention connection failure: {msg}"
     );
     assert!(
-        msg.contains("herdr server"),
-        "should suggest starting server: {msg}"
+        msg.contains("HERDR_CORE_BIN") && !msg.contains("herdr server"),
+        "must describe Core configuration without suggesting a removed server: {msg}"
     );
 }
 
@@ -656,10 +635,7 @@ fn client_error_display_server_shutdown_no_reason() {
 #[test]
 fn client_error_display_detached_default_session_reattach_hint() {
     let _guard = env_lock().lock().unwrap();
-    let _env = EnvVarsRemovedGuard::new(&[
-        crate::remote::REATTACH_COMMAND_ENV_VAR,
-        crate::session::SESSION_ENV_VAR,
-    ]);
+    let _env = EnvVarsRemovedGuard::new(&[crate::session::SESSION_ENV_VAR]);
     let err = ClientError::ServerShutdown {
         reason: Some("detached".into()),
     };
@@ -671,46 +647,40 @@ fn client_error_display_detached_default_session_reattach_hint() {
 }
 
 #[test]
-fn client_error_display_detached_named_session_reattach_hint() {
+fn client_error_display_detached_ignores_retired_session_environment() {
     let _guard = env_lock().lock().unwrap();
-    let _remote_env = EnvVarsRemovedGuard::new(&[crate::remote::REATTACH_COMMAND_ENV_VAR]);
     let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
     let err = ClientError::ServerShutdown {
         reason: Some("detached".into()),
     };
     let msg = err.to_string();
     assert!(
-        msg.contains("Run `herdr session attach work` to reattach"),
-        "should suggest named session reattach command: {msg}"
+        msg.contains("Run `herdr` to reattach") && !msg.contains("session attach"),
+        "retired session environment must not suggest a removed command: {msg}"
     );
 }
 
 #[test]
-fn client_error_display_detached_remote_reattach_hint_takes_precedence() {
+fn client_error_display_detached_ignores_retired_remote_environment() {
     let _guard = env_lock().lock().unwrap();
-    let _remote_env = EnvVarGuard::set(
-        crate::remote::REATTACH_COMMAND_ENV_VAR,
-        "herdr --remote host --session work",
-    );
     let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
     let err = ClientError::ServerShutdown {
         reason: Some("detached".into()),
     };
     let msg = err.to_string();
     assert!(
-        msg.contains("Run `herdr --remote host --session work` to reattach"),
-        "should prefer remote reattach command: {msg}"
+        msg.contains("Run `herdr` to reattach") && !msg.contains("--remote"),
+        "retired remote environment must not override Core reattach: {msg}"
     );
 }
 
 #[test]
 fn client_error_display_connection_lost() {
     let _guard = env_lock().lock().unwrap();
-    let _env = EnvVarsRemovedGuard::new(&[crate::remote::REATTACH_COMMAND_ENV_VAR]);
     let err = ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
     let msg = err.to_string();
     assert!(
-        msg.contains("lost connection to server"),
+        msg.contains("lost connection to Core"),
         "should mention lost connection: {msg}"
     );
 }
@@ -718,14 +688,10 @@ fn client_error_display_connection_lost() {
 #[test]
 fn client_error_display_remote_connection_lost_has_reattach_hint() {
     let _guard = env_lock().lock().unwrap();
-    let _remote_env = EnvVarGuard::set(
-        crate::remote::REATTACH_COMMAND_ENV_VAR,
-        "herdr --remote host --session work",
-    );
     let err = ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
     let msg = err.to_string();
     assert!(
-        msg.contains("lost connection to remote Herdr"),
+        msg.contains("lost connection to Core"),
         "should mention remote connection loss: {msg}"
     );
     assert!(
@@ -733,8 +699,8 @@ fn client_error_display_remote_connection_lost_has_reattach_hint() {
         "should explain possible persistence: {msg}"
     );
     assert!(
-        msg.contains("Run `herdr --remote host --session work` to reattach"),
-        "should show remote reattach command: {msg}"
+        msg.contains("Run `herdr` to reattach") && !msg.contains("--remote"),
+        "must show the supported Core reattach command: {msg}"
     );
 }
 

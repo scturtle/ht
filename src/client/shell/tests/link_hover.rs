@@ -85,42 +85,6 @@ fn ctrl_hover_underlines_wrapped_segments_and_caches_the_link() {
 }
 
 #[test]
-fn ctrl_hover_pending_request_does_not_block_another_endpoint_with_the_same_boot_id() {
-    use crate::client::endpoint::{
-        ClientEndpointId, ClientEndpointStatus, ProfileId, SavedSshEndpoint,
-    };
-    let mut state = hover_state();
-    let mouse = hover_mouse(&state, 1, 0);
-    let old_id = hover_request(&state.handle_raw_events(vec![RawInputEvent::Mouse(mouse)]));
-    let profile = SavedSshEndpoint {
-        id: ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
-        label: "Other connection".into(),
-        target: "host".into(),
-        session: "default".into(),
-        enabled: true,
-    };
-    let endpoint = ClientEndpointId::Ssh(profile.id.clone());
-    state.set_endpoint_catalog(&[profile]);
-    state.set_endpoint_status(&endpoint, ClientEndpointStatus::Online);
-    state.set_endpoint_snapshot(&endpoint, Box::new(snapshot()));
-    assert!(state.activate_endpoint_projection(&endpoint));
-    assert!(
-        state.pending_requests.is_empty(),
-        "endpoint switches retire old requests"
-    );
-    state.set_endpoint_methods(Some(vec!["pane.link.resolve".into()]));
-    state.set_pane_surface(surface());
-    state.compose(106, 20).unwrap();
-    let mouse = hover_mouse(&state, 1, 0);
-    let new_id = hover_request(&state.handle_raw_events(vec![RawInputEvent::Mouse(mouse)]));
-    assert!(
-        !resolve_hover(&mut state, &old_id),
-        "old endpoint must not paint here"
-    );
-    assert!(resolve_hover(&mut state, &new_id));
-}
-
-#[test]
 fn ctrl_hover_coalesces_motion_and_ignores_old_replies() {
     let mut state = hover_state();
     let first = hover_mouse(&state, 1, 0);

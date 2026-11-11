@@ -8,7 +8,8 @@ pub(crate) fn first_non_blank_col(text: &str) -> Option<u16> {
         if !ch.is_whitespace() {
             return Some(col);
         }
-        col = col.saturating_add(char_cell_width(ch));
+        col = col
+            .saturating_add(u16::from(crate::ghostty::unicode_codepoint_width(ch as u32)).max(1));
     }
     None
 }
@@ -24,10 +25,6 @@ pub(crate) fn last_character_col(text: &str) -> Option<u16> {
         }
     }
     last_col
-}
-
-fn char_cell_width(ch: char) -> u16 {
-    u16::from(crate::ghostty::unicode_codepoint_width(ch as u32)).max(1)
 }
 
 pub(crate) fn copy_mode_page_lines(height: u16, half_page: bool) -> usize {

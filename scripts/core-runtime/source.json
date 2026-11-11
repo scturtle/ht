@@ -1,0 +1,17 @@
+{
+  "core": {
+    "commit": "3ba03e6fc59fb974a4e2627586646f87ebbaf2ee",
+    "url": "https://codeload.github.com/herdrdev/herdr-core/tar.gz/3ba03e6fc59fb974a4e2627586646f87ebbaf2ee",
+    "sha256": "b25bfcfe2a8c76dc1fc7248b000cafe58a77e2e018671a4012c72af381281389"
+  },
+  "ghostty": {
+    "commit": "1e5cdb865807abc990181efb8ebfa9122955cce2",
+    "url": "https://codeload.github.com/ghostty-org/ghostty/tar.gz/1e5cdb865807abc990181efb8ebfa9122955cce2",
+    "sha256": "3157b5a1ddc11040763a772a154b709ed7939a9626c3d1cd9207ebbab3fd2811"
+  },
+  "patches": [
+    "0001-ordered-interactive-attach.patch",
+    "0002-keyboard-stack-replay.patch",
+    "0003-existing-connect.patch"
+  ]
+}

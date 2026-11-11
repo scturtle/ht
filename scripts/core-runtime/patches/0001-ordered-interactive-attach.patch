@@ -1,0 +1,501 @@
+--- a/crates/herdr-core/src/viewers.rs
++++ b/crates/herdr-core/src/viewers.rs
+@@ -12,6 +12,8 @@
+ use std::sync::Arc;
+ use std::time::Instant;
+ 
++#[cfg(test)]
++mod ordered_tests;
+ #[cfg(test)]
+ mod tests;
+ 
+@@ -33,6 +35,7 @@
+     pub channel: u32,
+     pub observe: bool,
+     resize_notifications: bool,
++    ordered: bool,
+     repaint_pending: bool,
+     size: (u16, u16),
+     /// None: not active since it came back after a dropped line.
+@@ -42,6 +45,12 @@
+     pub(crate) recovering: bool,
+ }
+ 
++impl Viewer {
++    fn size_candidate(&self) -> bool {
++        !self.observe && (!self.ordered || self.active_at.is_some())
++    }
++}
++
+ impl Display {
+     /// Answer the program's color and cell-size queries with these facts.
+     pub(crate) fn apply(&self, screen: &mut ghostty_vt::Terminal) {
+@@ -67,6 +76,15 @@
+ impl Core {
+     /// Adds a viewer: queues the first paint, then every live byte follows in order.
+     pub fn attach(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest) -> Result<u32, RpcError> {
++        self.attach_policy(conn, id, req, false)
++    }
++
++    /// Opt-in interactive authoritative geometry, followed by replacement paint.
++    pub fn attach_ordered(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest) -> Result<u32, RpcError> {
++        self.attach_policy(conn, id, req, true)
++    }
++
++    fn attach_policy(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest, ordered: bool) -> Result<u32, RpcError> {
+         let mut st = self.lock();
+         if let Some(t) = st.reg.terminals.get(&id) {
+             t.check_program()?;
+@@ -84,19 +102,24 @@
+             conn: conn.clone(),
+             channel,
+             observe: req.observe,
+-            resize_notifications: req.observe && req.resize_notifications,
++            resize_notifications: ordered || (req.observe && req.resize_notifications),
++            ordered,
+             repaint_pending: false,
+             size: req.size,
+             active_at: (!req.resumed).then(Instant::now),
+             display: req.display,
+             recovering,
+         });
+-        self.apply_size(&mut st, id);
++        // An enhanced resumed/passive attach only reads the current grid. It
++        // cannot become leader merely because no active viewer exists yet.
++        if !ordered || !req.resumed {
++            self.apply_size(&mut st, id);
++        }
+         let paint = first_paint(&st, id, req.history);
+         st.viewers.get_mut(&id).unwrap().last_mut().unwrap().repaint_pending = false;
+         conn.with(|out| {
+             out.open_paused(channel);
+-            if req.observe && req.resize_notifications {
++            if ordered || (req.observe && req.resize_notifications) {
+                 let t = &st.reg.terminals[&id];
+                 let size = [t.cols.to_le_bytes(), t.rows.to_le_bytes()].concat();
+                 out.resize(channel, &size);
+@@ -280,7 +303,7 @@
+         v.display.cell = display.cell.or(v.display.cell);
+         let display = st.viewers[&id]
+             .iter()
+-            .filter(|v| !v.observe)
++            .filter(|v| v.size_candidate())
+             .max_by_key(|v| v.active_at)
+             .filter(|v| Arc::ptr_eq(&v.conn, conn) && v.channel == channel)
+             .map(|v| v.display.clone());
+@@ -326,7 +349,8 @@
+     /// The most recently active typing viewer sets size and display facts;
+     /// with none, the terminal runs headless.
+     fn apply_size(&self, st: &mut State, id: u32) {
+-        let leader = st.viewers.get(&id).and_then(|vs| vs.iter().filter(|v| !v.observe).max_by_key(|v| v.active_at));
++        let leader =
++            st.viewers.get(&id).and_then(|vs| vs.iter().filter(|v| v.size_candidate()).max_by_key(|v| v.active_at));
+         let (cols, rows) = leader.map_or_else(|| self.headless(), |v| v.size);
+         let display = leader.map(|v| v.display.clone());
+         if !st.screens.contains_key(&id) {
+--- /dev/null
++++ b/crates/herdr-core/src/viewers/ordered_tests.rs
+@@ -0,0 +1,147 @@
++//! The opt-in interactive stream contract; legacy attach retains its old behavior.
++use super::*;
++use crate::wire;
++
++fn fixture() -> (Arc<Core>, u32, std::path::PathBuf) {
++    let root = std::path::PathBuf::from(format!("/var/tmp/hc-ordered-{}", crate::platform::random_hex()));
++    let paths = crate::paths::Paths {
++        socket: root.join("core.sock"),
++        holder_socket: root.join("holder.sock"),
++        state: root.clone(),
++        config: root.join("config.toml"),
++    };
++    paths.create_dirs().unwrap();
++    let core =
++        Core::start(paths, crate::api::CoreInfo { id: "ordered-test".into(), name: "ordered-test".into() }).unwrap();
++    let id = {
++        let mut st = core.lock();
++        let id = st
++            .reg
++            .create(
++                crate::terminals::NewTerminal { argv: vec!["sh".into()], cols: 80, rows: 24, ..Default::default() },
++                0,
++            )
++            .unwrap();
++        st.screens.insert(id, ghostty_vt::Terminal::new(80, 24, 1 << 20));
++        id
++    };
++    (core, id, root)
++}
++fn request(size: (u16, u16), resumed: bool) -> AttachRequest {
++    AttachRequest {
++        observe: false,
++        resize_notifications: false,
++        history: 0,
++        size,
++        display: Display::default(),
++        resumed,
++    }
++}
++fn drain(conn: &Arc<Conn>, channel: u32) -> Vec<Vec<u8>> {
++    let mut frames = Vec::new();
++    conn.with(|out| {
++        out.resume(channel);
++        while let Some(frame) = out.next_frame() {
++            frames.push(frame);
++        }
++        for frame in &frames {
++            if frame[4] == wire::DATA {
++                out.credit(channel, frame.len() - wire::HEADER);
++            }
++        }
++    });
++    frames
++}
++fn resized(frames: &[Vec<u8>], size: (u16, u16)) {
++    assert_eq!(frames[0][4], wire::RESIZE);
++    assert_eq!(&frames[0][wire::HEADER..], &[size.0.to_le_bytes(), size.1.to_le_bytes()].concat());
++    assert_eq!(frames[1][4], wire::DATA);
++    assert_eq!(frames[1][wire::HEADER], 0x18, "replacement paint must precede any live bytes");
++}
++
++#[test]
++fn ordered_interactive_attach_fences_paints_through_leader_focus_input_detach_and_resume() {
++    let (core, id, root) = fixture();
++    let a = Arc::new(Conn::default());
++    let b = Arc::new(Conn::default());
++    let ca = core.attach_ordered(&a, id, request((80, 24), false)).unwrap();
++    resized(&drain(&a, ca), (80, 24));
++    let cb = core.attach_ordered(&b, id, request((50, 12), false)).unwrap();
++    resized(&drain(&b, cb), (50, 12));
++    core.output(&mut core.lock(), id, b"ORDERED_LIVE\r\n");
++    core.prepare_repaints(&a);
++    resized(&drain(&a, ca), (50, 12));
++    drain(&b, cb);
++    core.viewer_input(&a, ca, b"automatic", true);
++    assert_eq!(core.lock().reg.terminals[&id].cols, 50, "automatic replies must not steal leadership");
++    core.viewer_focus(&a, ca, true);
++    core.prepare_repaints(&a);
++    core.prepare_repaints(&b);
++    resized(&drain(&a, ca), (80, 24));
++    resized(&drain(&b, cb), (80, 24));
++    core.detach(&a, Some(ca));
++    core.prepare_repaints(&b);
++    resized(&drain(&b, cb), (50, 12));
++    let c = Arc::new(Conn::default());
++    let cc = core.attach_ordered(&c, id, request((97, 33), true)).unwrap();
++    resized(&drain(&c, cc), (50, 12));
++    assert_eq!(core.lock().reg.terminals[&id].cols, 50, "resumed viewers do not steal leadership");
++    core.viewer_input(&c, cc, b"human", false);
++    core.prepare_repaints(&b);
++    core.prepare_repaints(&c);
++    resized(&drain(&b, cb), (97, 33));
++    resized(&drain(&c, cc), (97, 33));
++    let legacy = Arc::new(Conn::default());
++    let old = core.attach(&legacy, id, request((22, 8), false)).unwrap();
++    assert!(drain(&legacy, old).iter().all(|f| f[4] != wire::RESIZE), "legacy interactive attach is unchanged");
++    drop(core);
++    std::fs::remove_dir_all(root).unwrap();
++}
++
++#[test]
++fn ordered_resumed_only_viewer_preserves_current_grid_until_explicit_activity() {
++    let (core, id, root) = fixture();
++    let conn = Arc::new(Conn::default());
++    let channel = core.attach_ordered(&conn, id, request((97, 33), true)).unwrap();
++    resized(&drain(&conn, channel), (80, 24));
++    core.viewer_facts(&conn, channel, Display::default());
++    assert_eq!(core.lock().reg.terminals[&id].cols, 80);
++    core.viewer_input(&conn, channel, b"automatic", true);
++    assert_eq!(core.lock().reg.terminals[&id].cols, 80);
++    core.viewer_focus(&conn, channel, true);
++    core.prepare_repaints(&conn);
++    resized(&drain(&conn, channel), (97, 33));
++    drop(core);
++    std::fs::remove_dir_all(root).unwrap();
++}
++
++#[test]
++fn ordered_interactive_stalled_resizes_coalesce_without_serializing_obsolete_paints() {
++    let (core, id, root) = fixture();
++    let conn = Arc::new(Conn::default());
++    let channel = core.attach_ordered(&conn, id, request((80, 24), false)).unwrap();
++    drain(&conn, channel);
++    conn.with(|out| {
++        out.data(channel, &vec![b'x'; wire::WINDOW]);
++        while out.next_frame().is_some() {}
++    });
++    super::tests::PAINTS.set(0);
++    for cols in 100..200 {
++        core.viewer_resize(&conn, channel, cols, 24);
++        core.prepare_repaints(&conn);
++    }
++    core.output(&mut core.lock(), id, b"LATEST_GRID\r\n");
++    assert_eq!(super::tests::PAINTS.get(), 0);
++    conn.with(|out| {
++        assert_eq!(out.queued(channel), 0);
++        assert!(out.next_frame().is_none());
++        out.credit(channel, wire::WINDOW);
++    });
++    core.prepare_repaints(&conn);
++    resized(&drain(&conn, channel), (199, 24));
++    assert_eq!(super::tests::PAINTS.get(), 1);
++    core.prepare_repaints(&conn);
++    assert_eq!(super::tests::PAINTS.get(), 1);
++    drop(core);
++    std::fs::remove_dir_all(root).unwrap();
++}
+--- a/crates/herdr-core/src/api.rs
++++ b/crates/herdr-core/src/api.rs
+@@ -14,7 +14,7 @@
+ 
+ pub const GENERATION: u32 = 1;
+ pub const FEATURES: &[&str] =
+-    &["framed", "attach", "events", "status", "shell", "resize_notifications", "automatic_input"];
++    &["framed", "attach", "events", "status", "shell", "resize_notifications", "automatic_input", "ordered_attach"];
+ pub const FINISHED_LINES: usize = 1000;
+ /// A terminal's identity: fixed at start from whoever starts it.
+ pub const IDENTITY_VARS: &[&str] = &["TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM"];
+@@ -95,6 +95,9 @@
+     "terminal.attach" => terminal_attach, AttachParams => AttachResult,
+         "Open a raw stream to a live terminal on this framed connection (see `hello` with `framed`). Loss ends the stream even when kept; reattach after the restarted event.",
+         errors ["not_found", "machine_unknown", "finished", "unavailable", "needs_framed"];
++    "terminal.attach_ordered" => terminal_attach_ordered, AttachParams => AttachResult,
++        "Direct-Core framed stream with authoritative RESIZE before initial and replacement paints, including interactive viewers. Always enables resize notifications. Remote hops are explicitly unsupported. Existing terminal.attach is unchanged.",
++        errors ["not_found", "finished", "unavailable", "needs_framed", "needs_update"];
+     "terminal.send" => terminal_send, SendParams => SendResult,
+         "Paste text and press Enter after a person sends or clears their draft (at most 60 s since their last key), otherwise after ~3 s of quiet. Keys pressed during delivery are held, then delivered. Refuses a blocked program unless `force`.",
+         errors ["not_found", "machine_unknown", "finished", "unavailable", "blocked", "status_mismatch", "invalid_params", "config"];
+@@ -410,6 +413,12 @@
+ }
+ 
+ async fn terminal_attach(core: Ctx<'_>, p: AttachParams) -> Result<AttachResult, RpcError> {
++    attach_stream(core, p, false)
++}
++async fn terminal_attach_ordered(core: Ctx<'_>, p: AttachParams) -> Result<AttachResult, RpcError> {
++    attach_stream(core, p, true)
++}
++fn attach_stream(core: Ctx<'_>, p: AttachParams, ordered: bool) -> Result<AttachResult, RpcError> {
+     let Some(conn) = core.conn else {
+         return Err(RpcError::new(
+             "needs_framed",
+@@ -436,11 +445,11 @@
+         display: p.display,
+         resumed: p.resumed,
+     };
+-    let channel = core.attach(conn, id, req)?;
++    let channel = if ordered { core.attach_ordered(conn, id, req)? } else { core.attach(conn, id, req)? };
+     Ok(AttachResult {
+         channel,
+         terminal: Public(record(core, id)?),
+-        resize_notifications: p.observe && p.resize_notifications,
++        resize_notifications: ordered || (p.observe && p.resize_notifications),
+         automatic_input: true,
+     })
+ }
+--- a/crates/herdr-core/src/server.rs
++++ b/crates/herdr-core/src/server.rs
+@@ -490,6 +490,11 @@
+     let params = crate::remote::from_peer(core, conn, request["params"].clone());
+     let result = match crate::remote::route(core, method, &params) {
+         _ if method == "$/orphaned" => crate::remote::orphaned(core, conn, &params).await,
++        Ok(Some(_)) if method == "terminal.attach_ordered" => Err(RpcError::new(
++            "needs_update",
++            "ordered attach requires a direct Core connection",
++            "connect directly to that Core; remote ordered attach is not implemented",
++        )),
+         Ok(Some((crate::remote::To::Machine(machine), params))) if method == "terminal.attach" => match conn {
+             Some(conn) => crate::remote::attach(core, conn, &machine, params).await,
+             None => Err(RpcError::new(
+--- a/crates/herdr-core/src/cli.rs
++++ b/crates/herdr-core/src/cli.rs
+@@ -882,7 +882,7 @@
+     ("machine rm", "machine.rm"),
+ ];
+ /// Client-only methods: handshake and opaque document storage.
+-pub const API_ONLY: &[&str] = &["hello", "doc.get", "doc.set"];
++pub const API_ONLY: &[&str] = &["hello", "doc.get", "doc.set", "terminal.attach_ordered"];
+ 
+ #[cfg(test)]
+ mod tests {
+--- a/crates/herdr-core/src/SKILL.md
++++ b/crates/herdr-core/src/SKILL.md
+@@ -129,6 +129,20 @@
+ still resize the terminal normally. `display: {fg, bg, cursor, cell}` (as in
+ `terminal.attach`) likewise answers the program's color and cell-size queries
+ from its start, before any viewer attaches.
++
++Local experimental build: `hello.features` advertises `ordered_attach` and
++`hello.methods` advertises `terminal.attach_ordered`. On a direct framed
++connection this method takes the existing attach parameters but always sends
++an authoritative RESIZE before its initial paint and after effective size changes,
++then a replacement paint before further live bytes. This includes interactive
++viewers; `terminal.attach` retains its existing observer-only opt-in semantics.
++Keep requested geometry separate from received geometry, and do not answer an
++authoritative RESIZE by echoing it back. Automatic input does not claim size
++leadership. An ordered attach with `resumed: true` passively reads the current
++grid without claiming leadership, including when it is the only viewer; later
++explicit focus, input or resize activates it. Remote ordered attach is explicitly
++rejected, not downgraded.
++This extension does not claim graphics or exact restart/snapshot fidelity.
+ 
+ ```sh
+ hc run cargo test                  # wait, stream output, return its exit code
+--- a/schema/hc.openrpc.json
++++ b/schema/hc.openrpc.json
+@@ -2382,6 +2382,157 @@
+       }
+     },
+     {
++      "description": "Direct-Core framed stream with authoritative RESIZE before initial and replacement paints, including interactive viewers. Always enables resize notifications. Remote hops are explicitly unsupported. Existing terminal.attach is unchanged.",
++      "errors": [
++        {
++          "code": -32000,
++          "data": {
++            "kind": "not_found"
++          },
++          "message": "not_found"
++        },
++        {
++          "code": -32000,
++          "data": {
++            "kind": "finished"
++          },
++          "message": "finished"
++        },
++        {
++          "code": -32000,
++          "data": {
++            "kind": "unavailable"
++          },
++          "message": "unavailable"
++        },
++        {
++          "code": -32000,
++          "data": {
++            "kind": "needs_framed"
++          },
++          "message": "needs_framed"
++        },
++        {
++          "code": -32000,
++          "data": {
++            "kind": "needs_update"
++          },
++          "message": "needs_update"
++        }
++      ],
++      "name": "terminal.attach_ordered",
++      "paramStructure": "by-name",
++      "params": [
++        {
++          "description": "Who is calling (`HC_TERMINAL_ID` inside a terminal): never itself.",
++          "name": "caller",
++          "required": false,
++          "schema": {
++            "default": null,
++            "description": "Who is calling (`HC_TERMINAL_ID` inside a terminal): never itself.",
++            "type": [
++              "string",
++              "null"
++            ]
++          }
++        },
++        {
++          "description": "The viewer's size in cells.",
++          "name": "cols",
++          "required": true,
++          "schema": {
++            "description": "The viewer's size in cells.",
++            "format": "uint16",
++            "maximum": 65535,
++            "minimum": 0,
++            "type": "integer"
++          }
++        },
++        {
++          "description": "The viewer's own colors and cell size, used to answer display queries.",
++          "name": "display",
++          "required": false,
++          "schema": {
++            "$ref": "#/components/schemas/Display",
++            "default": {
++              "bg": null,
++              "cell": null,
++              "cursor": null,
++              "fg": null
++            },
++            "description": "The viewer's own colors and cell size, used to answer display queries."
++          }
++        },
++        {
++          "description": "Scrollback lines to show first (main screen only).",
++          "name": "history",
++          "required": false,
++          "schema": {
++            "default": 0,
++            "description": "Scrollback lines to show first (main screen only).",
++            "format": "uint",
++            "minimum": 0,
++            "type": "integer"
++          }
++        },
++        {
++          "description": "Watch only: never type or resize.",
++          "name": "observe",
++          "required": false,
++          "schema": {
++            "default": false,
++            "description": "Watch only: never type or resize.",
++            "type": "boolean"
++          }
++        },
++        {
++          "description": "Observer understands core-to-viewer RESIZE before replacement paints.",
++          "name": "resize_notifications",
++          "required": false,
++          "schema": {
++            "default": false,
++            "description": "Observer understands core-to-viewer RESIZE before replacement paints.",
++            "type": "boolean"
++          }
++        },
++        {
++          "description": "Back after a dropped line: sets the size only once active again.",
++          "name": "resumed",
++          "required": false,
++          "schema": {
++            "default": false,
++            "description": "Back after a dropped line: sets the size only once active again.",
++            "type": "boolean"
++          }
++        },
++        {
++          "name": "rows",
++          "required": true,
++          "schema": {
++            "format": "uint16",
++            "maximum": 65535,
++            "minimum": 0,
++            "type": "integer"
++          }
++        },
++        {
++          "description": "The terminal: `t7`, a name, or `machine/t7`.",
++          "name": "terminal",
++          "required": true,
++          "schema": {
++            "description": "The terminal: `t7`, a name, or `machine/t7`.",
++            "type": "string"
++          }
++        }
++      ],
++      "result": {
++        "name": "result",
++        "schema": {
++          "$ref": "#/components/schemas/AttachResult"
++        }
++      }
++    },
++    {
+       "description": "Paste text and press Enter after a person sends or clears their draft (at most 60 s since their last key), otherwise after ~3 s of quiet. Keys pressed during delivery are held, then delivered. Refuses a blocked program unless `force`.",
+       "errors": [
+         {

@@ -60,6 +60,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::super::{Method, Request};
+    use super::client_shell_method_names;
 
     fn sample_value(
         schema: &serde_json::Value,
@@ -137,11 +138,11 @@ mod tests {
                 operation.changes_ui
             );
             assert_eq!(
-                crate::server::client_commands::supports_client_shell_method(&request.method),
+                client_shell_method_names().contains(&request.method.operation().name),
                 operation.client_shell
             );
             assert_eq!(
-                crate::server::client_commands::supports_client_shell_method_name(name),
+                client_shell_method_names().contains(&name),
                 operation.client_shell
             );
         }
@@ -151,8 +152,6 @@ mod tests {
     fn operation_ui_impact_preserves_existing_classification() {
         let expected = [
             "server.reload_config",
-            "server.reload_agent_manifests",
-            "notification.show",
             "product_announcement.dismiss",
             "release_notes.dismiss",
             "command.invoke",
@@ -161,7 +160,6 @@ mod tests {
             "workspace.rename",
             "workspace.move",
             "workspace.move_block",
-            "workspace.report_metadata",
             "workspace.close",
             "worktree.create",
             "worktree.open",
@@ -171,18 +169,9 @@ mod tests {
             "tab.rename",
             "tab.move",
             "tab.close",
-            "layout.apply",
             "layout.set_split_ratio",
-            "agent.rename",
-            "agent.view.set",
-            "agent.view.clear",
-            "agent.focus",
-            "agent.start",
-            "agent.prompt",
-            "agent.send_keys",
             "pane.split",
             "pane.swap",
-            "pane.move",
             "pane.zoom",
             "pane.focus_direction",
             "pane.resize",
@@ -192,19 +181,7 @@ mod tests {
             "pane.focus",
             "pane.input.set",
             "pane.rename",
-            "pane.report_agent",
-            "pane.report_agent_session",
-            "pane.report_metadata",
-            "pane.clear_agent_authority",
-            "pane.release_agent",
             "pane.close",
-            "popup.close",
-            "plugin.unlink",
-            "plugin.disable",
-            "plugin.action.invoke",
-            "plugin.pane.open",
-            "plugin.pane.focus",
-            "plugin.pane.close",
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();

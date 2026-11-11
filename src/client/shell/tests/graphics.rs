@@ -63,7 +63,6 @@ fn add_main_image(
     surface.graphics.placements.push(placement);
 }
 
-#[cfg(unix)]
 #[test]
 fn failed_direct_ack_composition_restores_graphics_for_inline_retry() {
     use crate::kitty_graphics::surface::host_image_id;
@@ -490,63 +489,6 @@ fn mobile_switcher_still_hides_the_entire_underlying_surface() {
     assert!(is_placed(
         &frame.graphics.clone().into_inline_bytes(),
         point
-    ));
-    assert!(!String::from_utf8_lossy(&frame.graphics.clone().into_inline_bytes()).contains("a=t"));
-}
-
-#[test]
-fn popup_terminal_keeps_own_graphics_and_hides_only_background_overlap() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface_with_popup());
-    state.compose(106, 20).unwrap();
-    let popup = state.hits.popup.clone().unwrap();
-    let layout = state.layout(106, 20);
-    let outside = (layout.pane_surface.x, layout.pane_surface.y);
-    let border = (popup.rect.x, popup.rect.y);
-    let inside = (popup.inner_rect.x, popup.inner_rect.y);
-    let mut surface = surface_with_popup();
-    add_main_image(&mut surface, layout, outside, 1);
-    add_main_image(&mut surface, layout, border, 2);
-    let (asset, placement) = image(
-        SurfaceGraphicsTarget::Popup {
-            terminal_id: "terminal-popup".into(),
-        },
-        0,
-        0,
-        3,
-    );
-    surface.graphics.assets.push(asset);
-    surface.graphics.placements.push(placement);
-    state.set_pane_surface(surface);
-    let frame = state.compose(106, 20).unwrap();
-    assert!(is_placed(
-        &frame.graphics.clone().into_inline_bytes(),
-        outside
-    ));
-    assert!(!is_placed(
-        &frame.graphics.clone().into_inline_bytes(),
-        border
-    ));
-    assert!(is_placed(
-        &frame.graphics.clone().into_inline_bytes(),
-        inside
-    ));
-    state.overlay = Some(ClientShellOverlay::Onboarding);
-    let frame = state.compose(106, 20).unwrap();
-    assert!(is_placed(
-        &frame.graphics.clone().into_inline_bytes(),
-        outside
-    ));
-    assert!(!is_placed(
-        &frame.graphics.clone().into_inline_bytes(),
-        inside
-    ));
-    state.overlay = None;
-    let frame = state.compose(106, 20).unwrap();
-    assert!(is_placed(
-        &frame.graphics.clone().into_inline_bytes(),
-        inside
     ));
     assert!(!String::from_utf8_lossy(&frame.graphics.clone().into_inline_bytes()).contains("a=t"));
 }

@@ -268,7 +268,6 @@ mod tests {
                 pixel_height: 0,
             }],
             splits: Vec::new(),
-            popup: None,
             graphics: Default::default(),
         }
     }

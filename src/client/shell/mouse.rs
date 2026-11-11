@@ -878,20 +878,13 @@ impl ClientShellState {
             if gesture_event {
                 let button = gesture.button;
                 let modifiers = mouse.modifiers.difference(gesture.stripped_modifiers);
-                let hit = if gesture.hit.popup {
-                    self.hits
-                        .popup
-                        .as_ref()
-                        .filter(|hit| hit.pane_id == gesture.hit.pane_id)
-                        .cloned()
-                } else {
-                    self.hits
-                        .panes
-                        .iter()
-                        .find(|hit| hit.pane_id == gesture.hit.pane_id)
-                        .cloned()
-                }
-                .unwrap_or_else(|| gesture.hit.clone());
+                let hit = self
+                    .hits
+                    .panes
+                    .iter()
+                    .find(|hit| hit.pane_id == gesture.hit.pane_id)
+                    .cloned()
+                    .unwrap_or_else(|| gesture.hit.clone());
                 let position = self.pane_mouse_position(&hit, mouse);
                 if let Some(gesture) = self.pane_mouse_gesture.as_mut() {
                     gesture.last_event = mouse;
@@ -909,41 +902,6 @@ impl ClientShellState {
             ) {
                 return;
             }
-        }
-        if self.popup_pending {
-            return;
-        }
-        if let Some(hit) = self.hits.popup.clone() {
-            if super::contains(hit.inner_rect, point) {
-                match mouse.kind {
-                    MouseEventKind::Down(button) => {
-                        self.push_pane_mouse_event(&hit, mouse, mouse.modifiers, outcome);
-                        if hit.mouse_reporting {
-                            self.pane_mouse_gesture = Some(ClientPaneMouseGesture {
-                                last_position: self.pane_mouse_position(&hit, mouse),
-                                hit,
-                                button,
-                                stripped_modifiers: crossterm::event::KeyModifiers::empty(),
-                                last_event: mouse,
-                            });
-                        }
-                    }
-                    MouseEventKind::Moved if hit.mouse_reporting => {
-                        self.push_pane_mouse_event(&hit, mouse, mouse.modifiers, outcome);
-                    }
-                    MouseEventKind::ScrollUp
-                    | MouseEventKind::ScrollDown
-                    | MouseEventKind::ScrollLeft
-                    | MouseEventKind::ScrollRight => {
-                        self.push_pane_mouse_event(&hit, mouse, mouse.modifiers, outcome);
-                    }
-                    MouseEventKind::Up(_) | MouseEventKind::Drag(_) | MouseEventKind::Moved => {}
-                }
-            }
-            return;
-        }
-        if self.popup_terminal_id.is_some() {
-            return;
         }
         if self.config.mouse_capture
             && !self.replaying_url_click
@@ -2382,11 +2340,7 @@ impl ClientShellState {
                 height_px: hit.pixel_height,
             },
         );
-        let target = if hit.popup {
-            ClientInputTarget::Popup(hit.pane_id.clone())
-        } else {
-            ClientInputTarget::Pane(hit.pane_id.clone())
-        };
+        let target = ClientInputTarget::Pane(hit.pane_id.clone());
         push_target_event(
             target,
             ClientPaneInputEvent::Mouse {

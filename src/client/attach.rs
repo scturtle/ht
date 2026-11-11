@@ -1,29 +1,18 @@
 //! Direct terminal attach input parsing and semantic actions.
 
-#[cfg(unix)]
 use std::io;
 
-#[cfg(unix)]
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
 
-#[cfg(unix)]
 use super::write_to_server;
-#[cfg(unix)]
-#[cfg(unix)]
 use crate::protocol::{AttachScrollDirection, AttachScrollSource, ClientMessage};
 
 #[derive(Debug, Default)]
-#[cfg(windows)]
-pub(super) struct AttachEscapeState;
-
-#[derive(Debug, Default)]
-#[cfg(unix)]
 pub(super) struct AttachEscapeState {
     pending_prefix: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
-#[cfg(unix)]
 pub(super) enum AttachInputAction {
     Forward(Vec<u8>),
     ForwardPair(Vec<u8>, Vec<u8>),
@@ -34,7 +23,6 @@ pub(super) enum AttachInputAction {
 }
 
 #[derive(Debug)]
-#[cfg(unix)]
 pub(super) enum AttachSemanticAction {
     Scroll {
         source: AttachScrollSource,
@@ -53,7 +41,6 @@ pub(super) enum AttachSemanticAction {
 }
 
 impl AttachEscapeState {
-    #[cfg(unix)]
     pub(super) fn filter_input(
         &mut self,
         data: Vec<u8>,
@@ -145,13 +132,11 @@ impl AttachEscapeState {
         }
     }
 
-    #[cfg(unix)]
     pub(super) fn take_pending_prefix(&mut self) -> Option<Vec<u8>> {
         self.pending_prefix.take()
     }
 }
 
-#[cfg(unix)]
 fn single_attach_key(data: &[u8]) -> Option<crate::input::TerminalKey> {
     let mut events = crate::raw_input::parse_framed_input(data);
     if events.len() != 1 {
@@ -163,7 +148,6 @@ fn single_attach_key(data: &[u8]) -> Option<crate::input::TerminalKey> {
     }
 }
 
-#[cfg(unix)]
 pub(super) fn direct_attach_pixel_mouse(
     data: &[u8],
     geometry: crate::input::mouse::HostGeometry,
@@ -187,7 +171,6 @@ pub(super) fn direct_attach_pixel_mouse(
     ))
 }
 
-#[cfg(unix)]
 fn attach_scroll_action(
     data: &[u8],
     viewport_rows: u16,
@@ -255,7 +238,6 @@ fn attach_scroll_action(
     }
 }
 
-#[cfg(unix)]
 pub(super) fn write_attach_semantic_action(
     stream: &mut impl super::ClientMessageSink,
     action: AttachSemanticAction,
@@ -292,12 +274,11 @@ pub(super) fn write_attach_semantic_action(
     write_to_server(stream, &message)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::protocol::{AttachScrollDirection, AttachScrollSource};
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_detaches_on_prefix_q() {
         let mut escape = AttachEscapeState::default();
@@ -311,7 +292,6 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_sends_literal_prefix_on_double_prefix() {
         let mut escape = AttachEscapeState::default();
@@ -325,7 +305,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_detaches_on_kitty_encoded_prefix_q() {
         let mut escape = AttachEscapeState::default();
@@ -343,7 +322,6 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_detaches_on_modify_other_keys_encoded_prefix() {
         let mut escape = AttachEscapeState::default();
@@ -357,7 +335,6 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_forwards_kitty_encoded_literal_prefix() {
         let mut escape = AttachEscapeState::default();
@@ -375,7 +352,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_does_not_interpret_bracketed_paste_contents() {
         let mut escape = AttachEscapeState::default();
@@ -387,7 +363,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_flushes_pending_prefix_before_bracketed_paste() {
         let mut escape = AttachEscapeState::default();
@@ -408,7 +383,6 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_forwards_prefix_before_non_escape_key() {
         let mut escape = AttachEscapeState::default();
@@ -422,7 +396,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_turns_wheel_into_scroll_action() {
         let mut escape = AttachEscapeState::default();
@@ -445,7 +418,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_routes_non_wheel_mouse_reports_semantically() {
         let mut escape = AttachEscapeState::default();
@@ -461,7 +433,6 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_flushes_pending_prefix_before_cell_mouse() {
         let mut escape = AttachEscapeState::default();
@@ -488,7 +459,6 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn direct_attach_pixel_mouse_keeps_pixels_and_semantic_kind() {
         let geometry = crate::input::mouse::HostGeometry::new(80, 24, 800, 480).unwrap();
@@ -511,7 +481,6 @@ mod tests {
         assert_eq!(modifiers, 0);
     }
 
-    #[cfg(unix)]
     #[test]
     fn pixel_mouse_flushes_pending_attach_prefix() {
         let mut escape = AttachEscapeState::default();
@@ -524,7 +493,6 @@ mod tests {
         assert_eq!(escape.take_pending_prefix(), None);
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_turns_plain_page_keys_into_scroll_actions() {
         let mut escape = AttachEscapeState::default();
@@ -567,7 +535,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn attach_escape_forwards_modified_page_key() {
         let mut escape = AttachEscapeState::default();

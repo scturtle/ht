@@ -91,7 +91,6 @@ fn deferred_output_propagates_write_failure() {
     );
 }
 
-#[cfg(unix)]
 mod local_files {
     use super::*;
     use base64::Engine as _;

@@ -32,25 +32,20 @@ pub(super) fn apply_reload(
         )
         .map_err(ClientError::ConnectionLost)?;
     }
-    if state.attach_escape.is_some() {
-        let enabled = effective_mouse_capture(
-            state.endpoint_mouse_capture_requested,
-            state.direct_mouse_capture_preference,
-        );
-        let sgr_pixels = effective_sgr_pixel_mouse(
-            enabled,
-            state.endpoint_sgr_pixels_requested,
-            state.pixel_mouse_available(),
-        );
-        if enabled != state.mouse_capture_active
-            || sgr_pixels != host_sgr_pixels_active.load(Ordering::Acquire)
-        {
-            set_mouse_capture(enabled, sgr_pixels).map_err(ClientError::ConnectionFailed)?;
-        }
-        state.mouse_capture_active = enabled;
-        host_mouse_capture_active.store(enabled, Ordering::Release);
-        host_sgr_pixels_active.store(sgr_pixels, Ordering::Release);
+    let enabled = state.requested_host_mouse_capture();
+    let sgr_pixels = effective_sgr_pixel_mouse(
+        enabled,
+        state.endpoint_sgr_pixels_requested,
+        state.pixel_mouse_available(),
+    );
+    if enabled != state.mouse_capture_active
+        || sgr_pixels != host_sgr_pixels_active.load(Ordering::Acquire)
+    {
+        set_mouse_capture(enabled, sgr_pixels).map_err(ClientError::ConnectionFailed)?;
     }
+    state.mouse_capture_active = enabled;
+    host_mouse_capture_active.store(enabled, Ordering::Release);
+    host_sgr_pixels_active.store(sgr_pixels, Ordering::Release);
     let pixel_mouse_available = state.pixel_mouse_available();
     let (frame, resize) = if let Some(shell) = state.shell.as_mut() {
         let previous_size = shell.surface_size(state.reported_size.0, state.reported_size.1);

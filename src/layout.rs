@@ -39,6 +39,8 @@ pub struct PaneInfo {
     pub inner_rect: Rect,
     /// Visible scrollbar lane, when scrollback is present. `inner_rect` may still
     /// exclude a stable hidden gutter when this is `None`.
+    // Legacy geometry remains part of the layout conformance oracle; Core draws its own scrollbar.
+    #[allow(dead_code)]
     pub scrollbar_rect: Option<Rect>,
     /// Borders drawn around this pane after UI chrome is applied.
     pub borders: Borders,
@@ -70,6 +72,7 @@ pub enum NavDirection {
 }
 
 /// A node in the BSP tree. Public for serialization.
+#[derive(Clone)]
 pub enum Node {
     Pane(PaneId),
     Split {
@@ -81,6 +84,7 @@ pub enum Node {
 }
 
 /// BSP tiling layout. Tracks a tree of splits and a focused pane.
+#[derive(Clone)]
 pub struct TileLayout {
     root: Node,
     focus: PaneId,
@@ -132,6 +136,7 @@ impl TileLayout {
     /// Compute pane rects as they will be after splitting `target`, without
     /// changing the layout. Returns the rects and the new pane's index; the
     /// new pane's entry carries `target`'s id.
+    #[cfg(test)]
     pub fn panes_after_split(
         &self,
         area: Rect,

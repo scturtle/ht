@@ -16,7 +16,7 @@ fn endpoint_product_announcement_is_client_rendered_modal_and_dismissed_by_ident
             preview: false,
         });
     state.set_snapshot(Box::new(endpoint_snapshot.clone()));
-    state.set_pane_surface(surface_with_popup());
+    state.set_pane_surface(surface());
 
     let frame = state.compose(106, 30).expect("announcement frame");
     let text = frame
@@ -203,7 +203,7 @@ fn product_announcement_mouse_is_modal_and_closes_only_from_its_button() {
             preview: false,
         });
     state.set_snapshot(Box::new(endpoint_snapshot));
-    state.set_pane_surface(surface_with_popup());
+    state.set_pane_surface(surface());
     state.compose(106, 30).expect("announcement frame");
 
     let outside =
@@ -338,7 +338,7 @@ fn startup_onboarding_is_client_rendered_and_modal() {
         Some(ClientShellOverlay::Onboarding)
     ));
 
-    state.set_pane_surface(surface_with_popup());
+    state.set_pane_surface(surface());
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::Onboarding)
@@ -761,7 +761,9 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
         .join("\n");
     assert!(text.contains("v0.8.3"));
     assert!(text.contains("update ready"));
-    assert!(text.contains("detach, run herdr update"));
+    assert!(text.contains("upstream self-update"));
+    assert!(text.contains("is disabled"));
+    assert!(!text.contains("detach, run herdr update"));
     assert!(!state.hits.release_notes_scrollbar.is_empty());
     let outer = crate::ui::centered_popup_rect(
         Rect::new(0, 0, 106, 30),

@@ -1,9 +1,7 @@
 use super::*;
 
-#[cfg(unix)]
 const MAX_RETIRED_DIRECT_GRAPHICS: usize = 64;
 
-#[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RetiredDirectGraphicsMatch {
     None,
@@ -11,14 +9,12 @@ pub(super) enum RetiredDirectGraphicsMatch {
     Saturated,
 }
 
-#[cfg(unix)]
 pub(super) struct RetiredDirectGraphics {
     generation: u64,
     transfers: Vec<(u64, u32)>,
     saturated: bool,
 }
 
-#[cfg(unix)]
 impl RetiredDirectGraphics {
     fn new(generation: u64) -> Self {
         Self {
@@ -53,20 +49,15 @@ pub(super) struct ClientState {
     pub(super) pixel_geometry_exact: bool,
     /// The host's answer to the SGR pixel mouse probe; None when unknown.
     pub(super) host_sgr_pixel_mouse: Option<bool>,
-    #[cfg(unix)]
     pub(super) direct_graphics_response: Arc<Mutex<direct_graphics::ResponseMatcher>>,
-    #[cfg(unix)]
     pub(super) retired_direct_graphics: HashMap<endpoint::ClientEndpointId, RetiredDirectGraphics>,
-    #[cfg(unix)]
     pub(super) disabled_native_graphics: HashMap<endpoint::ClientEndpointId, u64>,
     pub(super) pending_native_cleanup: Vec<u8>,
-    #[cfg(unix)]
     pub(super) pending_surface_graphics: HashMap<
         (endpoint::ClientEndpointId, u64, u64, u32),
         crate::protocol::SurfaceGraphicsAssetKey,
     >,
     pub(super) attach_escape: Option<AttachEscapeState>,
-    #[cfg(unix)]
     pub(super) mouse_scroll_lines: usize,
     pub(super) remote_image_paste_key:
         Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
@@ -96,6 +87,16 @@ impl Drop for ClientState {
 }
 
 impl ClientState {
+    pub(super) fn requested_host_mouse_capture(&self) -> bool {
+        // TUI chrome needs mouse events even when the focused program does not.
+        let local_preference = if self.shell.is_some() {
+            self.shell_mouse_capture_preference
+        } else {
+            self.direct_mouse_capture_preference
+        };
+        super::effective_mouse_capture(self.endpoint_mouse_capture_requested, local_preference)
+    }
+
     pub(super) fn pixel_mouse_available(&self) -> bool {
         self.pixel_geometry_exact && self.host_sgr_pixel_mouse == Some(true)
     }
@@ -121,17 +122,12 @@ impl ClientState {
             pixel_geometry_enabled: false,
             pixel_geometry_exact: false,
             host_sgr_pixel_mouse: None,
-            #[cfg(unix)]
             direct_graphics_response: Default::default(),
-            #[cfg(unix)]
             retired_direct_graphics: HashMap::new(),
-            #[cfg(unix)]
             disabled_native_graphics: Default::default(),
             pending_native_cleanup: Vec::new(),
-            #[cfg(unix)]
             pending_surface_graphics: HashMap::new(),
             attach_escape: None,
-            #[cfg(unix)]
             mouse_scroll_lines: 3,
             remote_image_paste_key: None,
             redraw_on_focus_gained: false,
@@ -223,14 +219,12 @@ impl ClientState {
         }
     }
 
-    #[cfg(unix)]
     pub(super) fn queue_native_image_cleanup(&mut self, image_id: u32) {
         crate::kitty_graphics::encode_delete_image(&mut self.pending_native_cleanup, image_id);
     }
 
     /// Retirement is lifecycle bookkeeping, not a presentation effect. The caller has
     /// already checked the endpoint generation, even for inactive/frozen owners.
-    #[cfg(unix)]
     pub(super) fn receive_graphics_retirement(
         &mut self,
         endpoint_id: &endpoint::ClientEndpointId,
@@ -281,7 +275,6 @@ impl ClientState {
     /// Returns whether a retirement owns an image that may be removed from the terminal/cache.
     /// Native rejections can retire a proposed colliding ID without ever uploading it; only an
     /// exact still-pending native upload gives that retirement ownership of the image.
-    #[cfg(unix)]
     pub(super) fn queue_retired_graphics_cleanup(
         &mut self,
         transfer_id: u64,
@@ -299,7 +292,6 @@ impl ClientState {
         true
     }
 
-    #[cfg(unix)]
     pub(super) fn flush_native_cleanup(
         &mut self,
         writer: &mut impl std::io::Write,
@@ -370,7 +362,6 @@ impl ClientState {
         Ok(committed)
     }
 
-    #[cfg(unix)]
     fn retire_pending_endpoint_graphics(
         &mut self,
         endpoint_id: &endpoint::ClientEndpointId,
@@ -401,7 +392,6 @@ impl ClientState {
         }
     }
 
-    #[cfg(unix)]
     pub(super) fn record_retired_direct_graphics(
         &mut self,
         endpoint_id: endpoint::ClientEndpointId,
@@ -428,7 +418,6 @@ impl ClientState {
         retired.transfers.push((transfer_id, image_id));
     }
 
-    #[cfg(unix)]
     pub(super) fn match_retired_direct_graphics(
         &mut self,
         endpoint_id: &endpoint::ClientEndpointId,
@@ -462,7 +451,6 @@ impl ClientState {
 
     /// Forget graphics guards only for the connection generation which actually disconnected.
     /// A delayed disconnect from an older generation must not clear its replacement's guards.
-    #[cfg(unix)]
     pub(super) fn retire_endpoint_graphics(
         &mut self,
         endpoint_id: &endpoint::ClientEndpointId,
@@ -482,7 +470,7 @@ impl ClientState {
     }
 
     /// Reset bounded per-endpoint state when a replacement connection becomes authoritative.
-    #[cfg(unix)]
+    #[cfg(test)]
     pub(super) fn start_endpoint_graphics_generation(
         &mut self,
         endpoint_id: &endpoint::ClientEndpointId,
@@ -499,13 +487,6 @@ impl ClientState {
         {
             self.retired_direct_graphics.remove(endpoint_id);
         }
-    }
-
-    #[cfg(unix)]
-    pub(super) fn forget_endpoint_graphics(&mut self, endpoint_id: &endpoint::ClientEndpointId) {
-        self.retire_pending_endpoint_graphics(endpoint_id, None);
-        self.disabled_native_graphics.remove(endpoint_id);
-        self.retired_direct_graphics.remove(endpoint_id);
     }
 
     pub(super) fn present_frame(&mut self, frame_data: impl Into<frame_output::ComposedFrame>) {
@@ -592,7 +573,7 @@ impl ClientState {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod native_cleanup_tests {
     use super::*;
 

@@ -41,24 +41,6 @@ pub fn state_dir() -> PathBuf {
     platform_state_dir()
 }
 
-#[cfg(windows)]
-fn platform_config_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("APPDATA") {
-        return PathBuf::from(dir).join(app_dir_name());
-    }
-    if let Ok(profile) = std::env::var("USERPROFILE") {
-        return PathBuf::from(profile)
-            .join("AppData")
-            .join("Roaming")
-            .join(app_dir_name());
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(format!(".config/{}", app_dir_name()));
-    }
-    std::env::temp_dir().join(app_dir_name())
-}
-
-#[cfg(not(windows))]
 fn platform_config_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
         PathBuf::from(home).join(format!(".config/{}", app_dir_name()))
@@ -67,24 +49,6 @@ fn platform_config_dir() -> PathBuf {
     }
 }
 
-#[cfg(windows)]
-fn platform_state_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("LOCALAPPDATA") {
-        return PathBuf::from(dir).join(app_dir_name());
-    }
-    if let Ok(profile) = std::env::var("USERPROFILE") {
-        return PathBuf::from(profile)
-            .join("AppData")
-            .join("Local")
-            .join(app_dir_name());
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(format!(".local/state/{}", app_dir_name()));
-    }
-    std::env::temp_dir().join(format!("{}-state", app_dir_name()))
-}
-
-#[cfg(not(windows))]
 fn platform_state_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
         PathBuf::from(home).join(format!(".local/state/{}", app_dir_name()))
@@ -326,14 +290,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.server = section,
-    );
-    load_live_section(
-        table,
-        "update",
-        "update config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.update = section,
     );
     load_live_section(
         table,

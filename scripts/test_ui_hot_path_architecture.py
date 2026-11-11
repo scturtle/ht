@@ -6,14 +6,13 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# This fork has no private server: the hot path is the client shell and its UI.
 HOT_PATH_SOURCES = (
-    PROJECT_ROOT / "src" / "ui.rs",
+    *sorted(p for p in (PROJECT_ROOT / "src" / "ui.rs",) if p.exists()),
     *sorted((PROJECT_ROOT / "src" / "ui").rglob("*.rs")),
-    PROJECT_ROOT / "src" / "server" / "render_stream.rs",
 )
-APP_SERVER_SOURCES = (
-    *sorted((PROJECT_ROOT / "src" / "app").rglob("*.rs")),
-    *sorted((PROJECT_ROOT / "src" / "server").rglob("*.rs")),
+APP_SERVER_SOURCES = tuple(
+    sorted(p for p in (PROJECT_ROOT / "src" / "app").rglob("*.rs") if p.exists())
 )
 TEST_MODULE = re.compile(r"(?m)^#\[cfg\(test\)\]\s*\nmod\s+\w+\s*\{")
 INPUT_STATE_CALL = re.compile(r"(?:\.|::)input_state\b")

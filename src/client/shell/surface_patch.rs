@@ -118,7 +118,6 @@ impl ClientShellState {
             || patch.projection_revision != current.projection_revision
             || patch.base_surface_revision != current.surface_revision
             || patch.surface_revision != current.surface_revision.saturating_add(1)
-            || current.popup.is_some()
             || !current.graphics.placements.is_empty()
             || !current.graphics.retained_assets.is_empty()
         {
@@ -254,19 +253,4 @@ impl ClientShellState {
         }
         ClientPaneSurfacePatchOutcome::Applied(composed_patch)
     }
-}
-
-#[cfg(test)]
-pub(crate) fn apply_composed_surface_patch(
-    frame: &FrameData,
-    patch: ClientComposedSurfacePatch,
-) -> Option<FrameData> {
-    let mut next = frame.clone();
-    for row in &patch.rows {
-        if !apply_row(row, &mut next) {
-            return None;
-        }
-    }
-    next.cursor = patch.cursor;
-    Some(next)
 }

@@ -1,0 +1,14 @@
+# Optional, isolated UI configuration for trying the Core-backed TUI.
+# Never copied over ~/.config/herdr/config.toml.
+onboarding = false
+
+[experimental]
+allow_nested = true
+
+[keys]
+# Keep the regular bindings; F12 is an alternative if an outer app captures Ctrl+b.
+prefix = ["ctrl+b", "f12"]
+split_vertical = ["prefix+v", "f2"]
+split_horizontal = ["prefix+minus", "f3"]
+cycle_pane_next = ["prefix+tab", "f6"]
+detach = ["prefix+q", "f10"]

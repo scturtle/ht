@@ -22,11 +22,6 @@ pub struct IntegrationInstallParams {
     pub target: IntegrationTarget,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct IntegrationUninstallParams {
-    pub target: IntegrationTarget,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationTarget {

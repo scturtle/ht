@@ -125,11 +125,7 @@ pub(super) fn clear_endpoint_host_effects(
 ) {
     state.endpoint_mouse_capture_requested = false;
     state.endpoint_sgr_pixels_requested = false;
-    let enabled = if state.shell.is_some() {
-        state.shell_mouse_capture_preference
-    } else {
-        state.direct_mouse_capture_preference
-    };
+    let enabled = state.requested_host_mouse_capture();
     let sgr_pixels =
         super::effective_sgr_pixel_mouse(enabled, false, state.pixel_mouse_available());
     if enabled != state.mouse_capture_active
@@ -233,15 +229,6 @@ pub(super) fn begin_endpoint_activation(
     now: std::time::Instant,
     scheduled_activation: &mut Option<ClientLoopEvent>,
 ) -> Result<(), ClientError> {
-    #[cfg(windows)]
-    if target.as_ref().is_some_and(|target| {
-        !state
-            .shell
-            .as_ref()
-            .is_some_and(|shell| shell.notification_target_is_current(&endpoint_id, target))
-    }) {
-        return Ok(());
-    }
     state.deferred_local_activation = None;
     if endpoint_id.is_local() && !local_activation_metadata_ready(state, endpoints) {
         state.deferred_local_activation = Some(endpoint::EndpointActivationIntent {
@@ -272,7 +259,7 @@ pub(super) fn begin_endpoint_activation(
                 let outcome = activation.supersede(endpoint_id, target, endpoints);
                 if let endpoint::ActivationRollback::Unavailable(message) = outcome {
                     *pending = None;
-                    present_handoff_unavailable(state, message, None);
+                    present_handoff_unavailable(state, message);
                 }
             }
             return Ok(());
@@ -482,55 +469,12 @@ pub(super) fn complete_endpoint_activation(
     Ok(None)
 }
 
-pub(super) fn present_endpoint_connection_failure(
-    state: &mut ClientState,
-    endpoint_id: &endpoint::ClientEndpointId,
-    status: endpoint::ClientEndpointStatus,
-    message: String,
-) {
-    let active_failure = state
-        .shell
-        .as_ref()
-        .is_some_and(|shell| shell.endpoint_is_active(endpoint_id));
-    if active_failure {
-        state.freeze_presentation();
-    }
-    let unavailable = state.shell.as_mut().and_then(|shell| {
-        shell.set_endpoint_status(endpoint_id, status);
-        shell.set_machine_diagnostic(endpoint_id, message.clone());
-        let requested = shell.report_machine_retry(endpoint_id);
-        (active_failure && status == endpoint::ClientEndpointStatus::Attention && !requested)
-            .then(|| format!("{}: {message}", shell.endpoint_label(endpoint_id)))
-    });
-    if let Some(message) = unavailable {
-        present_handoff_unavailable(state, message, Some(endpoint_id));
-    } else if let Some(frame) = state
-        .shell
-        .as_mut()
-        .and_then(|shell| shell.compose(state.reported_size.0, state.reported_size.1))
-    {
-        if active_failure {
-            state.present_frozen_chrome(frame);
-        } else {
-            state.present_frame(frame);
-        }
-    }
-}
-
-pub(super) fn present_handoff_unavailable(
-    state: &mut ClientState,
-    message: String,
-    machine: Option<&endpoint::ClientEndpointId>,
-) {
+pub(super) fn present_handoff_unavailable(state: &mut ClientState, message: String) {
     // An unavailable committed endpoint has no presentation lease. Keep all pane input and late
     // source output blocked, while allowing this client-owned chrome frame through the freeze.
     state.freeze_presentation();
     let frame = state.shell.as_mut().and_then(|shell| {
-        if let Some(machine) = machine {
-            shell.receive_machine_unavailable(machine, message);
-        } else {
-            shell.receive_endpoint_unavailable(message);
-        }
+        shell.receive_endpoint_unavailable(message);
         shell.compose(state.reported_size.0, state.reported_size.1)
     });
     if let Some(frame) = frame {
@@ -554,7 +498,7 @@ pub(super) fn rollback_endpoint_activation(
             *pending = None;
             // No endpoint has been proven safe to present. Keep pane input frozen, but render
             // the client-owned unavailable chrome rather than silently swallowing the error.
-            present_handoff_unavailable(state, message, None);
+            present_handoff_unavailable(state, message);
         }
     }
 }
@@ -563,15 +507,12 @@ pub(super) fn handle_endpoint_disconnect(
     state: &mut ClientState,
     endpoints: &mut endpoint::EndpointRegistry,
     endpoint_commands: &mut endpoint_commands::EndpointCommands,
-    supervisors: &mut endpoint::EndpointSupervisors,
     pending_activation: &mut Option<endpoint::PendingEndpointActivation>,
     endpoint_id: &endpoint::ClientEndpointId,
     generation: u64,
-    now: std::time::Instant,
+    _now: std::time::Instant,
     notice: &str,
 ) -> bool {
-    supervisors.disconnected(endpoint_id, generation, now);
-    #[cfg(unix)]
     state.retire_endpoint_graphics(endpoint_id, generation);
     if pending_activation
         .as_ref()
@@ -589,7 +530,7 @@ pub(super) fn handle_endpoint_disconnect(
             endpoint::ActivationRollback::Pending => {}
             endpoint::ActivationRollback::Unavailable(error) => {
                 *pending_activation = None;
-                present_handoff_unavailable(state, error, None);
+                present_handoff_unavailable(state, error);
             }
         }
     }
@@ -603,7 +544,7 @@ pub(super) fn handle_endpoint_disconnect(
         endpoint_was_active.then(|| format!("{} {notice}", shell.endpoint_label(endpoint_id)))
     });
     if let Some(message) = unavailable {
-        present_handoff_unavailable(state, message, Some(endpoint_id));
+        present_handoff_unavailable(state, message);
     } else if let Some(frame) = state
         .shell
         .as_mut()
@@ -618,21 +559,13 @@ pub(super) fn handle_endpoint_attention(
     state: &mut ClientState,
     endpoints: &mut endpoint::EndpointRegistry,
     endpoint_commands: &mut endpoint_commands::EndpointCommands,
-    supervisors: &mut endpoint::EndpointSupervisors,
     pending_activation: &mut Option<endpoint::PendingEndpointActivation>,
     endpoint_id: &endpoint::ClientEndpointId,
     generation: u64,
-    now: std::time::Instant,
+    _now: std::time::Instant,
     message: String,
 ) -> bool {
     endpoints.disconnect(endpoint_id);
-    supervisors.record_status(
-        endpoint_id,
-        generation,
-        endpoint::ClientEndpointStatus::Attention,
-        now,
-    );
-    #[cfg(unix)]
     state.retire_endpoint_graphics(endpoint_id, generation);
     if pending_activation
         .as_ref()
@@ -648,7 +581,7 @@ pub(super) fn handle_endpoint_attention(
             );
         if let endpoint::ActivationRollback::Unavailable(error) = outcome {
             *pending_activation = None;
-            present_handoff_unavailable(state, error, None);
+            present_handoff_unavailable(state, error);
         }
     }
     let endpoint_was_active = endpoints.active_id() == endpoint_id;
@@ -658,11 +591,10 @@ pub(super) fn handle_endpoint_attention(
             shell.cancel_endpoint_request(&request_id);
         }
         shell.set_endpoint_status(endpoint_id, endpoint::ClientEndpointStatus::Attention);
-        shell.set_machine_diagnostic(endpoint_id, message.clone());
         endpoint_was_active.then(|| format!("{}: {message}", shell.endpoint_label(endpoint_id)))
     });
     if let Some(message) = unavailable {
-        present_handoff_unavailable(state, message, Some(endpoint_id));
+        present_handoff_unavailable(state, message);
     } else if let Some(frame) = state
         .shell
         .as_mut()
@@ -773,7 +705,6 @@ pub(super) fn finish_client_shell_input(
             let _ = write_to_server(endpoints, &resize);
         }
     }
-    #[cfg(not(windows))]
     if outcome.query_host_appearance {
         query_host_terminal_appearance();
     }

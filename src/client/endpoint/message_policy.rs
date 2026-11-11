@@ -34,14 +34,10 @@ pub(crate) fn accepts_endpoint_message(
         || (activation_message
             && matches!(
                 message,
-                ServerMessage::PaneSurface(_)
-                    | ServerMessage::ClientShellEndpointResponseChunk { .. }
+                ServerMessage::PaneSurface(_) | ServerMessage::ClientShellEndpointResponse { .. }
             ))
         || (command_response
-            && matches!(
-                message,
-                ServerMessage::ClientShellEndpointResponseChunk { .. }
-            ))
+            && matches!(message, ServerMessage::ClientShellEndpointResponse { .. }))
 }
 
 #[cfg(test)]
@@ -104,11 +100,10 @@ mod tests {
             false,
             true,
             false,
-            &ServerMessage::ClientShellEndpointResponseChunk {
+            &ServerMessage::ClientShellEndpointResponse {
                 boot_id: "boot".into(),
                 request_id: "surface".into(),
-                final_chunk: true,
-                data: Vec::new(),
+                result: Ok(Box::new(crate::api::schema::ResponseResult::Ok {})),
             }
         ));
         assert!(!accepts_endpoint_message(

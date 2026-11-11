@@ -14,12 +14,11 @@ pub(crate) use keybindings::{
     KeybindMatch,
 };
 pub(crate) use lease::{InputLease, InputLeaseKey, InputLeaseTable, RepeatPlan};
-#[cfg(not(windows))]
 pub use model::ime_compatible_keyboard_enhancement_flags;
 pub use model::WindowsKeyRecord;
 pub use model::{
     host_modify_other_keys_mode, KeyIdentity, KeyboardProtocol, TerminalKey, TextCommit,
 };
-#[cfg(any(unix, test))]
+#[cfg(test)]
 pub use model::{MouseProtocolEncoding, MouseProtocolMode};
 pub use parse::parse_terminal_key_sequence;

@@ -151,7 +151,7 @@ fn release_notes_preview_line_entries<'a>(
         .fg(p.accent)
         .bg(p.surface0)
         .add_modifier(Modifier::BOLD);
-    let instruction = crate::update::update_install_instruction(install_command);
+    let instruction = format!("upstream self-update (`{install_command}`) is disabled in this Core-only fork; detach, rebuild this checkout, then run Herdr again to reconnect");
     let (instruction_width, mut instruction_spans) =
         release_notes_inline_spans(&instruction, text_style, inline_code_style);
     instruction_spans.insert(0, Span::raw(" "));
@@ -307,7 +307,7 @@ mod tests {
         assert_eq!(line_text(&lines[0]), " ● update ready");
         assert_eq!(
             line_text(&lines[1]),
-            " detach, run herdr update, then run Herdr again to reconnect"
+            " upstream self-update (herdr update) is disabled in this Core-only fork; detach, rebuild this checkout, then run Herdr again to reconnect"
         );
         assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
         assert_eq!(lines[0].spans[2].style.fg, Some(palette.text));
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(line_text(&lines[0].1), " ● update ready");
         assert_eq!(
             line_text(&lines[1].1),
-            " detach, run herdr update, then run Herdr again to reconnect"
+            " upstream self-update (herdr update) is disabled in this Core-only fork; detach, rebuild this checkout, then run Herdr again to reconnect"
         );
         assert_eq!(line_text(&lines[2].1), "");
         assert_eq!(line_text(&lines[3].1), " ADDED");

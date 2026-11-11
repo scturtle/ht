@@ -55,6 +55,7 @@ pub fn show_notification(title: &str, body: Option<&str>) -> io::Result<bool> {
     Ok(true)
 }
 
+#[cfg(test)]
 pub fn split_message(message: &str) -> (&str, Option<&str>) {
     match message.split_once(": ") {
         Some((title, body)) if !title.is_empty() && !body.is_empty() => (title, Some(body)),

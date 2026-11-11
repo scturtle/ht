@@ -169,19 +169,6 @@ impl PendingEndpointActivation {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) fn begin(
-        shell: &crate::client::shell::ClientShellState,
-        endpoints: &mut EndpointRegistry,
-        target: ClientEndpointId,
-        focus: Option<crate::client::shell::ClientEndpointFocusTarget>,
-        resize: crate::protocol::ClientMessage,
-        serial: u64,
-        now: Instant,
-    ) -> Result<Self, ActivationBeginError> {
-        Self::prepare(shell, endpoints, target, focus, resize, serial, now)?.start(endpoints)
-    }
-
     pub(crate) fn abandon(&self, endpoints: &mut EndpointRegistry) {
         endpoints.freeze_input();
         for lease in [&self.source, &self.target] {
@@ -323,44 +310,23 @@ impl PendingEndpointActivation {
         now >= self.deadline
     }
 
-    #[cfg(test)]
-    pub(crate) fn receive_response(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        request_id: &str,
-        data: &[u8],
-        endpoints: &mut EndpointRegistry,
-    ) -> SurfaceActivationProgress {
-        let boot_id = if self.source.endpoint_id == *endpoint_id {
-            self.source.boot_id.clone()
-        } else {
-            self.target.boot_id.clone()
-        };
-        self.receive_response_for_boot(
-            endpoint_id,
-            generation,
-            &boot_id,
-            request_id,
-            data,
-            endpoints,
-        )
-    }
-
     pub(crate) fn receive_response_for_boot(
         &mut self,
         endpoint_id: &ClientEndpointId,
         generation: u64,
         boot_id: &str,
         request_id: &str,
-        data: &[u8],
+        response: Result<
+            Box<crate::api::schema::ResponseResult>,
+            crate::protocol::EndpointResponseError,
+        >,
         endpoints: &mut EndpointRegistry,
     ) -> SurfaceActivationProgress {
         if !self.accepts_response(endpoint_id, generation, boot_id, request_id) {
             return SurfaceActivationProgress::Stale;
         }
-        let result = match decode_endpoint_response(request_id, data) {
-            Ok(result) => result,
+        let result = match response {
+            Ok(result) => *result,
             Err(error) => {
                 return SurfaceActivationProgress::Rejected {
                     source_release_rejected: matches!(
@@ -592,11 +558,6 @@ impl PendingEndpointActivation {
         focus: Option<crate::client::shell::ClientEndpointFocusTarget>,
         endpoints: &mut EndpointRegistry,
     ) -> Result<(), String> {
-        #[cfg(windows)]
-        if matches!(&focus, Some(crate::client::shell::ClientEndpointFocusTarget::Notification { boot_id, .. }) if boot_id != &self.target.boot_id)
-        {
-            return Ok(());
-        }
         self.focus = focus;
         if let ActivationPhase::ActivatingTarget {
             focus_request_id,
@@ -1189,16 +1150,6 @@ impl PendingEndpointActivation {
             _ => return false,
         };
         match &self.focus {
-            #[cfg(windows)]
-            Some(crate::client::shell::ClientEndpointFocusTarget::Notification {
-                pane_id, ..
-            }) => {
-                evidence.focused_pane_id.as_deref() == Some(pane_id)
-                    && surface
-                        .panes
-                        .iter()
-                        .any(|pane| pane.focused && &pane.pane_id == pane_id)
-            }
             Some(crate::client::shell::ClientEndpointFocusTarget::Pane(pane_id)) => {
                 evidence.focused_pane_id.as_deref() == Some(pane_id)
                     && surface
@@ -1216,7 +1167,3 @@ impl PendingEndpointActivation {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "activation_tests.rs"]
-mod tests;

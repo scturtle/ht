@@ -1,0 +1,118 @@
+--- a/crates/herdr-core/src/cli.rs
++++ b/crates/herdr-core/src/cli.rs
+@@ -100,6 +100,9 @@
+     Schema,
+     /// Speak the protocol over stdin/stdout (`ssh box hc connect`).
+     Connect {
++        /// Connect only to an already running core; never start or replace it.
++        #[arg(long)]
++        existing: bool,
+         /// The hc session to reach, like HC_SESSION (one command that reads
+         /// the same in sh, cmd and PowerShell).
+         #[arg(long)]
+@@ -509,7 +512,7 @@
+             }
+             Out { json: r, human: String::new() }
+         }
+-        Cmd::Connect { session } => {
++        Cmd::Connect { session, existing } => {
+             let paths = match session {
+                 Some(s) => {
+                     // SAFETY: no other thread runs yet; a core this starts inherits it.
+@@ -518,7 +521,7 @@
+                 }
+                 None => paths,
+             };
+-            connect(&paths)?;
++            connect(&paths, existing)?;
+             return Ok(None);
+         }
+         Cmd::Events(p) => {
+@@ -827,8 +830,18 @@
+ }
+ 
+ /// Copies bytes between stdin/stdout and the core: plain or framed, untouched.
+-fn connect(paths: &Paths) -> Result<(), RpcError> {
+-    let stream = client::connect_or_start(paths)?;
++fn connect(paths: &Paths, existing: bool) -> Result<(), RpcError> {
++    let stream = if existing {
++        client::connect_existing(paths).ok_or_else(|| {
++            RpcError::new(
++                "unavailable",
++                "the core is not running",
++                "start it explicitly; connect --existing never starts it",
++            )
++        })?
++    } else {
++        client::connect_or_start(paths)?
++    };
+     let mut to_core = stream.try_clone().map_err(|e| RpcError::internal(e.to_string()))?;
+     std::thread::spawn(move || {
+         pump(&mut *crate::platform::console::stdin(), &mut to_core);
+--- a/crates/herdr-core/src/api.rs
++++ b/crates/herdr-core/src/api.rs
+@@ -23,6 +23,7 @@
+     "automatic_input",
+     "ordered_attach",
+     "keyboard_stacks_v1",
++    "existing_connect",
+ ];
+ pub const FINISHED_LINES: usize = 1000;
+ /// A terminal's identity: fixed at start from whoever starts it.
+--- a/crates/herdr-core/src/SKILL.md
++++ b/crates/herdr-core/src/SKILL.md
+@@ -146,6 +146,10 @@
+ stack replay, including inactive screen state, dirty viewers and overflow. Binary
+ snapshot round trips retain both stacks. These extensions do not claim graphics
+ replay or failure-safe exact server restart.
++
++`existing_connect` advertises `hc connect --existing`: it forwards to a running
++core but never starts one. Recovery probes should use it so they cannot undo an
++explicit server stop. Plain `hc connect` keeps its original auto-start behavior.
+ 
+ ```sh
+ hc run cargo test                  # wait, stream output, return its exit code
+--- a/crates/herdr-core/tests/m0.rs
++++ b/crates/herdr-core/tests/m0.rs
+@@ -40,6 +40,31 @@
+     let second = s.json(&["server", "status"]);
+     assert_eq!(second["core"]["id"], id.as_str());
+     assert_ne!(second["pid"].as_i64().unwrap(), pid);
++}
++
++#[test]
++fn existing_connect_never_starts_or_resurrects_a_stopped_core() {
++    let s = Session::new();
++    let hello = b"{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"hello\",\"params\":{\"generation\":1}}\n";
++    let missing = s.hc_input(&["connect", "--existing"], hello);
++    assert!(!missing.status.success());
++    assert!(!s.socket().exists());
++    let error: Value = serde_json::from_slice(&missing.stderr).unwrap();
++    assert_eq!(error["error"]["kind"], "unavailable");
++
++    let status = s.json(&["server", "status"]);
++    let pid = status["pid"].as_i64().unwrap();
++    let reply = s.hc_input(&["connect", "--existing"], hello);
++    assert!(reply.status.success(), "{}", String::from_utf8_lossy(&reply.stderr));
++    let reply: Value = serde_json::from_slice(&reply.stdout).unwrap();
++    assert!(reply["result"]["features"].as_array().unwrap().iter().any(|f| f == "existing_connect"));
++    assert_eq!(s.json(&["server", "status"])["pid"], pid);
++
++    s.json(&["server", "stop"]);
++    wait_until("core stopped", || !pid_alive(pid));
++    let stopped = s.hc_input(&["connect", "--existing"], hello);
++    assert!(!stopped.status.success());
++    assert!(!s.socket().exists(), "a reconnect probe must not undo explicit stop");
+ }
+ 
+ #[test]
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -94,6 +94,7 @@
+ Usage: hc connect [OPTIONS]
+ 
+ Options:
++      --existing           Connect only to an already running core; never start or replace it
+       --json               JSON output even in a terminal
+       --session <SESSION>  The hc session to reach, like HC_SESSION (one command that reads the same in sh, cmd and PowerShell)
+   -h, --help               Print help

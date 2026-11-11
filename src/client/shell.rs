@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 mod actions;
 mod agent_sidebar;
 mod aggregate_navigation;
-mod machine_diagnostics;
 mod workspace_navigation;
 use workspace_navigation::{PendingWorkspaceHighlight, WorkspaceNavigationTarget};
 mod composition;
@@ -41,8 +40,6 @@ use word_selection::ClientWordSelection;
 
 pub(in crate::client::shell) use render::sidebar;
 pub(crate) use state::*;
-#[cfg(test)]
-pub(super) use surface_patch::apply_composed_surface_patch;
 pub(super) use surface_patch::{ClientComposedSurfacePatch, ClientPaneSurfacePatchOutcome};
 
 use crossterm::event::KeyCode;
@@ -53,7 +50,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
-use super::endpoint::{ClientEndpointId, ClientEndpointStatus, SavedSshEndpoint};
+use super::endpoint::{ClientEndpointId, ClientEndpointStatus};
 use crate::app::state::Palette;
 use crate::config::{
     Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,
@@ -71,10 +68,6 @@ fn target_event_message(target: ClientInputTarget, event: ClientPaneInputEvent) 
     match target {
         ClientInputTarget::Pane(pane_id) => ClientMessage::ClientShellPaneInput {
             pane_id,
-            events: vec![event],
-        },
-        ClientInputTarget::Popup(terminal_id) => ClientMessage::ClientShellPopupInput {
-            terminal_id,
             events: vec![event],
         },
     }
@@ -99,22 +92,6 @@ fn push_target_event(
             }
             outcome.requests.push(target_event_message(
                 ClientInputTarget::Pane(pane_id),
-                event,
-            ));
-        }
-        ClientInputTarget::Popup(terminal_id) => {
-            if let Some(ClientMessage::ClientShellPopupInput {
-                terminal_id: pending_terminal,
-                events,
-            }) = outcome.requests.last_mut()
-            {
-                if *pending_terminal == terminal_id {
-                    events.push(event);
-                    return;
-                }
-            }
-            outcome.requests.push(target_event_message(
-                ClientInputTarget::Popup(terminal_id),
                 event,
             ));
         }

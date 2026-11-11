@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use tracing::{info, warn};
 
-#[cfg(windows)]
-use crate::protocol::ClientInputEvent;
 use crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD;
 use crate::protocol::{ClientClipboardImageTarget, ClientMessage};
 
@@ -62,7 +60,6 @@ pub(super) fn endpoint_accepts_local_images(
     active_surface_available && (remote_client_process || !endpoint_id.is_local())
 }
 
-#[cfg(unix)]
 pub(super) fn should_bridge_clipboard_image_paste(
     data: &[u8],
     is_remote_client: bool,
@@ -88,57 +85,11 @@ pub(super) fn should_bridge_clipboard_image_paste(
     )
 }
 
-#[cfg(windows)]
-pub(super) fn should_bridge_clipboard_image_events(
-    events: &[ClientInputEvent],
-    is_remote_client: bool,
-    remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
-) -> bool {
-    if !is_remote_client {
-        return false;
-    }
-    if matches!(events, [ClientInputEvent::Paste { text }] if text.is_empty()) {
-        return true;
-    }
-
-    let Some(remote_image_paste_key) = remote_image_paste_key else {
-        return false;
-    };
-    matches!(
-        events,
-        [event]
-            if matches!(
-                event.to_raw_input_event(),
-                crate::raw_input::RawInputEvent::Key(key)
-                    if key.kind == crossterm::event::KeyEventKind::Press
-                        && crate::config::terminal_key_matches_combo(
-                            &key,
-                            remote_image_paste_key,
-                        )
-            )
-    )
-}
-
-#[cfg(unix)]
 pub(super) fn read_image_file_from_terminal_drop(
     data: &[u8],
     is_remote_client: bool,
 ) -> Option<crate::platform::ClipboardImage> {
     let (path, extension) = image_path_from_terminal_drop(data, is_remote_client)?;
-    read_image_file(path, extension)
-}
-
-#[cfg(windows)]
-pub(super) fn read_image_file_from_client_events(
-    events: &[ClientInputEvent],
-    is_remote_client: bool,
-) -> Option<crate::platform::ClipboardImage> {
-    let [ClientInputEvent::Paste { text }] = events else {
-        return None;
-    };
-    let text = normalized_terminal_drop_text(text)?;
-    let (path, extension) =
-        image_path_from_drop_text(strip_matching_path_quotes(text), is_remote_client)?;
     read_image_file(path, extension)
 }
 
@@ -168,7 +119,6 @@ fn read_image_file(
     Some(crate::platform::ClipboardImage { bytes, extension })
 }
 
-#[cfg(unix)]
 pub(super) fn image_path_from_terminal_drop(
     data: &[u8],
     is_remote_client: bool,
@@ -200,7 +150,6 @@ fn image_path_from_drop_text(
     Some((path, extension))
 }
 
-#[cfg(unix)]
 fn bracketed_paste_payload(data: &[u8]) -> Option<&[u8]> {
     const START: &[u8] = b"\x1b[200~";
     const END: &[u8] = b"\x1b[201~";
@@ -219,7 +168,6 @@ fn strip_matching_path_quotes(text: &str) -> &str {
     }
 }
 
-#[cfg(unix)]
 fn unescape_terminal_drop_path(text: &str) -> String {
     let mut unescaped = String::with_capacity(text.len());
     let mut chars = text.chars();

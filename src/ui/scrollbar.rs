@@ -2,15 +2,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
-    Frame,
 };
-
-use crate::app::AppState;
-use crate::layout::PaneInfo;
-
-pub(crate) fn pane_scrollbar_rect(info: &PaneInfo) -> Option<Rect> {
-    info.scrollbar_rect
-}
 
 pub(crate) fn release_notes_scrollbar_rect(
     body: Rect,
@@ -159,47 +151,4 @@ pub(crate) fn render_scrollbar_buffer(
         cell.set_symbol(thumb_symbol);
         cell.set_style(Style::default().fg(thumb_color));
     }
-}
-
-pub(crate) fn render_pane_scrollbar_buffer(
-    buffer: &mut Buffer,
-    metrics: crate::pane::ScrollMetrics,
-    track: Rect,
-    palette: &crate::app::state::Palette,
-    focused: bool,
-) {
-    let (track_color, thumb_color, thumb_symbol) = if focused {
-        (palette.overlay0, palette.overlay1, "▐")
-    } else {
-        (palette.surface_dim, palette.overlay0, "▕")
-    };
-    render_scrollbar_buffer(
-        buffer,
-        metrics,
-        track,
-        track_color,
-        thumb_color,
-        thumb_symbol,
-    );
-}
-
-pub(super) fn render_pane_scrollbar(
-    app: &AppState,
-    frame: &mut Frame,
-    info: &PaneInfo,
-    rt: &crate::terminal::TerminalRuntime,
-) {
-    let Some(metrics) = rt.scroll_metrics() else {
-        return;
-    };
-    let Some(track) = pane_scrollbar_rect(info) else {
-        return;
-    };
-    render_pane_scrollbar_buffer(
-        frame.buffer_mut(),
-        metrics,
-        track,
-        &app.palette,
-        info.is_focused,
-    );
 }

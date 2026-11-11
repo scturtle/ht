@@ -41,7 +41,6 @@ impl ClientShellState {
         self.config.mouse_capture
             && self.mode == ClientShellMode::Terminal
             && self.overlay.is_none()
-            && self.popup_terminal_id.is_none()
             && self.outer_focused != Some(false)
             && self.chrome_drag.is_none()
             && self.pane_mouse_gesture.is_none()

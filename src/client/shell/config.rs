@@ -195,12 +195,7 @@ impl ClientShellConfig {
     }
 
     pub(crate) fn with_process_endpoint_preferences(self, socket_path: &std::path::Path) -> Self {
-        self.with_endpoint_preferences(
-            socket_path,
-            std::env::var(crate::remote::REMOTE_PREFERENCES_ENV_VAR)
-                .ok()
-                .as_deref(),
-        )
+        self.with_endpoint_preferences(socket_path, None)
     }
 
     pub(crate) fn with_endpoint_preferences(
@@ -250,9 +245,6 @@ impl ClientShellConfig {
                             crate::protocol::ClientShellCommandAction::Pane => {
                                 crate::config::CommandKeybindType::Pane
                             }
-                            crate::protocol::ClientShellCommandAction::Popup => {
-                                crate::config::CommandKeybindType::Popup
-                            }
                             crate::protocol::ClientShellCommandAction::PluginAction => {
                                 crate::config::CommandKeybindType::PluginAction
                             }
@@ -269,8 +261,6 @@ impl ClientShellConfig {
                             command: command.command_id.clone(),
                             action_type,
                             description: command.description.clone(),
-                            width: None,
-                            height: None,
                         })
                     })
                     .collect();
@@ -296,8 +286,6 @@ impl ClientShellConfig {
                         command: command.command_id.clone(),
                         action,
                         description: command.description.clone(),
-                        width: None,
-                        height: None,
                     });
             }
         }

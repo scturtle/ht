@@ -129,7 +129,6 @@ fn surface() -> PaneSurfaceFrame {
             pixel_height: 0,
         }],
         splits: Vec::new(),
-        popup: None,
         graphics: crate::protocol::SurfaceGraphicsScene::default(),
     }
 }
@@ -219,39 +218,12 @@ fn copy_search_result(
     }
 }
 
-fn surface_with_popup() -> PaneSurfaceFrame {
-    let mut surface = surface();
-    let popup_buffer = Buffer::with_lines(["popup-live", "", ""]);
-    surface.popup = Some(Box::new(crate::protocol::ClientShellPopupSurface {
-        terminal_id: "terminal-popup".into(),
-        title: "popup title".into(),
-        width: Some(crate::protocol::ClientShellPopupSize::Cells(12)),
-        height: Some(crate::protocol::ClientShellPopupSize::Cells(5)),
-        frame: FrameData::from_ratatui_buffer_with_hyperlinks(
-            &popup_buffer,
-            Some(crate::protocol::CursorState {
-                x: 2,
-                y: 1,
-                visible: true,
-                shape: 1,
-            }),
-            &[],
-        ),
-        mouse_reporting: true,
-        sgr_pixel_mouse: false,
-        pixel_width: 0,
-        pixel_height: 0,
-    }));
-    surface
-}
-
 mod agents_worktrees_notifications;
 mod chrome_context;
 mod close_pane;
 mod close_tab;
 mod copy;
 mod endpoint_requests;
-mod endpoints;
 mod graphics;
 mod input_conformance;
 #[path = "input.rs"]
@@ -260,5 +232,4 @@ mod keybindings_settings;
 mod link_hover;
 mod mobile;
 mod mouse_selection;
-mod popup_focus_projection;
 mod startup_overlays;

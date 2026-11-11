@@ -736,12 +736,6 @@ fn blit_frame_to_with_cursor_memory_and_clear_policy(
     let _ = writer.flush();
 }
 
-#[cfg(windows)]
-fn repeat_ime_anchor_after_sync() -> bool {
-    false
-}
-
-#[cfg(not(windows))]
 fn repeat_ime_anchor_after_sync() -> bool {
     true
 }

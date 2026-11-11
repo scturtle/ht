@@ -8,10 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use base64::Engine;
 use ratatui::layout::Rect;
 
-use crate::app::state::AppState;
 use crate::ghostty::{KittyImageDescriptor, KittyImageFormat, KittyImagePlacement};
 use crate::layout::PaneId;
-use crate::terminal::TerminalRuntimeRegistry;
 
 pub(crate) mod output;
 pub(crate) mod surface;
@@ -37,7 +35,7 @@ impl HostCellSize {
 }
 
 #[derive(Debug)]
-struct HostPlacement {
+pub(crate) struct HostPlacement {
     /// Client-local shared pixels; headless placements retain their inline data.
     raw_data: Option<Arc<[u8]>>,
     pane_id: PaneId,
@@ -50,7 +48,7 @@ struct HostPlacement {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-enum HostSourceKey {
+pub(crate) enum HostSourceKey {
     Terminal {
         pane_id: PaneId,
         image_id: u32,
@@ -62,7 +60,7 @@ enum HostSourceKey {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-struct ImageSignature {
+pub(crate) struct ImageSignature {
     image_width: u32,
     image_height: u32,
     format_code: u32,
@@ -112,6 +110,8 @@ pub(crate) struct HostGraphicsCache {
 
 static KITTY_GRAPHICS_ENABLED: AtomicBool = AtomicBool::new(false);
 
+/// The process that owns pane images decides: the retired server set this from
+/// its configuration, and in the Core-backed client the client does.
 pub(crate) fn set_enabled(enabled: bool) {
     KITTY_GRAPHICS_ENABLED.store(enabled, Ordering::Release);
 }
@@ -293,70 +293,42 @@ impl HostGraphicsCache {
     }
 }
 
-fn collect_visible_placements(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    surface: crate::ui::TabSurfaceView<'_>,
+/// Collector restored from the original server implementation: the client owns
+/// the authoritative Ghostty images now, so panes are supplied by the caller.
+///
+/// One entry per pane the surface draws, with that pane's own inner rect. Image
+/// data is fetched only when this connection has not delivered the equivalent
+/// signature yet; Ghostty stays the authoritative store.
+pub(crate) fn collect_visible_placements<'a>(
+    panes: impl IntoIterator<Item = (PaneId, Rect, &'a crate::pane::PaneTerminal)>,
     cell_size: HostCellSize,
     delivered_images: &HashMap<HostSourceKey, ImageSignature>,
 ) -> Vec<HostPlacement> {
-    let Some(target) = surface.target else {
-        tracing::debug!("collect_visible_placements: no tab surface target");
-        return Vec::new();
-    };
-    let ws_idx = target.workspace_index;
-    if app
-        .workspaces
-        .get(ws_idx)
-        .and_then(|workspace| workspace.tabs.get(target.tab_index))
-        .is_none()
-    {
-        tracing::debug!(
-            ws_idx,
-            tab_idx = target.tab_index,
-            "collect_visible_placements: no target tab"
-        );
-        return Vec::new();
-    }
-
-    tracing::debug!(
-        ws_idx,
-        terminal_runtimes_len = terminal_runtimes.len(),
-        pane_infos_len = surface.pane_infos.len(),
-        "collect_visible_placements: starting iteration"
-    );
     let mut placements = Vec::new();
-    for info in surface.pane_infos {
-        let runtime = match app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
-            Some(rt) => rt,
-            None => {
-                tracing::debug!(pane_id = ?info.id, "collect_visible_placements: runtime not found");
-                continue;
-            }
-        };
+    for (pane_id, inner_rect, terminal) in panes {
         let mut requested_images = HashSet::new();
-        let pane_placements = runtime.kitty_image_placements_with_data_filter(|descriptor| {
+        let pane_placements = terminal.kitty_image_placements_with_data_filter(|descriptor| {
             if descriptor.source_file {
                 return false;
             }
-            terminal_image_needs_data(info.id, descriptor, delivered_images, &mut requested_images)
+            terminal_image_needs_data(pane_id, descriptor, delivered_images, &mut requested_images)
         });
         if pane_placements.is_empty() {
             continue;
         }
-        let scrollback_offset = runtime
+        let scrollback_offset = terminal
             .scroll_metrics()
             .map(|m| m.offset_from_bottom as u32)
             .unwrap_or(0);
         for placement in pane_placements {
             placements.push(HostPlacement {
                 raw_data: None,
-                pane_id: info.id,
+                pane_id,
                 host_image_id: None,
-                area: info.inner_rect,
+                area: inner_rect,
                 cell_size,
                 source_key: HostSourceKey::Terminal {
-                    pane_id: info.id,
+                    pane_id,
                     image_id: placement.image_id,
                 },
                 placement,
@@ -364,27 +336,7 @@ fn collect_visible_placements(
             });
         }
     }
-    tracing::debug!(
-        placements_len = placements.len(),
-        "collect_visible_placements: done"
-    );
     placements
-}
-
-fn terminal_image_needs_data(
-    pane_id: PaneId,
-    descriptor: KittyImageDescriptor,
-    delivered_images: &HashMap<HostSourceKey, ImageSignature>,
-    requested_images: &mut HashSet<(HostSourceKey, ImageSignature)>,
-) -> bool {
-    let format_code = kitty_format_code(descriptor.format);
-    let signature = image_signature_from_descriptor(descriptor, format_code);
-    let source = HostSourceKey::Terminal {
-        pane_id,
-        image_id: descriptor.image_id,
-    };
-    delivered_images.get(&source).copied() != Some(signature)
-        && requested_images.insert((source, signature))
 }
 
 fn host_image_id(pane_id: PaneId, placement: &KittyImagePlacement) -> u32 {
@@ -423,7 +375,6 @@ fn host_placement_id(source_key: &HostSourceKey, placement: &KittyImagePlacement
     1 + ((hasher.finish() as u32) % 900_000)
 }
 
-#[cfg(unix)]
 pub(crate) fn encode_kitty_regular_file(
     out: &mut Vec<u8>,
     leading: &[u8],
@@ -717,6 +668,22 @@ pub(crate) fn write_kitty_data(
     Ok(())
 }
 
+fn terminal_image_needs_data(
+    pane_id: PaneId,
+    descriptor: KittyImageDescriptor,
+    delivered_images: &HashMap<HostSourceKey, ImageSignature>,
+    requested_images: &mut HashSet<(HostSourceKey, ImageSignature)>,
+) -> bool {
+    let format_code = kitty_format_code(descriptor.format);
+    let signature = image_signature_from_descriptor(descriptor, format_code);
+    let source = HostSourceKey::Terminal {
+        pane_id,
+        image_id: descriptor.image_id,
+    };
+    delivered_images.get(&source).copied() != Some(signature)
+        && requested_images.insert((source, signature))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -829,7 +796,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn regular_file_command_is_rgba_quiet_zero_and_path_encoded() {
         let mut bytes = Vec::new();

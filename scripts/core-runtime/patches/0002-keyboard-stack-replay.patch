@@ -1,0 +1,246 @@
+--- a/crates/ghostty-vt/src/lib.rs
++++ b/crates/ghostty-vt/src/lib.rs
+@@ -2,6 +2,8 @@
+ 
+ use std::ffi::c_void;
+ use std::ptr;
++
++mod keyboard_replay;
+ 
+ mod ffi {
+     use std::ffi::c_void;
+@@ -189,6 +191,7 @@
+         pub fn ghostty_terminal_free(t: Terminal);
+         pub fn ghostty_terminal_set(t: Terminal, opt: i32, value: *const c_void) -> i32;
+         pub fn ghostty_terminal_get(t: Terminal, data: i32, out: *mut c_void) -> i32;
++        pub fn ghostty_terminal_keyboard_stacks_v1(t: Terminal, out: *mut u8);
+         pub fn ghostty_terminal_vt_write(t: Terminal, data: *const u8, len: usize);
+         pub fn ghostty_terminal_vt_write_until_ground(
+             t: Terminal,
+@@ -721,6 +724,15 @@
+                 out.extend(b"\x1b[H\x1b[2J");
+             }
+         }
++        let mut stacks = [[0u8; 9]; 2];
++        unsafe { ffi::ghostty_terminal_keyboard_stacks_v1(self.raw, stacks.as_mut_ptr().cast()) };
++        // Restore inactive state before painting the active screen. Temporary
++        // 47 switches leave their alias off; the normal 1049 paint below keeps
++        // both the active screen and its published mode bits canonical.
++        out.extend_from_slice(b"\x1b[?47h");
++        keyboard_replay::restore(&mut out, &stacks[1]);
++        out.extend_from_slice(b"\x1b[?47l");
++        keyboard_replay::restore(&mut out, &stacks[0]);
+         if self.alt_screen() {
+             out.extend(b"\x1b[?1049h");
+         }
+@@ -794,4 +806,6 @@
+ }
+ 
+ #[cfg(test)]
++mod keyboard_tests;
++#[cfg(test)]
+ mod tests;
+--- /dev/null
++++ b/crates/ghostty-vt/src/keyboard_tests.rs
+@@ -0,0 +1,74 @@
++use super::*;
++
++fn flags(terminal: &mut Terminal) -> Vec<u8> {
++    terminal.take_responses();
++    terminal.write(b"\x1b[?u");
++    terminal.take_responses()
++}
++
++#[test]
++fn kitty_keyboard_paint_preserves_stack_in_fresh_and_dirty_viewers_including_overflow() {
++    for pushes in [0, 2, 7, 10] {
++        let mut original = Terminal::new(40, 10, 0);
++        original.write(b"\x1b[=1;1u");
++        for n in 0..pushes {
++            original.write(format!("\x1b[>{}u", (n * 3 + 5) % 32).as_bytes());
++        }
++        let snapshot = original.snapshot().unwrap();
++        for dirty in [false, true] {
++            let mut source = Terminal::restore(&snapshot, 0).unwrap();
++            let mut viewer = Terminal::new(40, 10, 0);
++            if dirty {
++                viewer.write(b"\x1b[=31;1u\x1b[>7u\x1b[>3u\x1b[>9u");
++            }
++            viewer.write(&source.paint(0));
++            for pop in 0..10 {
++                assert_eq!(flags(&mut viewer), flags(&mut source), "pushes={pushes} dirty={dirty} after_pops={pop}");
++                viewer.write(b"\x1b[<u");
++                source.write(b"\x1b[<u");
++            }
++        }
++    }
++}
++
++#[test]
++fn kitty_keyboard_paint_preserves_inactive_screen_stack_across_later_screen_switches() {
++    for active_alt in [false, true] {
++        let mut source = Terminal::new(40, 10, 0);
++        source.write(b"\x1b[=1;1u\x1b[>3u\x1b[>5u\x1b[?1049h\x1b[=7;1u\x1b[>9u\x1b[>17u");
++        if !active_alt {
++            source.write(b"\x1b[?1049l");
++        }
++        let mut viewer = Terminal::new(40, 10, 0);
++        viewer.write(b"\x1b[=31;1u\x1b[>15u\x1b[?1049h\x1b[=25;1u\x1b[>30u");
++        viewer.write(&source.paint(0));
++        assert_eq!(viewer.alt_screen(), source.alt_screen());
++        for change in [
++            b"".as_slice(),
++            b"\x1b[<u",
++            b"\x1b[?1049l",
++            b"\x1b[<u",
++            b"\x1b[<u",
++            b"\x1b[?1049h",
++            b"\x1b[<u",
++            b"\x1b[<2u",
++            b"\x1b[?1049l",
++        ] {
++            source.write(change);
++            viewer.write(change);
++            assert_eq!(flags(&mut source), flags(&mut viewer), "active_alt={active_alt} change={change:?}");
++        }
++    }
++}
++
++#[test]
++fn kitty_keyboard_binary_snapshot_retains_both_screen_stacks_and_future_pops() {
++    let mut source = Terminal::new(40, 10, 0);
++    source.write(b"\x1b[=1;1u\x1b[>3u\x1b[>5u\x1b[?1049h\x1b[=7;1u\x1b[>9u\x1b[>17u");
++    let mut restored = Terminal::restore(&source.snapshot().unwrap(), 0).unwrap();
++    for change in [b"".as_slice(), b"\x1b[<u", b"\x1b[?1049l", b"\x1b[<u", b"\x1b[<u", b"\x1b[?1049h", b"\x1b[<u"] {
++        source.write(change);
++        restored.write(change);
++        assert_eq!(flags(&mut source), flags(&mut restored));
++    }
++}
+--- /dev/null
++++ b/crates/ghostty-vt/src/keyboard_replay.rs
+@@ -0,0 +1,30 @@
++//! Bounded Kitty flag-ring replay, including entries retained after overflow.
++fn number(out: &mut Vec<u8>, value: u8) {
++    if value >= 10 {
++        out.push(b'0' + value / 10);
++    }
++    out.push(b'0' + value % 10);
++}
++fn push(out: &mut Vec<u8>, flags: u8) {
++    out.extend_from_slice(b"\x1b[>");
++    number(out, flags);
++    out.push(b'u');
++}
++pub(super) fn restore(out: &mut Vec<u8>, state: &[u8; 9]) {
++    let current = usize::from(state[0]);
++    let flags = &state[1..];
++    out.extend_from_slice(b"\x1b[<8u\x1b[=");
++    number(out, flags[0]);
++    out.extend_from_slice(b";1u");
++    let last = if flags[current + 1..].iter().any(|f| *f != 0) { flags.len() - 1 } else { current };
++    for flags in &flags[1..last + 1] {
++        push(out, *flags);
++    }
++    if last > current {
++        // A pop would erase live entries above the current index. Wrap through
++        // the ring with matching pushes instead, restoring every retained slot.
++        for flags in &flags[..current + 1] {
++            push(out, *flags);
++        }
++    }
++}
+--- a/crates/herdr-core/src/api.rs
++++ b/crates/herdr-core/src/api.rs
+@@ -13,8 +13,17 @@
+ use std::time::Duration;
+ 
+ pub const GENERATION: u32 = 1;
+-pub const FEATURES: &[&str] =
+-    &["framed", "attach", "events", "status", "shell", "resize_notifications", "automatic_input", "ordered_attach"];
++pub const FEATURES: &[&str] = &[
++    "framed",
++    "attach",
++    "events",
++    "status",
++    "shell",
++    "resize_notifications",
++    "automatic_input",
++    "ordered_attach",
++    "keyboard_stacks_v1",
++];
+ pub const FINISHED_LINES: usize = 1000;
+ /// A terminal's identity: fixed at start from whoever starts it.
+ pub const IDENTITY_VARS: &[&str] = &["TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM"];
+--- a/crates/herdr-core/src/SKILL.md
++++ b/crates/herdr-core/src/SKILL.md
+@@ -142,7 +142,10 @@
+ grid without claiming leadership, including when it is the only viewer; later
+ explicit focus, input or resize activates it. Remote ordered attach is explicitly
+ rejected, not downgraded.
+-This extension does not claim graphics or exact restart/snapshot fidelity.
++`keyboard_stacks_v1` separately advertises complete bounded Kitty keyboard flag
++stack replay, including inactive screen state, dirty viewers and overflow. Binary
++snapshot round trips retain both stacks. These extensions do not claim graphics
++replay or failure-safe exact server restart.
+ 
+ ```sh
+ hc run cargo test                  # wait, stream output, return its exit code
+--- a/vendor/ghostty/src/terminal/c/terminal.zig
++++ b/vendor/ghostty/src/terminal/c/terminal.zig
+@@ -1912,6 +1912,19 @@
+     }
+ };
+ 
++/// Local opt-in replay API: primary then alternate, each [index, flags x 8].
++/// Fixed-size v1 output; no allocation or mutation of either screen.
++pub fn keyboard_stacks_v1(terminal_: Terminal, out: *[18]u8) callconv(lib.calling_conv) void {
++    @memset(out, 0);
++    const wrapper = terminal_ orelse return;
++    for ([_]ScreenSet.Key{ .primary, .alternate }, 0..) |key, index| {
++        const screen = wrapper.terminal.screens.get(key) orelse continue;
++        comptime std.debug.assert((kitty.FlagStack{}).flags.len == 8);
++        out[index * 9] = screen.kitty_keyboard.idx;
++        for (screen.kitty_keyboard.flags, 0..) |flags, n| out[index * 9 + 1 + n] = flags.int();
++    }
++}
++
+ pub fn get(
+     terminal_: Terminal,
+     data: TerminalData,
+--- a/vendor/ghostty/src/terminal/c/main.zig
++++ b/vendor/ghostty/src/terminal/c/main.zig
+@@ -192,6 +192,7 @@
+ pub const terminal_compression_activity = terminal.compression_activity;
+ pub const terminal_compress = terminal.compress;
+ pub const terminal_get = terminal.get;
++pub const terminal_keyboard_stacks_v1 = terminal.keyboard_stacks_v1;
+ pub const terminal_get_multi = terminal.get_multi;
+ pub const terminal_continuation_write = terminal.continuation_write;
+ pub const terminal_continuation_buf = terminal.continuation_buf;
+--- a/vendor/ghostty/src/lib_vt.zig
++++ b/vendor/ghostty/src/lib_vt.zig
+@@ -329,6 +329,7 @@
+         @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
+         @export(&c.terminal_compress, .{ .name = "ghostty_terminal_compress" });
+         @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
++        @export(&c.terminal_keyboard_stacks_v1, .{ .name = "ghostty_terminal_keyboard_stacks_v1" });
+         @export(&c.terminal_get_multi, .{ .name = "ghostty_terminal_get_multi" });
+         @export(&c.terminal_continuation_write, .{ .name = "ghostty_terminal_continuation_write" });
+         @export(&c.terminal_continuation_buf, .{ .name = "ghostty_terminal_continuation_buf" });
+--- a/vendor/ghostty/include/ghostty/vt/terminal.h
++++ b/vendor/ghostty/include/ghostty/vt/terminal.h
+@@ -3314,6 +3314,13 @@
+  *
+  * @ingroup terminal
+  */
++/** Local replay extension. Writes exactly 18 bytes: primary then alternate,
++ * each an index followed by eight Kitty keyboard flag bytes. An absent screen
++ * or null terminal yields zeroes. The output pointer must address 18 bytes.
++ * Does not allocate or mutate terminal state. */
++GHOSTTY_API void ghostty_terminal_keyboard_stacks_v1(GhosttyTerminal terminal,
++                                                   uint8_t out_state[18]);
++
+ GHOSTTY_API GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
+                                     GhosttyTerminalData data,
+                                     void *out);

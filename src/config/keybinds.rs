@@ -6,7 +6,6 @@ use tracing::warn;
 
 use super::Config;
 use crate::input::TerminalKey;
-use crate::popup_size::PopupSize;
 
 pub type KeyCombo = (KeyCode, KeyModifiers);
 
@@ -114,7 +113,6 @@ pub enum CommandKeybindType {
     #[default]
     Shell,
     Pane,
-    Popup,
     PluginAction,
 }
 
@@ -130,10 +128,6 @@ pub struct CommandKeybindConfig {
     pub action_type: CommandKeybindType,
     /// Optional user-defined description for this custom command.
     pub description: Option<String>,
-    /// Optional popup width as cells or a percentage string when type = "popup".
-    pub width: Option<PopupSize>,
-    /// Optional popup height as cells or a percentage string when type = "popup".
-    pub height: Option<PopupSize>,
 }
 
 impl Default for CommandKeybindConfig {
@@ -143,8 +137,6 @@ impl Default for CommandKeybindConfig {
             command: String::new(),
             action_type: CommandKeybindType::Shell,
             description: None,
-            width: None,
-            height: None,
         }
     }
 }
@@ -153,7 +145,6 @@ impl Default for CommandKeybindConfig {
 pub enum CustomCommandAction {
     Shell,
     Pane,
-    Popup,
     PluginAction,
 }
 
@@ -332,8 +323,6 @@ pub struct CustomCommandKeybind {
     pub command: String,
     pub action: CustomCommandAction,
     pub description: Option<String>,
-    pub width: Option<PopupSize>,
-    pub height: Option<PopupSize>,
 }
 
 /// Parsed keybinds for Herdr actions.
@@ -829,20 +818,7 @@ fn append_custom_command_bindings(
         let action = match command.action_type {
             CommandKeybindType::Shell => CustomCommandAction::Shell,
             CommandKeybindType::Pane => CustomCommandAction::Pane,
-            CommandKeybindType::Popup => CustomCommandAction::Popup,
             CommandKeybindType::PluginAction => CustomCommandAction::PluginAction,
-        };
-        let (width, height) = if action == CustomCommandAction::Popup {
-            (command.width, command.height)
-        } else {
-            if command.width.is_some() || command.height.is_some() {
-                let diag = format!(
-                    "popup size on non-popup custom command: keys.command[{index}]; ignoring width and height"
-                );
-                warn!(message = %diag, "config diagnostic");
-                diagnostics.push(diag);
-            }
-            (None, None)
         };
         let label = bindings.label().unwrap_or_else(|| "unset".to_string());
         keybinds.custom_commands.push(CustomCommandKeybind {
@@ -851,8 +827,6 @@ fn append_custom_command_bindings(
             command: command.command.clone(),
             action,
             description: command.description.clone(),
-            width,
-            height,
         });
     }
 }
@@ -1221,7 +1195,7 @@ pub fn format_key_combo(binding: KeyCombo) -> String {
 }
 
 fn super_modifier_label() -> &'static str {
-    if cfg!(target_os = "macos") {
+    if false {
         "cmd"
     } else {
         "super"
@@ -2523,55 +2497,5 @@ description = "say hello"
             keybinds.custom_commands[0].description,
             Some("say hello".to_string())
         );
-    }
-
-    #[test]
-    fn custom_popup_command_parses() {
-        let config: Config = toml::from_str(
-            r#"
-[[keys.command]]
-key = "prefix+g"
-command = "lazygit"
-type = "popup"
-width = 90
-height = "80%"
-"#,
-        )
-        .unwrap();
-        let keybinds = config.keybinds();
-        assert_eq!(keybinds.custom_commands.len(), 1);
-        assert_eq!(
-            keybinds.custom_commands[0].action,
-            CustomCommandAction::Popup
-        );
-        assert_eq!(
-            keybinds.custom_commands[0].width,
-            Some(PopupSize::Cells(90))
-        );
-        assert_eq!(
-            keybinds.custom_commands[0].height,
-            Some(PopupSize::Percent(80))
-        );
-    }
-
-    #[test]
-    fn non_popup_custom_command_ignores_popup_size_with_diagnostic() {
-        let config: Config = toml::from_str(
-            r#"
-[[keys.command]]
-key = "prefix+g"
-command = "lazygit"
-type = "pane"
-width = "80%"
-"#,
-        )
-        .unwrap();
-
-        let keybinds = config.keybinds();
-        assert_eq!(keybinds.custom_commands[0].width, None);
-        assert!(config
-            .collect_diagnostics()
-            .iter()
-            .any(|diag| diag.contains("popup size on non-popup custom command")));
     }
 }

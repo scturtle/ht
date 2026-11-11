@@ -1,35 +1,6 @@
 use super::*;
 use crate::client::endpoint::{ClientEndpointId, ClientEndpointStatus};
 
-fn pending_popup() -> (ClientShellState, Vec<ClientShellAction>) {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("t"),
-        label: "prefix+t".into(),
-        command: "popup-command".into(),
-        action: crate::config::CustomCommandAction::Popup,
-        description: None,
-        width: None,
-        height: None,
-    };
-    let mut projection = snapshot();
-    projection
-        .commands
-        .push(crate::protocol::ClientShellCommand {
-            command_id: "cmd_popup".into(),
-            binding_label: binding.label.clone(),
-            binding_labels: binding.bindings.labels(),
-            action: crate::protocol::ClientShellCommandAction::Popup,
-            description: None,
-        });
-    state.set_snapshot(Box::new(projection));
-    state.set_pane_surface(surface());
-    let mut outcome = ClientShellInput::default();
-    state.record_binding(crate::input::KeybindMatch::Command(binding), &mut outcome);
-    assert!(state.popup_pending);
-    (state, outcome.actions)
-}
-
 fn pending_worktree() -> (ClientShellState, Vec<ClientShellAction>) {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
@@ -90,23 +61,6 @@ fn worktree_created_result() -> crate::api::schema::ResponseResult {
     .unwrap()
 }
 
-fn add_remote(state: &mut ClientShellState) -> ClientEndpointId {
-    let profile = crate::client::endpoint::SavedSshEndpoint {
-        id: crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
-        label: "Build".into(),
-        target: "dev@build.example".into(),
-        session: "agents".into(),
-        enabled: true,
-    };
-    let remote = ClientEndpointId::Ssh(profile.id.clone());
-    state.set_endpoint_catalog(&[profile]);
-    state.set_endpoint_status(&remote, ClientEndpointStatus::Online);
-    let mut projection = snapshot();
-    projection.boot_id = "remote-boot".into();
-    state.set_endpoint_snapshot(&remote, Box::new(projection));
-    remote
-}
-
 #[test]
 fn worktree_create_leaves_server_focus_unchanged() {
     let (_, actions) = pending_worktree();
@@ -121,13 +75,9 @@ fn worktree_create_leaves_server_focus_unchanged() {
 
 #[test]
 fn worktree_create_success_focuses_returned_tab_on_its_endpoint_after_snapshot_update() {
-    for use_remote in [false, true] {
+    {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(snapshot()));
-        if use_remote {
-            let remote = add_remote(&mut state);
-            assert!(state.activate_endpoint_projection(&remote));
-        }
         let (mut state, actions) = submit_worktree(state);
         let endpoint_id = state.active_endpoint_id.clone();
         let mut updated = state.snapshot.clone().unwrap();
@@ -168,22 +118,6 @@ fn worktree_create_success_focuses_returned_tab_on_its_endpoint_after_snapshot_u
 }
 
 #[test]
-fn worktree_create_late_success_does_not_focus_after_switching_away_and_back() {
-    let (mut state, actions) = pending_worktree();
-    let remote = add_remote(&mut state);
-    assert!(state.activate_endpoint_projection(&remote));
-    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
-    assert!(state
-        .handle_endpoint_result(
-            "boot-1",
-            request_id(&actions),
-            Ok(worktree_created_result())
-        )
-        .1
-        .is_empty());
-}
-
-#[test]
 fn worktree_create_cancelled_or_failed_request_never_focuses() {
     for cancel in [false, true] {
         let (mut state, actions) = pending_worktree();
@@ -206,21 +140,6 @@ fn worktree_create_cancelled_or_failed_request_never_focuses() {
             .1
             .is_empty());
     }
-}
-
-#[test]
-fn cancelling_popup_request_unblocks_input_and_ignores_late_success() {
-    let (mut state, actions) = pending_popup();
-    let id = request_id(&actions);
-    assert!(state.cancel_endpoint_request(id));
-    assert!(!state.popup_pending);
-    assert!(state.pending_requests.is_empty());
-    assert!(state
-        .handle_endpoint_result("boot-1", id, Ok(crate::api::schema::ResponseResult::Ok {}))
-        .1
-        .is_empty());
-    assert!(!state.popup_pending);
-    assert!(!state.handle_input_bytes(b"x").requests.is_empty());
 }
 
 #[test]
@@ -338,7 +257,11 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
     use crate::client::endpoint::{EndpointNegotiation, EndpointRegistry};
     use crate::client::endpoint_commands::EndpointCommands;
 
-    let (mut state, actions) = pending_popup();
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    let actions =
+        state.focus_endpoint_target(ClientEndpointFocusTarget::Workspace("ws_stale".into()));
     let stale_id = request_id(&actions).to_owned();
     let current = state.focus_endpoint_target(ClientEndpointFocusTarget::Workspace("ws_1".into()));
     let current_id = request_id(&current).to_owned();
@@ -364,7 +287,6 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
     let cancelled = commands.send_next(&ClientEndpointId::Local, &mut endpoints);
     assert_eq!(cancelled, vec![stale_id.clone()]);
     state.cancel_endpoint_request(&stale_id);
-    assert!(!state.popup_pending);
     assert!(!commands.accepts_response(&ClientEndpointId::Local, 1, "boot-1", &stale_id));
     assert!(commands.accepts_response(&ClientEndpointId::Local, 2, "boot-1", &current_id));
     assert!(state.pending_requests.contains_key(&current_id));
@@ -472,15 +394,4 @@ fn cancelled_link_activation_does_not_replay_mouse_input() {
     );
     assert!(actions.is_empty());
     assert!(state.url_click_consumes_until_up);
-}
-
-#[test]
-fn another_machine_disconnect_does_not_cancel_active_popup() {
-    let (mut state, _) = pending_popup();
-    let remote = ClientEndpointId::Ssh(
-        crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
-    );
-    state.mark_endpoint_disconnected(&remote);
-    assert!(state.popup_pending);
-    assert_eq!(state.pending_requests.len(), 1);
 }

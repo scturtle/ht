@@ -34,10 +34,6 @@ impl EndpointNegotiation {
         }
     }
 
-    pub(crate) fn methods(&self) -> Vec<String> {
-        self.methods.iter().cloned().collect()
-    }
-
     pub(crate) fn supports_method(&self, method: &str) -> bool {
         self.methods.contains(method)
     }
@@ -127,11 +123,6 @@ impl EndpointRegistry {
                 .connections
                 .get(&self.active)
                 .is_some_and(|connection| connection.surface_active)
-    }
-
-    pub(crate) fn select_unavailable_local(&mut self) {
-        self.active = ClientEndpointId::Local;
-        self.freeze_input();
     }
 
     pub(crate) fn freeze_input(&mut self) {

@@ -74,11 +74,12 @@ class VendorLibghosttyVtTests(unittest.TestCase):
 
     def test_vendored_tree_contains_required_upstream_files(self) -> None:
         root = Path(__file__).resolve().parent.parent / "vendor" / "libghostty-vt"
+        # This fork builds the vendored tree with `zig build` only: the CMake and
+        # dist packaging files were removed with the rest of the upstream clutter.
         required = [
             root / "build.zig",
             root / "build.zig.zon",
-            root / "CMakeLists.txt",
-            root / "dist" / "cmake" / "ghostty-vt-config.cmake.in",
+            root / "VERSION",
             root / "include" / "ghostty" / "vt.h",
             root / "include" / "ghostty" / "vt" / "render.h",
             root / "src" / "lib_vt.zig",

@@ -2,16 +2,9 @@ use super::*;
 
 /// Internal events for the client event loop.
 pub(super) enum ClientLoopEvent {
-    #[cfg(unix)]
     StdinInput(Vec<u8>),
-    #[cfg(unix)]
     PixelMouse(Vec<u8>, crate::input::mouse::HostGeometry),
-    #[cfg(unix)]
     DirectGraphicsResponse(direct_graphics::Response),
-    #[cfg(windows)]
-    StdinEvents(Vec<crate::protocol::ClientInputEvent>),
-    #[cfg(windows)]
-    NotificationActivated(shell::ClientSystemNotificationTarget),
     Resize(u16, u16, u32, u32, bool),
     TerminalUnavailable(io::Error),
     ServerMessage {
@@ -23,8 +16,6 @@ pub(super) enum ClientLoopEvent {
         endpoint_id: endpoint::ClientEndpointId,
         generation: u64,
     },
-    EndpointSupervisor(endpoint::EndpointSupervisorEvent),
-    EndpointCatalog(Result<Vec<endpoint::SavedSshEndpoint>, String>),
     HostPower(crate::platform::HostPowerEvent),
     ActivateEndpoint {
         endpoint_id: endpoint::ClientEndpointId,

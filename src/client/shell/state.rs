@@ -91,7 +91,6 @@ pub(super) struct ShellHitMap {
     pub(super) workspace_max_scroll: usize,
     pub(super) tabs: Vec<(Rect, String)>,
     pub(super) panes: Vec<PaneHit>,
-    pub(super) popup: Option<PaneHit>,
     pub(super) pane_splits: Vec<PaneSplitHit>,
     pub(super) agents: Vec<(Rect, String)>,
     pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String)>,
@@ -147,7 +146,6 @@ pub(super) struct PaneHit {
     pub(super) scrollbar_rect: Option<Rect>,
     pub(super) scroll: Option<crate::pane::ScrollMetrics>,
     pub(super) pane_id: String,
-    pub(super) popup: bool,
     pub(super) mouse_reporting: bool,
     pub(super) sgr_pixel_mouse: bool,
     pub(super) pixel_width: u32,
@@ -624,7 +622,6 @@ pub(super) enum PendingEndpointKind {
         id: String,
     },
     ReleaseNotesDismiss,
-    PopupCommand,
     ReloadConfig,
     IntegrationList,
     IntegrationInstall,
@@ -722,17 +719,7 @@ pub(crate) enum ClientShellNotificationEffect {
     System {
         title: String,
         body: Option<String>,
-        #[cfg(windows)]
-        target: Option<ClientSystemNotificationTarget>,
     },
-}
-
-#[cfg(windows)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ClientSystemNotificationTarget {
-    pub(crate) endpoint_id: ClientEndpointId,
-    pub(crate) boot_id: String,
-    pub(crate) pane_id: String,
 }
 
 pub(super) struct ClientPendingNotification {
@@ -752,15 +739,12 @@ pub(super) struct ClientVisibleNotification {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ClientInputTarget {
     Pane(String),
-    Popup(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ClientInputContext {
     pub(super) mode: ClientShellMode,
     pub(super) overlay: Option<ClientShellOverlayKind>,
-    pub(super) popup_terminal_id: Option<String>,
-    pub(super) popup_pending: bool,
     pub(super) retained_selection: bool,
 }
 
@@ -857,7 +841,6 @@ pub(super) struct ClientCopyModeState {
 }
 
 pub(crate) struct ClientShellState {
-    pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
     pub(super) active_snapshot_generation: Option<u64>,
@@ -868,7 +851,6 @@ pub(crate) struct ClientShellState {
     pub(super) pending_pane_surface: Option<PaneSurfaceFrame>,
     pub(super) graphics: crate::kitty_graphics::surface::ClientState,
     pub(super) graphics_cell_size: crate::kitty_graphics::HostCellSize,
-    pub(super) popup_terminal_id: Option<String>,
     pub(super) sidebar_collapsed: bool,
     pub(super) sidebar_collapsed_manual: bool,
     pub(super) sidebar_width: u16,
@@ -938,8 +920,6 @@ pub(crate) struct ClientShellState {
     pub(super) copy_feedback_deadline: Option<std::time::Instant>,
     pub(super) host_mouse_pixels: Option<crate::input::mouse::HostPixels>,
     pub(super) input_leases: ClientInputLeases,
-    pub(super) popup_pending: bool,
-    pub(super) popup_pending_deadline: Option<std::time::Instant>,
     pub(super) next_request_id: u64,
     pub(super) pending_requests: HashMap<String, PendingEndpointRequest>,
     pub(super) pending_integration_installs: usize,
@@ -1030,7 +1010,6 @@ impl ClientShellState {
                 .extend(saved.collapsed_groups);
         }
         Self {
-            machine_diagnostics: Default::default(),
             config,
             snapshot: None,
             active_snapshot_generation: None,
@@ -1042,7 +1021,6 @@ impl ClientShellState {
                 width_px: 1,
                 height_px: 1,
             },
-            popup_terminal_id: None,
             sidebar_collapsed,
             sidebar_collapsed_manual: preferences.sidebar_collapsed.is_some(),
             sidebar_width,
@@ -1106,8 +1084,6 @@ impl ClientShellState {
             copy_feedback_deadline: None,
             host_mouse_pixels: None,
             input_leases: ClientInputLeases::default(),
-            popup_pending: false,
-            popup_pending_deadline: None,
             next_request_id: 1,
             pending_requests: HashMap::new(),
             pending_integration_installs: 0,
@@ -1241,7 +1217,6 @@ impl ClientShellState {
         self.pane_surface = None;
         self.pending_pane_surface = None;
         self.input_leases = ClientInputLeases::default();
-        self.popup_terminal_id = None;
         self.chrome_drag = None;
         self.workspace_press = None;
         self.tab_press = None;
@@ -1261,8 +1236,6 @@ impl ClientShellState {
         self.pane_scroll_in_flight.clear();
         self.pane_scroll_queued.clear();
         self.pane_scroll_targets.clear();
-        self.popup_pending = false;
-        self.popup_pending_deadline = None;
         self.pending_integration_installs = 0;
         self.endpoint_notice_seen.clear();
         self.visible_endpoint_notice = None;
@@ -1662,55 +1635,6 @@ impl ClientShellState {
             self.hits = ShellHitMap::default();
         }
         self.acknowledge_active_surface_agents(&surface);
-        let previous_popup = self.popup_terminal_id.clone();
-        let next_popup = surface
-            .popup
-            .as_deref()
-            .map(|popup| popup.terminal_id.clone());
-        if previous_popup != next_popup {
-            if next_popup.is_some() && matches!(self.overlay, Some(ClientShellOverlay::Settings(_)))
-            {
-                self.cancel_settings_overlay();
-            }
-            if let Some(terminal_id) = previous_popup.as_ref() {
-                self.input_leases
-                    .remove_target(&ClientInputTarget::Popup(terminal_id.clone()));
-            }
-            self.mode = ClientShellMode::Terminal;
-            self.navigate_workspace_id = None;
-            if !matches!(
-                self.overlay.as_ref(),
-                Some(ClientShellOverlay::Onboarding | ClientShellOverlay::ProductAnnouncement(_))
-            ) {
-                self.overlay = self
-                    .config
-                    .startup_onboarding
-                    .then_some(ClientShellOverlay::Onboarding);
-            }
-            self.selection = None;
-            self.last_pane_click = None;
-            self.selection_autoscroll = None;
-            self.selection_autoscroll_deadline = None;
-            self.selection_highlight_clear_deadline = None;
-            self.word_selection_gesture = None;
-            self.copy_mode = None;
-            self.reset_copy_pipeline();
-            self.chrome_drag = None;
-            self.workspace_press = None;
-            self.tab_press = None;
-            if self.pane_mouse_gesture.as_ref().is_some_and(|gesture| {
-                gesture.hit.popup && previous_popup.as_deref() == Some(gesture.hit.pane_id.as_str())
-            }) {
-                self.pane_mouse_gesture = None;
-            }
-            self.hits.popup = None;
-            self.endpoint_error = None;
-            self.endpoint_error_deadline = None;
-        }
-        if next_popup.is_some() {
-            self.popup_pending = false;
-            self.popup_pending_deadline = None;
-        }
         let selection_pane = match &self.word_selection_gesture {
             Some(gesture) => Some(&gesture.pane_id),
             None => self.selection.as_ref().map(|selection| &selection.pane_id),
@@ -1799,7 +1723,6 @@ impl ClientShellState {
             self.stop_selection_autoscroll();
             self.selection_highlight_clear_deadline = None;
         }
-        self.popup_terminal_id = next_popup;
         self.graphics
             .set_scene(std::mem::take(&mut surface.graphics));
         self.pane_surface = Some(surface);
@@ -1807,16 +1730,6 @@ impl ClientShellState {
         self.invalidate_link_hover();
         self.resume_mobile_switcher_if_ready();
         self.reconcile_input_source();
-    }
-
-    pub(crate) fn tick_popup_pending(&mut self, now: std::time::Instant) {
-        if self
-            .popup_pending_deadline
-            .is_some_and(|deadline| now >= deadline)
-        {
-            self.popup_pending = false;
-            self.popup_pending_deadline = None;
-        }
     }
 
     pub(crate) fn show_copy_feedback(&mut self, now: std::time::Instant) -> bool {

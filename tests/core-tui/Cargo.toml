@@ -1,0 +1,18 @@
+[package]
+name = "herdr-tui-test-tools"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+autobins = false
+
+# Test-only screen decoder, separate from Herdr's runtime workspace/lockfile.
+[workspace]
+
+[[bin]]
+name = "screen-oracle"
+path = "src/bin/screen-oracle.rs"
+
+[dependencies]
+serde_json = "1"
+vt100 = "0.16"

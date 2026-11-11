@@ -1,4 +1,3 @@
-#[cfg(not(windows))]
 use crossterm::event::KeyboardEnhancementFlags;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
@@ -32,13 +31,13 @@ impl TextCommit {
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhysicalKeyId(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyIdentity {
-    #[cfg(any(windows, test))]
+    #[cfg(test)]
     Physical(PhysicalKeyId),
     Semantic(KeyCode),
 }
@@ -49,14 +48,14 @@ pub(crate) enum KeySource {
     Vt {
         bytes: Vec<u8>,
     },
-    #[cfg(any(windows, test))]
+    #[cfg(test)]
     WindowsConsole {
         record: WindowsKeyRecord,
         physical_key: Option<PhysicalKeyId>,
     },
 }
 
-#[cfg(any(windows, test))]
+#[cfg(test)]
 impl WindowsKeyRecord {
     fn physical_key_id(self) -> Option<PhysicalKeyId> {
         const ENHANCED_KEY: u32 = 0x0100;
@@ -154,7 +153,7 @@ impl TerminalKey {
         self
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(test)]
     pub fn with_windows_record(mut self, record: WindowsKeyRecord) -> Self {
         self = self.with_windows_composition_hint(Some(record));
         self.repeat_count = if self.kind == crossterm::event::KeyEventKind::Release {
@@ -196,12 +195,12 @@ impl TerminalKey {
     }
 
     pub(crate) fn windows_record(&self) -> Option<WindowsKeyRecord> {
-        #[cfg(any(windows, test))]
+        #[cfg(test)]
         match self.source {
             KeySource::WindowsConsole { record, .. } => Some(record),
             KeySource::Synthesized | KeySource::Vt { .. } => None,
         }
-        #[cfg(not(any(windows, test)))]
+        #[cfg(not(test))]
         None
     }
 
@@ -211,12 +210,12 @@ impl TerminalKey {
 
     pub(crate) fn identity(&self) -> KeyIdentity {
         match self.source {
-            #[cfg(any(windows, test))]
+            #[cfg(test)]
             KeySource::WindowsConsole {
                 physical_key: Some(physical_key),
                 ..
             } => KeyIdentity::Physical(physical_key),
-            #[cfg(any(windows, test))]
+            #[cfg(test)]
             KeySource::WindowsConsole {
                 physical_key: None, ..
             } => KeyIdentity::Semantic(self.code),
@@ -232,12 +231,12 @@ impl TerminalKey {
 
     pub(crate) fn physical_key_id(&self) -> Option<u32> {
         match &self.source {
-            #[cfg(any(windows, test))]
+            #[cfg(test)]
             KeySource::WindowsConsole {
                 physical_key: Some(PhysicalKeyId(id)),
                 ..
             } => Some(*id),
-            #[cfg(any(windows, test))]
+            #[cfg(test)]
             KeySource::WindowsConsole {
                 physical_key: None, ..
             } => None,
@@ -261,10 +260,6 @@ impl TerminalKey {
         }
         self
     }
-
-    pub fn as_key_event(&self) -> KeyEvent {
-        KeyEvent::new_with_kind(self.code, self.modifiers, self.kind)
-    }
 }
 
 impl From<KeyEvent> for TerminalKey {
@@ -275,7 +270,6 @@ impl From<KeyEvent> for TerminalKey {
 
 pub(crate) const KITTY_FLAG_REPORT_ALL_KEYS: u16 = 0b0000_1000;
 
-#[cfg(not(windows))]
 pub fn ime_compatible_keyboard_enhancement_flags() -> KeyboardEnhancementFlags {
     KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
         | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
@@ -298,9 +292,6 @@ impl ModifyOtherKeysMode {
 }
 
 pub fn host_modify_other_keys_mode() -> Option<ModifyOtherKeysMode> {
-    #[cfg(windows)]
-    let alacritty_window_id = std::env::var_os("ALACRITTY_WINDOW_ID").is_some();
-    #[cfg(not(windows))]
     let alacritty_window_id = false;
 
     host_modify_other_keys_mode_for_env(
@@ -346,18 +337,14 @@ impl KeyboardProtocol {
         }
     }
 
-    pub(crate) fn reports_event_types(self) -> bool {
-        matches!(self, Self::Kitty { flags } if flags & 0b0000_0010 != 0)
-    }
-
     pub(crate) fn reports_all_keys(self) -> bool {
         matches!(self, Self::Kitty { flags } if flags & KITTY_FLAG_REPORT_ALL_KEYS != 0)
     }
 }
 
-#[cfg(any(unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg(test)]
 pub enum MouseProtocolMode {
     None,
     Press,
@@ -366,7 +353,7 @@ pub enum MouseProtocolMode {
     AnyMotion,
 }
 
-#[cfg(any(unix, test))]
+#[cfg(test)]
 impl MouseProtocolMode {
     #[cfg(test)]
     pub fn reporting_enabled(self) -> bool {
@@ -374,9 +361,9 @@ impl MouseProtocolMode {
     }
 }
 
-#[cfg(any(unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg(test)]
 pub enum MouseProtocolEncoding {
     Default,
     Utf8,
@@ -521,7 +508,6 @@ mod tests {
         );
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn keyboard_enhancement_flags_stay_ime_compatible() {
         let flags = ime_compatible_keyboard_enhancement_flags();

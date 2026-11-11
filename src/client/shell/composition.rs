@@ -55,7 +55,6 @@ impl ClientShellState {
                     == Some(ClientEndpointStatus::Online)
         });
         let mut render_state = render::ShellRenderState {
-            machine_diagnostics: &self.machine_diagnostics,
             endpoints: &self.endpoints,
             active_endpoint_id: &self.active_endpoint_id,
             collapsed_endpoints: &self.collapsed_endpoints,
@@ -211,7 +210,6 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
-                machine_diagnostics: &self.machine_diagnostics,
                 endpoints: &self.endpoints,
                 active_endpoint_id: &self.active_endpoint_id,
                 collapsed_endpoints: &self.collapsed_endpoints,
@@ -267,7 +265,6 @@ impl ClientShellState {
                     viewport_rows: usize::try_from(metrics.viewport_rows).unwrap_or(usize::MAX),
                 }),
                 pane_id: pane.pane_id.clone(),
-                popup: false,
                 mouse_reporting: pane.mouse_reporting,
                 sgr_pixel_mouse: pane.sgr_pixel_mouse,
                 pixel_width: pane.pixel_width,
@@ -558,42 +555,6 @@ impl ClientShellState {
             ));
             frame.replace_from_ratatui_buffer_preserving_effects(&composed, cursor);
         }
-        self.hits.popup = None;
-        if let Some(popup) = surface.popup.as_deref() {
-            let width = popup.width.map(client_popup_size);
-            let height = popup.height.map(client_popup_size);
-            if let Some(geometry) =
-                crate::popup_size::resolve_popup_geometry(width, height, layout.pane_surface)
-            {
-                occlusion.start_popup(geometry.outer);
-                let mut composed = frame.to_ratatui_buffer()?;
-                let block = ratatui::widgets::Block::default()
-                    .borders(ratatui::widgets::Borders::ALL)
-                    .border_style(ratatui::style::Style::default().fg(self.config.palette.accent))
-                    .title(popup.title.clone())
-                    .style(ratatui::style::Style::default().bg(self.config.palette.panel_bg));
-                ratatui::widgets::Widget::render(
-                    ratatui::widgets::Clear,
-                    geometry.outer,
-                    &mut composed,
-                );
-                ratatui::widgets::Widget::render(block, geometry.outer, &mut composed);
-                frame.replace_from_ratatui_buffer_preserving_effects(&composed, None);
-                blit_pane_surface(&mut frame, &popup.frame, geometry.inner);
-                self.hits.popup = Some(PaneHit {
-                    rect: geometry.outer,
-                    inner_rect: geometry.inner,
-                    scrollbar_rect: None,
-                    scroll: None,
-                    pane_id: popup.terminal_id.clone(),
-                    popup: true,
-                    mouse_reporting: popup.mouse_reporting,
-                    sgr_pixel_mouse: popup.sgr_pixel_mouse,
-                    pixel_width: popup.pixel_width,
-                    pixel_height: popup.pixel_height,
-                });
-            }
-        }
         if !layout.mobile_header.is_empty()
             && self.mode == ClientShellMode::Navigate
             && self.overlay.is_none()
@@ -636,7 +597,6 @@ impl ClientShellState {
             frame.replace_from_ratatui_buffer_preserving_effects(&composed, None);
             self.hits.panes.clear();
             self.hits.pane_splits.clear();
-            self.hits.popup = None;
         }
         restore_mode_bar(&mut frame, mode_bar, mode_bar_cells.as_deref());
         if let Some(bar) = mode_bar {
@@ -718,7 +678,6 @@ impl ClientShellState {
             frame.cursor = None;
             self.hits.panes.clear();
             self.hits.pane_splits.clear();
-            self.hits.popup = None;
         }
         let graphics = self.compose_graphics(layout, &occlusion);
         Some(crate::client::frame_output::ComposedFrame { frame, graphics })
@@ -799,17 +758,6 @@ fn render_client_copy_search_highlights(
                 )]
                     .set_style(style);
             }
-        }
-    }
-}
-
-fn client_popup_size(size: crate::protocol::ClientShellPopupSize) -> crate::popup_size::PopupSize {
-    match size {
-        crate::protocol::ClientShellPopupSize::Cells(cells) => {
-            crate::popup_size::PopupSize::Cells(cells)
-        }
-        crate::protocol::ClientShellPopupSize::Percent(percent) => {
-            crate::popup_size::PopupSize::Percent(percent)
         }
     }
 }

@@ -305,11 +305,7 @@ impl ClientShellState {
     }
 
     pub(super) fn insert_copy_search_text(&mut self, text: &str) -> bool {
-        if self.mode != ClientShellMode::Copy
-            || self.overlay.is_some()
-            || self.popup_terminal_id.is_some()
-            || self.popup_pending
-        {
+        if self.mode != ClientShellMode::Copy || self.overlay.is_some() {
             return false;
         }
         let Some(prompt) = self

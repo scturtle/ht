@@ -76,7 +76,9 @@ impl ClientShellState {
                 target: None,
             });
         } else {
-            self.select_unready_machine(&endpoint_id, outcome);
+            let label = self.endpoint_label(&endpoint_id).to_owned();
+            self.receive_endpoint_unavailable(format!("{label} is not ready"));
+            outcome.repaint = true;
         }
         true
     }
@@ -172,7 +174,6 @@ impl ClientShellState {
         ) {
             let agents = super::aggregate_navigation::online_agent_targets(
                 &self.endpoints,
-                &self.active_endpoint_id,
                 self.config.agent_panel_sort,
             );
             if agents.is_empty() {
@@ -228,19 +229,6 @@ impl ClientShellState {
         false
     }
 
-    /// Selecting a machine that is waiting to reconnect asks for an attempt now.
-    fn select_unready_machine(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        outcome: &mut ClientShellInput,
-    ) {
-        if !self.retry_machine(endpoint_id) {
-            let label = self.endpoint_label(endpoint_id).to_owned();
-            self.receive_endpoint_unavailable(format!("{label} is not ready"));
-        }
-        outcome.repaint = true;
-    }
-
     pub(super) fn activate_endpoint(
         &mut self,
         endpoint_id: ClientEndpointId,
@@ -250,7 +238,9 @@ impl ClientShellState {
         self.pending_agent_reveal = None;
         let online = self.endpoint_is_online(&endpoint_id);
         if !online && !endpoint_id.is_local() {
-            self.select_unready_machine(&endpoint_id, outcome);
+            let label = self.endpoint_label(&endpoint_id).to_owned();
+            self.receive_endpoint_unavailable(format!("{label} is not ready"));
+            outcome.repaint = true;
             return false;
         }
         if (endpoint_id.is_local() && (self.multi_endpoint_active() || !online))
@@ -270,15 +260,13 @@ impl ClientShellState {
         target: ClientEndpointFocusTarget,
         outcome: &mut ClientShellInput,
     ) -> bool {
-        #[cfg(windows)]
-        if !self.notification_target_is_current(&endpoint_id, &target) {
-            return false;
-        }
         self.pending_workspace_highlight = None;
         self.pending_agent_reveal = None;
         let online = self.endpoint_is_online(&endpoint_id);
         if !online && !endpoint_id.is_local() {
-            self.select_unready_machine(&endpoint_id, outcome);
+            let label = self.endpoint_label(&endpoint_id).to_owned();
+            self.receive_endpoint_unavailable(format!("{label} is not ready"));
+            outcome.repaint = true;
             return false;
         }
         // Local can still be displayed while a remote activation is pending.
@@ -296,12 +284,6 @@ impl ClientShellState {
                     crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id })
                 }
                 ClientEndpointFocusTarget::Pane(pane_id) => {
-                    crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
-                        pane_id,
-                    })
-                }
-                #[cfg(windows)]
-                ClientEndpointFocusTarget::Notification { pane_id, .. } => {
                     crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
                         pane_id,
                     })

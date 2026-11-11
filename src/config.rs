@@ -22,11 +22,9 @@ pub use self::{
         IndexedKeybind, KeyCombo, Keybinds, LiveKeybindConfig,
     },
     model::{
-        validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadReport,
-        ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, PaneBordersConfig,
-        ShellModeConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle, TabBarPositionConfig,
-        ToastClipboardPosition, ToastConfig, ToastDelivery, ToastHerdrPosition,
-        UpdateChannelConfig, MAX_TOAST_DELAY_SECONDS,
+        validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadStatus,
+        HostCursorModeConfig, PaneBordersConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle,
+        TabBarPositionConfig, ToastClipboardPosition, ToastDelivery, ToastHerdrPosition,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarTokenStyle,
@@ -35,20 +33,13 @@ pub use self::{
     sound::SoundConfig,
     tab_bar::TabBarRightEntryConfig,
     theme::{parse_color, CustomThemeColors, ModeThemeColors, ThemeConfig, THEME_NAMES},
-    window_title::{WindowTitlePart, WindowTitleTemplate, WindowTitleToken},
 };
 
 pub(crate) use self::keybinds::parse_key_combo;
 pub(crate) use self::write::{update_file_at, write_edit, ConfigEdit};
 pub(crate) use self::{
-    io::upsert_top_level_bool,
-    tab_bar::{
-        parse_tab_bar_datetime_format, tab_bar_right_diagnostics,
-        MAX_TAB_BAR_COMMAND_INTERVAL_SECONDS, MAX_TAB_BAR_COMMAND_TIMEOUT_SECONDS,
-        MAX_TAB_BAR_RIGHT_ENTRIES,
-    },
-    theme::canonical_theme_name,
-    window_title::{sanitize_window_title_text, window_title_diagnostics},
+    io::upsert_top_level_bool, tab_bar::tab_bar_right_diagnostics, theme::canonical_theme_name,
+    window_title::window_title_diagnostics,
 };
 
 pub(crate) use self::{keybinds::CommandKeybindType, model::KeysConfig};

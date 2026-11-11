@@ -1,20 +1,15 @@
 //! Terminal setup and restoration for the rendered client.
 
 use std::io::{self, Write as _};
-#[cfg(not(windows))]
 use std::os::fd::AsRawFd as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-#[cfg(windows)]
-use std::sync::{Mutex, MutexGuard};
-#[cfg(not(windows))]
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
     EnableFocusChange, EnableMouseCapture,
 };
-#[cfg(not(windows))]
 use crossterm::event::{PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
 use crossterm::execute;
 use crossterm::terminal::{DisableLineWrap, EnableLineWrap};
@@ -56,23 +51,10 @@ pub(super) fn setup_terminal_with_capabilities(
         reset_host_color_scheme_reports: false,
         restore_claimed: Arc::new(AtomicBool::new(false)),
         restored: false,
-        #[cfg(windows)]
-        restore_windows_input_mode: Arc::new(WindowsInputModeRestore::default()),
     };
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     let host_color_scheme_reports =
         should_enable_host_color_scheme_reports(enable_client_protocols);
-    #[cfg(windows)]
-    let windows_ssh_session = is_ssh_session();
-    #[cfg(windows)]
-    let mut windows_virtual_terminal_input = if windows_ssh_session {
-        enable_windows_virtual_terminal_input(
-            &terminal_guard.restore_claimed,
-            &terminal_guard.restore_windows_input_mode,
-        )
-    } else {
-        WindowsVirtualTerminalInputSetup::default()
-    };
 
     let (host_probe, buffered_host_input) = if enable_client_protocols {
         terminal_guard.reset_keyboard_enhancements = true;
@@ -95,22 +77,6 @@ pub(super) fn setup_terminal_with_capabilities(
         (probe, buffered_input)
     };
 
-    #[cfg(windows)]
-    if enable_client_protocols && !windows_ssh_session {
-        windows_virtual_terminal_input = enable_windows_virtual_terminal_input(
-            &terminal_guard.restore_claimed,
-            &terminal_guard.restore_windows_input_mode,
-        );
-    }
-
-    #[cfg(windows)]
-    if enable_client_protocols
-        && windows_virtual_terminal_input.active
-        && windows_win32_input_mode_enabled()
-    {
-        enable_windows_win32_input_mode(&mut io::stdout())?;
-    }
-
     let modify_other_keys_mode = enable_client_protocols
         .then(crate::input::host_modify_other_keys_mode)
         .flatten();
@@ -130,7 +96,7 @@ pub(super) fn setup_terminal_with_capabilities(
 }
 
 pub(super) fn should_enable_host_color_scheme_reports(enable_client_protocols: bool) -> bool {
-    enable_client_protocols && !cfg!(windows)
+    enable_client_protocols
 }
 
 /// Guard that restores the terminal when dropped.
@@ -145,16 +111,11 @@ pub(super) struct TerminalGuard {
     reset_host_color_scheme_reports: bool,
     restore_claimed: Arc<AtomicBool>,
     restored: bool,
-    #[cfg(windows)]
-    restore_windows_input_mode: Arc<WindowsInputModeRestore>,
 }
 
-#[cfg(not(windows))]
 const HOST_CAPABILITY_QUERY_TIMEOUT: Duration = Duration::from_millis(250);
-#[cfg(not(windows))]
 const MAX_BUFFERED_HOST_INPUT: usize = 64 * 1024;
 
-#[cfg(not(windows))]
 #[derive(Default)]
 struct HostKeyboardProbeResponses {
     flags: Option<u16>,
@@ -170,7 +131,6 @@ pub(super) struct HostTerminalProbe {
     pub(super) sgr_pixel_mouse: Option<bool>,
 }
 
-#[cfg(not(windows))]
 fn query_host_capabilities(query_keyboard: bool) -> (HostTerminalProbe, Vec<u8>) {
     const FULL_QUERY: &[u8] = b"\x1b[?1016$p\x1b[?u\x1b[c";
     const PIXEL_MOUSE_QUERY: &[u8] = b"\x1b[?1016$p\x1b[c";
@@ -229,7 +189,6 @@ fn query_host_capabilities(query_keyboard: bool) -> (HostTerminalProbe, Vec<u8>)
     (host_terminal_probe(&responses), buffered_input)
 }
 
-#[cfg(not(windows))]
 fn host_terminal_probe(responses: &HostKeyboardProbeResponses) -> HostTerminalProbe {
     let sgr_pixel_mouse = match responses.sgr_pixel_mouse_status {
         // The query follows an explicit reset, so a host still reporting SET may
@@ -249,7 +208,6 @@ fn host_terminal_probe(responses: &HostKeyboardProbeResponses) -> HostTerminalPr
     }
 }
 
-#[cfg(not(windows))]
 fn host_escape_disambiguation_confirmed(responses: &HostKeyboardProbeResponses) -> bool {
     responses.primary_device_attributes
         && responses
@@ -257,7 +215,6 @@ fn host_escape_disambiguation_confirmed(responses: &HostKeyboardProbeResponses) 
             .is_some_and(|flags| flags & 0b0000_0001 != 0)
 }
 
-#[cfg(not(windows))]
 fn consume_host_keyboard_probe_responses(
     buffered_input: &mut Vec<u8>,
     responses: &mut HostKeyboardProbeResponses,
@@ -346,7 +303,6 @@ fn consume_host_keyboard_probe_responses(
     }
 }
 
-#[cfg(not(windows))]
 fn parse_sgr_pixel_mouse_status(body: &[u8]) -> Option<u8> {
     let mut fields = body.split(|byte| *byte == b';');
     (fields.next()? == b"1016").then_some(())?;
@@ -354,7 +310,6 @@ fn parse_sgr_pixel_mouse_status(body: &[u8]) -> Option<u8> {
     (fields.next().is_none() && status <= 4).then_some(status)
 }
 
-#[cfg(not(windows))]
 fn host_control_string_end(bytes: &[u8]) -> Option<Option<usize>> {
     if bytes.first() != Some(&0x1b) {
         return None;
@@ -380,11 +335,6 @@ fn host_control_string_end(bytes: &[u8]) -> Option<Option<usize>> {
         }
     }
     Some(None)
-}
-
-#[cfg(windows)]
-fn query_host_capabilities(_query_keyboard: bool) -> (HostTerminalProbe, Vec<u8>) {
-    (HostTerminalProbe::default(), Vec::new())
 }
 
 pub(super) fn write_host_color_scheme_report_mode(
@@ -424,162 +374,14 @@ pub(super) fn should_draw_host_cursor(mode: crate::config::HostCursorModeConfig)
     }
 }
 
-#[cfg(windows)]
-#[derive(Default)]
-pub(super) struct WindowsVirtualTerminalInputSetup {
-    active: bool,
-    restore_mode: Option<u32>,
-    warning: Option<&'static str>,
-}
-
-#[cfg(windows)]
-#[derive(Default)]
-struct WindowsInputModeRestore {
-    mode: Mutex<Option<u32>>,
-}
-
-#[cfg(windows)]
-impl WindowsInputModeRestore {
-    fn lock(&self) -> MutexGuard<'_, Option<u32>> {
-        match self.mode.lock() {
-            Ok(mode) => mode,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-
-    fn activate(
-        &self,
-        restore_claimed: &AtomicBool,
-        operation: impl FnOnce() -> WindowsVirtualTerminalInputSetup,
-    ) -> WindowsVirtualTerminalInputSetup {
-        let mut restore_mode = self.lock();
-        if restore_claimed.load(Ordering::Acquire) {
-            return WindowsVirtualTerminalInputSetup::default();
-        }
-        let setup = operation();
-        if restore_mode.is_none() {
-            *restore_mode = setup.restore_mode;
-        }
-        setup
-    }
-
-    fn take(&self) -> Option<u32> {
-        self.lock().take()
-    }
-}
-
-#[cfg(windows)]
-fn enable_windows_virtual_terminal_input(
-    restore_claimed: &AtomicBool,
-    restore_mode: &WindowsInputModeRestore,
-) -> WindowsVirtualTerminalInputSetup {
-    let setup = restore_mode.activate(restore_claimed, enable_windows_virtual_terminal_input_inner);
-    if let Some(warning) = setup.warning {
-        tracing::warn!("{warning}");
-    }
-    setup
-}
-
-#[cfg(windows)]
-fn enable_windows_virtual_terminal_input_inner() -> WindowsVirtualTerminalInputSetup {
-    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Console::{
-        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_INPUT,
-        STD_INPUT_HANDLE,
-    };
-
-    let handle: HANDLE = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return WindowsVirtualTerminalInputSetup {
-            warning: Some("failed to get Windows console input handle for VT input"),
-            ..WindowsVirtualTerminalInputSetup::default()
-        };
-    }
-
-    let mut mode = 0;
-    if unsafe { GetConsoleMode(handle, &mut mode) } == 0 {
-        return WindowsVirtualTerminalInputSetup {
-            warning: Some("failed to read Windows console input mode for VT input"),
-            ..WindowsVirtualTerminalInputSetup::default()
-        };
-    }
-
-    let desired = windows_virtual_terminal_input_mode(mode);
-    if desired == mode {
-        return WindowsVirtualTerminalInputSetup {
-            active: true,
-            ..WindowsVirtualTerminalInputSetup::default()
-        };
-    }
-
-    if unsafe { SetConsoleMode(handle, desired) } == 0 {
-        return WindowsVirtualTerminalInputSetup {
-            warning: Some("failed to enable Windows virtual terminal input"),
-            ..WindowsVirtualTerminalInputSetup::default()
-        };
-    }
-
-    let mut applied = 0;
-    if unsafe { GetConsoleMode(handle, &mut applied) } == 0 {
-        let rollback_failed = unsafe { SetConsoleMode(handle, mode) } == 0;
-        return WindowsVirtualTerminalInputSetup {
-            restore_mode: rollback_failed.then_some(mode),
-            warning: Some(if rollback_failed {
-                "failed to verify or restore Windows virtual terminal input mode"
-            } else {
-                "failed to verify Windows virtual terminal input mode"
-            }),
-            ..WindowsVirtualTerminalInputSetup::default()
-        };
-    }
-    if applied & ENABLE_VIRTUAL_TERMINAL_INPUT == 0 {
-        let rollback_failed = unsafe { SetConsoleMode(handle, mode) } == 0;
-        return WindowsVirtualTerminalInputSetup {
-            restore_mode: rollback_failed.then_some(mode),
-            warning: Some(if rollback_failed {
-                "Windows virtual terminal input bit did not stick and the prior mode could not be restored"
-            } else {
-                "Windows virtual terminal input bit did not stick"
-            }),
-            ..WindowsVirtualTerminalInputSetup::default()
-        };
-    }
-
-    WindowsVirtualTerminalInputSetup {
-        active: true,
-        restore_mode: Some(mode),
-        warning: None,
-    }
-}
-
-pub(super) fn is_ssh_session() -> bool {
-    std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some()
-}
-
-#[cfg(any(windows, test))]
+#[cfg(test)]
+#[cfg(test)]
 pub(super) fn windows_virtual_terminal_input_mode(mode: u32) -> u32 {
     mode | 0x0200
 }
 
-#[cfg(windows)]
-fn restore_windows_input_mode_value(mode: u32) {
-    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Console::{GetStdHandle, SetConsoleMode, STD_INPUT_HANDLE};
-
-    let handle: HANDLE = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return;
-    }
-    if unsafe { SetConsoleMode(handle, mode) } == 0 {
-        tracing::warn!("failed to restore Windows console input mode");
-    }
-}
-
-pub(super) fn effective_mouse_capture(
-    server_enabled: bool,
-    direct_attach_preference: bool,
-) -> bool {
-    server_enabled || direct_attach_preference
+pub(super) fn effective_mouse_capture(server_enabled: bool, local_preference: bool) -> bool {
+    server_enabled || local_preference
 }
 
 pub(super) fn effective_sgr_pixel_mouse(
@@ -590,7 +392,7 @@ pub(super) fn effective_sgr_pixel_mouse(
     enabled && requested && pixel_mouse_available
 }
 
-#[cfg(any(windows, test))]
+#[cfg(test)]
 fn set_windows_native_mouse_capture<W: io::Write>(
     writer: &mut W,
     enabled: bool,
@@ -607,34 +409,8 @@ fn set_windows_native_mouse_capture<W: io::Write>(
     Ok(())
 }
 
-#[cfg(windows)]
-fn windows_uses_vt_mouse_reporting() -> bool {
-    is_ssh_session() || crate::platform::windows_virtual_terminal_input_active()
-}
-
 pub(super) fn set_mouse_capture(enabled: bool, sgr_pixels: bool) -> io::Result<()> {
-    #[cfg(windows)]
-    if windows_uses_vt_mouse_reporting() {
-        if !enabled {
-            crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
-        }
-        return crate::terminal_modes::set_windows_mouse_reporting(
-            &mut io::stdout(),
-            enabled,
-            sgr_pixels,
-        );
-    }
-    #[cfg(windows)]
-    return set_windows_native_mouse_capture(&mut io::stdout(), enabled, sgr_pixels, |enabled| {
-        if enabled {
-            execute!(io::stdout(), EnableMouseCapture)
-        } else {
-            disable_windows_native_mouse_capture()
-        }
-    });
-    #[cfg(not(windows))]
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
-    #[cfg(not(windows))]
     if enabled {
         execute!(io::stdout(), EnableMouseCapture)?;
         if sgr_pixels {
@@ -650,33 +426,19 @@ pub(super) fn set_mouse_capture(enabled: bool, sgr_pixels: bool) -> io::Result<(
     }
 }
 
-#[cfg(windows)]
-fn disable_windows_native_mouse_capture() -> io::Result<()> {
-    match execute!(io::stdout(), DisableMouseCapture) {
-        Ok(()) => Ok(()),
-        Err(err) if err.to_string() == "Initial console modes not set" => Ok(()),
-        Err(err) => Err(err),
-    }
-}
-
 fn restore_terminal_state_once(
     restore_claimed: &AtomicBool,
     reset_keyboard_enhancements: bool,
     reset_modify_other_keys: bool,
     reset_host_color_scheme_reports: bool,
-    #[cfg(windows)] restore_windows_input_mode: &WindowsInputModeRestore,
 ) -> io::Result<()> {
     if restore_claimed.swap(true, Ordering::AcqRel) {
         return Ok(());
     }
-    #[cfg(windows)]
-    let restore_windows_input_mode = restore_windows_input_mode.take();
     restore_terminal_state(
         reset_keyboard_enhancements,
         reset_modify_other_keys,
         reset_host_color_scheme_reports,
-        #[cfg(windows)]
-        restore_windows_input_mode,
     )
 }
 
@@ -684,7 +446,6 @@ fn restore_terminal_state(
     reset_keyboard_enhancements: bool,
     reset_modify_other_keys: bool,
     reset_host_color_scheme_reports: bool,
-    #[cfg(windows)] restore_windows_input_mode: Option<u32>,
 ) -> io::Result<()> {
     let _ = clear_received_kitty_graphics(&mut io::stdout());
 
@@ -705,28 +466,14 @@ fn restore_terminal_state(
         DisableBracketedPaste
     );
     let _ = set_mouse_capture(false, false);
-    #[cfg(windows)]
-    if let Some(mode) = restore_windows_input_mode {
-        restore_windows_input_mode_value(mode);
-    }
-    #[cfg(windows)]
-    if !is_ssh_session() {
-        let _ = disable_windows_native_mouse_capture();
-    }
 
     let restore_result = ratatui::try_restore();
     let postlude_result =
         write_terminal_restore_postlude(&mut io::stdout(), reset_host_color_scheme_reports);
 
-    #[cfg(windows)]
-    if windows_win32_input_mode_enabled() {
-        let _ = disable_windows_win32_input_mode(&mut io::stdout());
-    }
-
     restore_result.and(postlude_result)
 }
 
-#[cfg(not(windows))]
 fn push_keyboard_enhancement_flags() -> io::Result<()> {
     execute!(
         io::stdout(),
@@ -734,38 +481,15 @@ fn push_keyboard_enhancement_flags() -> io::Result<()> {
     )
 }
 
-#[cfg(windows)]
-fn push_keyboard_enhancement_flags() -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(not(windows))]
 fn pop_keyboard_enhancement_flags() -> io::Result<()> {
     execute!(io::stdout(), PopKeyboardEnhancementFlags)
 }
 
-#[cfg(windows)]
-fn pop_keyboard_enhancement_flags() -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(any(windows, test))]
+#[cfg(test)]
 pub(super) fn windows_win32_input_mode_enabled() -> bool {
     std::env::var("HERDR_WINDOWS_INPUT_PROBE")
         .map(|probe| probe.eq_ignore_ascii_case("win32"))
         .unwrap_or(true)
-}
-
-#[cfg(windows)]
-fn enable_windows_win32_input_mode(writer: &mut impl std::io::Write) -> io::Result<()> {
-    writer.write_all(b"\x1b[?9001h")?;
-    writer.flush()
-}
-
-#[cfg(windows)]
-fn disable_windows_win32_input_mode(writer: &mut impl std::io::Write) -> io::Result<()> {
-    writer.write_all(b"\x1b[?9001l")?;
-    writer.flush()
 }
 
 /// Host input modes to re-assert after the host may have reset them.
@@ -840,35 +564,18 @@ impl TerminalGuard {
         )
     }
 
-    #[cfg(windows)]
-    pub(super) fn recover_windows_virtual_terminal_input(&self) -> io::Result<()> {
-        let active = enable_windows_virtual_terminal_input(
-            &self.restore_claimed,
-            &self.restore_windows_input_mode,
-        )
-        .active;
-        if active && windows_win32_input_mode_enabled() {
-            enable_windows_win32_input_mode(&mut io::stdout())?;
-        }
-        Ok(())
-    }
-
     /// Captures the restoration state for use by the process panic hook.
     pub(super) fn panic_restore(&self) -> impl Fn() + Send + Sync + 'static {
         let restore_claimed = self.restore_claimed.clone();
         let reset_keyboard_enhancements = self.reset_keyboard_enhancements;
         let reset_modify_other_keys = self.reset_modify_other_keys;
         let reset_host_color_scheme_reports = self.reset_host_color_scheme_reports;
-        #[cfg(windows)]
-        let restore_windows_input_mode = self.restore_windows_input_mode.clone();
         move || {
             let _ = restore_terminal_state_once(
                 &restore_claimed,
                 reset_keyboard_enhancements,
                 reset_modify_other_keys,
                 reset_host_color_scheme_reports,
-                #[cfg(windows)]
-                &restore_windows_input_mode,
             );
         }
     }
@@ -880,8 +587,6 @@ impl TerminalGuard {
             self.reset_keyboard_enhancements,
             self.reset_modify_other_keys,
             self.reset_host_color_scheme_reports,
-            #[cfg(windows)]
-            &self.restore_windows_input_mode,
         )
     }
 }
@@ -894,8 +599,6 @@ impl Drop for TerminalGuard {
                 self.reset_keyboard_enhancements,
                 self.reset_modify_other_keys,
                 self.reset_host_color_scheme_reports,
-                #[cfg(windows)]
-                &self.restore_windows_input_mode,
             );
         }
     }
@@ -904,51 +607,6 @@ impl Drop for TerminalGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_input_mode_restore_tracks_recovery_after_cleanup_callback_creation() {
-        let restore_claimed = Arc::new(AtomicBool::new(false));
-        let restore_mode = Arc::new(WindowsInputModeRestore::default());
-        let callback_claimed = restore_claimed.clone();
-        let callback_mode = restore_mode.clone();
-        let cleanup = move || {
-            if callback_claimed.swap(true, Ordering::AcqRel) {
-                None
-            } else {
-                callback_mode.take()
-            }
-        };
-
-        let failed =
-            restore_mode.activate(&restore_claimed, WindowsVirtualTerminalInputSetup::default);
-        assert!(!failed.active);
-        let already_active =
-            restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
-                active: true,
-                ..WindowsVirtualTerminalInputSetup::default()
-            });
-        assert!(already_active.active);
-        restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
-            active: true,
-            restore_mode: Some(152),
-            warning: None,
-        });
-        restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
-            active: true,
-            restore_mode: Some(999),
-            warning: None,
-        });
-
-        assert_eq!(cleanup(), Some(152));
-        assert_eq!(cleanup(), None);
-        let called = AtomicBool::new(false);
-        restore_mode.activate(&restore_claimed, || {
-            called.store(true, Ordering::Release);
-            WindowsVirtualTerminalInputSetup::default()
-        });
-        assert!(!called.load(Ordering::Acquire));
-    }
 
     #[derive(Clone, Default)]
     struct SharedOutput(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
@@ -964,7 +622,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     fn refresh_test_guard(
         kitty_confirmed: bool,
         client_protocols: bool,
@@ -984,7 +641,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     fn refresh_bytes(guard: &TerminalGuard, report_all_keys: bool, focus: bool) -> Vec<u8> {
         let mut output = Vec::new();
         guard
@@ -993,7 +649,6 @@ mod tests {
         output
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_keyboard_protocol_refresh_resends_the_setup_modes() {
         // Focus-in on a kitty host: replace Herdr's stack entry, keep paste on.
@@ -1022,7 +677,6 @@ mod tests {
         assert!(refresh_bytes(&kitty, false, true).is_empty());
     }
 
-    #[cfg(not(windows))]
     #[tokio::test(flavor = "multi_thread")]
     async fn host_keyboard_protocol_refresh_restores_shift_enter_after_host_reset() {
         use crate::input::{KeyboardProtocol, TerminalKey};
@@ -1033,10 +687,7 @@ mod tests {
         // libghostty stands in for the host terminal. `reset` models a host
         // that lost its modes, like a reloaded VS Code window (#4985).
         for reset in [false, true] {
-            let (host, _rx) =
-                crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
-                    80, 24, 0, b"", 4096,
-                );
+            let host = crate::pane::testing::Screen::new(80, 24);
             // Herdr's setup push.
             host.test_process_pty_bytes(b"\x1b[>7u");
             if reset {
@@ -1068,15 +719,12 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     #[tokio::test(flavor = "multi_thread")]
     async fn host_keyboard_protocol_refresh_keeps_the_outer_mode_across_report_all_toggles() {
         use crate::input::KeyboardProtocol;
 
         let guard = refresh_test_guard(true, true, None);
-        let (host, _rx) = crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
-            80, 24, 0, b"", 4096,
-        );
+        let host = crate::pane::testing::Screen::new(80, 24);
         // Something outside Herdr (a shell or wrapper) already set its own mode.
         host.test_process_pty_bytes(b"\x1b[>1u");
         // Herdr's setup push.
@@ -1105,7 +753,6 @@ mod tests {
         );
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_capability_probe_consumes_fragmented_responses_and_preserves_input() {
         let stream = b"before\x1b[?1016;2$y-middle-\x1b[?7u-\x1b[?1;2cafter";
@@ -1125,7 +772,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_capability_probe_accepts_only_usable_sgr_pixel_mouse_states() {
         for status in 0..=4 {
@@ -1143,7 +789,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_probe_keeps_a_pixel_mouse_answer_without_device_attributes() {
         let mut buffered = b"\x1b[?1016;0$y".to_vec();
@@ -1154,7 +799,6 @@ mod tests {
         assert_eq!(host_terminal_probe(&responses).sgr_pixel_mouse, Some(false));
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_keyboard_probe_preserves_typed_input_before_responses() {
         let mut buffered = b"aPtyped\x1b[?1016;2$y\x1b[?7u\x1b[?1;2c".to_vec();
@@ -1167,7 +811,6 @@ mod tests {
         assert_eq!(buffered, b"aPtyped");
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_keyboard_probe_requires_disambiguation_bit_and_device_attributes() {
         for (flags, expected) in [(0, false), (2, false), (7, true)] {
@@ -1181,7 +824,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_keyboard_probe_requires_flags_before_device_attributes() {
         let mut buffered = b"\x1b[?1;2c\x1b[?7uinput".to_vec();
@@ -1194,7 +836,6 @@ mod tests {
         assert_eq!(buffered, b"input");
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_keyboard_probe_preserves_response_shaped_payloads() {
         let opaque =
@@ -1209,7 +850,6 @@ mod tests {
         assert_eq!(buffered, opaque);
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn host_keyboard_probe_preserves_malformed_responses() {
         let mut buffered = b"a\x1b[?7;1ub\x1b[?65536uc\x1b[?1016;5$y\x1b[?1006;2$y".to_vec();

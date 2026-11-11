@@ -10,21 +10,15 @@
 //! - We avoid duplicating parsing logic in the client
 //! - Host terminal control replies can be buffered or discarded before they leak
 
-#[cfg(unix)]
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Arc;
 
-#[cfg(unix)]
 use std::io::{self, Read};
-#[cfg(unix)]
 use std::os::fd::AsRawFd;
 use tokio::sync::mpsc;
 
 use super::ClientLoopEvent;
-
-#[cfg(any(windows, test))]
-pub(super) mod windows_vti;
 
 // ---------------------------------------------------------------------------
 // Stdin reader thread
@@ -45,22 +39,9 @@ pub fn stdin_reader_loop(
     host_sgr_pixels_active: Arc<AtomicBool>,
     host_escape_disambiguation_active: bool,
     initial_host_input: Vec<u8>,
-    #[cfg(unix)] direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
-    #[cfg(unix)] direct_response_active: Arc<AtomicBool>,
+    direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
+    direct_response_active: Arc<AtomicBool>,
 ) {
-    #[cfg(windows)]
-    {
-        let _ = (
-            host_theme_query_pending,
-            host_cell_size_query_sent,
-            host_mouse_capture_active,
-            host_sgr_pixels_active,
-        );
-        let _ = (host_escape_disambiguation_active, initial_host_input);
-        windows_stdin_reader_loop(event_tx, should_quit, host_color_query_sent);
-    }
-
-    #[cfg(unix)]
     unix_stdin_reader_loop(
         event_tx,
         should_quit,
@@ -76,7 +57,6 @@ pub fn stdin_reader_loop(
     );
 }
 
-#[cfg(unix)]
 fn unix_stdin_reader_loop(
     event_tx: mpsc::Sender<ClientLoopEvent>,
     should_quit: &Arc<AtomicBool>,
@@ -279,7 +259,6 @@ fn unix_stdin_reader_loop(
     }
 }
 
-#[cfg(unix)]
 fn filter_direct_input(
     bytes: &[u8],
     filter: &mut super::direct_graphics::InputFilter,
@@ -297,7 +276,6 @@ fn filter_direct_input(
     )
 }
 
-#[cfg(unix)]
 fn send_unix_input_chunks(
     chunks: Vec<Vec<u8>>,
     event_tx: &mpsc::Sender<ClientLoopEvent>,
@@ -335,7 +313,6 @@ fn send_unix_input_chunks(
     true
 }
 
-#[cfg(unix)]
 fn retain_geometry(
     last: Option<crate::input::mouse::HostGeometry>,
     observed: Option<crate::input::mouse::HostGeometry>,
@@ -343,7 +320,6 @@ fn retain_geometry(
     observed.or(last)
 }
 
-#[cfg(unix)]
 fn classify_unix_input(
     data: Vec<u8>,
     sgr_pixels: bool,
@@ -355,7 +331,6 @@ fn classify_unix_input(
     Some(ClientLoopEvent::StdinInput(data))
 }
 
-#[cfg(unix)]
 fn flush_unix_palette_input(
     event_tx: &mpsc::Sender<ClientLoopEvent>,
     pending_palette: &mut Vec<Vec<u8>>,
@@ -369,29 +344,7 @@ fn flush_unix_palette_input(
         .is_ok()
 }
 
-#[cfg(windows)]
-fn windows_stdin_reader_loop(
-    event_tx: mpsc::Sender<ClientLoopEvent>,
-    should_quit: &Arc<AtomicBool>,
-    host_color_query_sent: bool,
-) {
-    match windows_vti::console_input_handle() {
-        Ok(handle) => {
-            windows_vti::trace_input_transport("reader=windows-console");
-            windows_vti::raw_console_reader_loop(
-                handle,
-                event_tx,
-                should_quit,
-                host_color_query_sent,
-            );
-        }
-        Err(err) => {
-            tracing::error!(%err, "no Windows console input available; keyboard input is disabled");
-        }
-    }
-}
-
-#[cfg(any(windows, test))]
+#[cfg(test)]
 fn windows_client_input_event_from_raw(
     event: crate::raw_input::RawInputEvent,
 ) -> Option<crate::protocol::ClientInputEvent> {
@@ -458,12 +411,10 @@ fn windows_client_input_event_from_raw(
     }
 }
 
-#[cfg(unix)]
 fn stdin_read_ready<R: AsRawFd>(reader: &R, timeout_ms: i32) -> Option<bool> {
     poll_read_ready(reader.as_raw_fd(), timeout_ms)
 }
 
-#[cfg(unix)]
 fn poll_read_ready(fd: i32, timeout_ms: i32) -> Option<bool> {
     crate::platform::poll_fd_readable(fd, timeout_ms).ok()
 }
@@ -472,7 +423,7 @@ fn poll_read_ready(fd: i32, timeout_ms: i32) -> Option<bool> {
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     // The stdin reader thread is hard to unit test since it reads from actual stdin.
     // Integration tests will verify the full client→server input flow.
@@ -480,7 +431,6 @@ mod tests {
 
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn stdin_input_event_carries_raw_bytes() {
         let data = vec![0x1b, b'[', b'A']; // Up arrow escape sequence
@@ -576,7 +526,6 @@ mod tests {
         assert!(timeout_ms <= 20);
     }
 
-    #[cfg(not(target_os = "macos"))]
     #[test]
     fn windows_repeated_escape_keeps_second_escape_pending() {
         let mut framer = crate::raw_input::RawInputFramer::for_host_input();

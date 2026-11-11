@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(unix)]
 use tracing::debug;
 
 use super::ClientLoopEvent;
@@ -47,7 +46,6 @@ pub(super) fn cell_size_fallback(reported: u64, last: Option<(u32, u32)>) -> (u3
         .unwrap_or((DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX))
 }
 
-#[cfg(any(unix, test))]
 pub(super) fn pack_cell_size(width_px: u32, height_px: u32) -> u64 {
     (u64::from(width_px) << 32) | u64::from(height_px)
 }
@@ -211,12 +209,10 @@ pub(super) fn resize_poll_loop_with(
     }
 }
 
-#[cfg(not(windows))]
 pub(super) fn query_host_terminal_appearance() {
     let _ = write_host_terminal_appearance_query(io::stdout());
 }
 
-#[cfg(any(not(windows), test))]
 pub(super) fn write_host_terminal_appearance_query(mut writer: impl io::Write) -> io::Result<()> {
     writer.write_all(crate::terminal_theme::HOST_COLOR_SCHEME_QUERY_SEQUENCE.as_bytes())?;
     writer.flush()
@@ -241,7 +237,7 @@ pub(super) fn query_host_cell_size() {
 }
 
 pub(super) fn should_query_host_cell_size() -> bool {
-    !cfg!(windows)
+    true
 }
 
 pub(super) fn host_cell_size_query_required(kitty_graphics_enabled: bool) -> bool {
@@ -253,7 +249,6 @@ pub(super) fn write_host_cell_size_query(mut writer: impl io::Write) -> io::Resu
     writer.flush()
 }
 
-#[cfg(unix)]
 pub(super) fn store_reported_cell_size(
     reported_cell_size: &AtomicU64,
     width_px: u32,
@@ -265,7 +260,6 @@ pub(super) fn store_reported_cell_size(
     }
 }
 
-#[cfg(any(unix, test))]
 pub(super) fn reported_cell_size_from_events(
     events: &[crate::raw_input::RawInputEvent],
 ) -> Option<(u32, u32)> {

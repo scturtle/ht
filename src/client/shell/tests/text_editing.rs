@@ -127,7 +127,7 @@ fn text_delivery_paths_insert_at_the_cursor() {
 }
 
 #[test]
-fn rename_clear_exceptions_remain_local_and_copy_prompt_yields_to_popup() {
+fn rename_clear_exceptions_remain_local() {
     for field in 0..5 {
         for (code, modifiers) in [
             (KeyCode::Char('c'), KeyModifiers::CONTROL),
@@ -140,18 +140,6 @@ fn rename_clear_exceptions_remain_local_and_copy_prompt_yields_to_popup() {
             assert!(editor(&mut state).is_empty());
         }
     }
-    let mut state = shell(9);
-    *editor(&mut state) = TextEditor::from("query");
-    state.popup_terminal_id = Some("popup-test".into());
-    let result = state.handle_raw_events(vec![
-        RawInputEvent::Text(TextCommit::new("text")),
-        RawInputEvent::Paste("paste".into()),
-    ]);
-    assert!(
-        matches!(&result.requests[..], [ClientMessage::ClientShellPopupInput { terminal_id, events }] if terminal_id == "popup-test" && events.len() == 2)
-    );
-    assert_eq!(editor(&mut state).as_str(), "query");
-    assert!(!state.modal_paste_target_active());
 }
 
 #[test]
@@ -345,6 +333,21 @@ fn all_naming_targets_preserve_submission_and_empty_semantics() {
             }
         }
     }
+}
+
+#[test]
+fn new_tab_unchanged_suggestion_preserves_original_automatic_naming() {
+    let mut state = shell(2);
+    let visible_name = editor(&mut state).trim().to_owned();
+    assert!(!visible_name.is_empty());
+    let result = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
+    let [ClientShellAction::Endpoint { request, .. }] = &result.actions[..] else {
+        panic!("expected tab creation");
+    };
+    let crate::api::schema::Method::TabCreate(params) = &request.method else {
+        panic!("expected tab.create");
+    };
+    assert_eq!(params.label, None);
 }
 
 #[test]

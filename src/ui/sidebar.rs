@@ -12,20 +12,6 @@ pub(crate) use self::tokens::{
 };
 use super::text::{display_width, truncate_end};
 use crate::app::state::Palette;
-use crate::app::AppState;
-use crate::detect::AgentState;
-use crate::terminal::TerminalRuntimeRegistry;
-
-pub(crate) struct AgentPanelEntry {
-    pub ws_idx: usize,
-    pub tab_idx: usize,
-    pub pane_id: crate::layout::PaneId,
-    pub agent_kind_label: Option<String>,
-    pub state: AgentState,
-    pub seen: bool,
-    pub last_agent_state_change_seq: Option<u64>,
-    pub tokens: std::collections::HashMap<String, String>,
-}
 
 fn sidebar_section_heights(total_height: u16, split_ratio: f32) -> (u16, u16) {
     if total_height == 0 {
@@ -73,34 +59,6 @@ pub(crate) fn sidebar_section_divider_rect(area: Rect, split_ratio: f32) -> Rect
 
     let (workspace_height, _) = sidebar_section_heights(content.height, split_ratio);
     Rect::new(content.x, content.y + workspace_height, content.width, 1)
-}
-
-pub(crate) fn agent_panel_entries_from(
-    app: &AppState,
-    _terminal_runtimes: &TerminalRuntimeRegistry,
-) -> Vec<AgentPanelEntry> {
-    let mut entries = app
-        .workspaces
-        .iter()
-        .enumerate()
-        .flat_map(|(ws_idx, workspace)| {
-            workspace
-                .pane_details(&app.terminals)
-                .into_iter()
-                .map(move |detail| AgentPanelEntry {
-                    ws_idx,
-                    tab_idx: detail.tab_idx,
-                    pane_id: detail.pane_id,
-                    agent_kind_label: detail.agent_kind_label,
-                    state: detail.state,
-                    seen: detail.seen,
-                    last_agent_state_change_seq: detail.last_agent_state_change_seq,
-                    tokens: detail.tokens,
-                })
-        })
-        .collect();
-    crate::app::agent_view::apply_agent_view(app, &mut entries);
-    entries
 }
 
 pub(crate) fn resolved_token_spans(

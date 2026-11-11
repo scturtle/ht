@@ -1,7 +1,52 @@
+use ghostty_vt as ghostty;
+use ghostty_vt::pane_graphics_files;
 use std::io;
-
+mod agent_resume;
+mod api;
+mod app;
+mod build_info;
+// Frozen API argument projections stay available for codec/schema conformance,
+// including methods that the Core endpoint deliberately does not advertise.
+#[allow(dead_code)]
+mod cli;
+mod client;
+// Historical configuration keys and projections remain parseable even when Core
+// does not implement the corresponding feature; no runtime is constructed here.
+#[allow(dead_code)]
+mod config;
+mod copy_mode;
+mod detect;
+// Generic local-stream primitives are retained for published endpoint conformance
+// tests and platform contracts, not for a runnable legacy server.
+mod input;
+#[allow(dead_code)]
+mod ipc;
+mod kitty_graphics;
+mod layout;
+mod logging;
+mod pane;
+mod platform;
+// Published codecs are append-closed; retain their vocabulary and conformance helpers.
+mod endpoint_paths;
+#[cfg(test)]
+mod noninteractive_process;
+#[allow(dead_code)]
+mod protocol;
+mod raw_input;
+mod render_prof;
+mod selection;
+mod session;
+mod sound;
+mod terminal_effects;
+mod terminal_modes;
+mod terminal_notify;
+mod terminal_theme;
+mod ui;
+mod worktree;
 pub(crate) const HERDR_ENV_VAR: &str = "HERDR_ENV";
+
 pub(crate) const HERDR_ENV_VALUE: &str = "1";
+
 const NESTED_HERDR_MESSAGES: [&str; 6] = [
     "inception detected. we need to go deeper... said no one ever.",
     "recursion is a pathway to many abilities some consider to be... unnatural.",
@@ -10,59 +55,6 @@ const NESTED_HERDR_MESSAGES: [&str; 6] = [
     "recursive descent denied. there is, in fact, such a thing as too much herdr.",
     "recursion detected. base case not found. aborting.",
 ];
-
-mod agent_resume;
-mod agent_view_eval;
-mod api;
-mod app;
-mod build_info;
-mod checksum;
-mod cli;
-mod client;
-mod config;
-mod copy_mode;
-mod detect;
-mod events;
-use ghostty_vt as ghostty;
-mod handoff_runtime;
-mod input;
-mod integration;
-mod ipc;
-mod kitty_graphics;
-mod layout;
-mod logging;
-mod metadata_tokens;
-mod noninteractive_process;
-mod pane;
-use ghostty_vt::pane_graphics_files;
-mod persist;
-mod platform;
-mod plugin_command;
-mod plugin_installations;
-mod plugin_paths;
-mod popup_size;
-mod product_announcements;
-mod protocol;
-mod pty;
-mod raw_input;
-mod release_notes;
-mod remote;
-mod render_prof;
-mod render_signal;
-mod selection;
-mod server;
-mod session;
-mod sound;
-mod terminal;
-mod terminal_effects;
-mod terminal_modes;
-mod terminal_notify;
-mod terminal_theme;
-mod thread_spawn;
-mod ui;
-mod update;
-mod workspace;
-mod worktree;
 
 const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Place this file at ~/.config/herdr/config.toml
@@ -119,18 +111,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # Render pane images in Kitty graphics-compatible outer terminals.
 # kitty_graphics = true
-
-[update]
-# Update channel used by background version checks and `herdr update`.
-# Stable builds default to "stable". Windows preview builds default to "preview"
-# so existing preview installs stay there until explicitly switched.
-# channel = "stable"
-
-# Check herdr.dev for new Herdr versions in the background.
-# version_check = true
-
-# Check herdr.dev for remote agent-detection manifest updates in the background.
-# manifest_check = true
 
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
@@ -205,15 +185,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Custom commands use the same binding syntax.
 # type = "shell" runs detached in the background.
 # type = "pane" opens a temporary pane and closes it when the command exits.
-# type = "popup" opens a session-modal terminal without changing the tab layout.
-# Popup width and height accept terminal cells or percentages such as "80%".
-# On Windows, command strings run through cmd.exe /d /c.
 # [[keys.command]]
 # key = "prefix+alt+g"
-# type = "popup"
+# type = "pane"
 # command = "lazygit"
-# width = "80%"
-# height = "80%"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, and focus_agent for new configs.
@@ -447,7 +422,6 @@ pane_history = false
 "##;
 
 // Bundled at build time so the printed skill always matches this binary's release.
-const SKILL: &str = include_str!("../skills/herdr/SKILL.md");
 
 fn should_block_nested(config: &config::Config) -> bool {
     should_block_nested_for_env(config, std::env::var(HERDR_ENV_VAR).ok().as_deref())
@@ -491,319 +465,32 @@ where
         .collect()
 }
 
-fn finish_cli(outcome: io::Result<cli::CommandOutcome>) -> io::Result<()> {
-    match outcome {
-        Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
-        Ok(cli::CommandOutcome::NotCli) => Ok(()),
-        Err(err) if cli::protocol_mismatch_was_reported(&err) => std::process::exit(1),
-        Err(err) if cli::server_not_running_was_reported(&err) => {
-            if let Some(response) = cli::server_not_running_reported_response(&err) {
-                if let Ok(json) = serde_json::to_string(response) {
-                    eprintln!("{json}");
-                }
-            }
-            std::process::exit(1);
-        }
-        Err(err) => Err(err),
-    }
-}
-
+const CORE_ONLY_UNAVAILABLE: &str = "the legacy Herdr runtime has been removed; this command/option is unavailable in the Core-only client. Remote Core transport and the CLI API bridge are not implemented. No legacy fallback is used. Manage terminals with hc and select a separate Core home with HERDR_CORE_HOME.";
 fn main() -> io::Result<()> {
-    let raw_args: Vec<String> = match args_as_utf8(std::env::args_os()) {
-        Ok(args) => args,
-        Err(err) => {
-            eprintln!("error: {err}");
-            eprintln!("run 'herdr --help' for usage");
-            std::process::exit(2);
-        }
-    };
-    #[cfg(windows)]
-    if let Some(result) = platform::maybe_activate_desktop_notification(&raw_args) {
-        return result;
+    let args = args_as_utf8(std::env::args_os())
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    let tail = &args[1..];
+    match tail {
+        [] => {},
+        [flag] if flag=="--core" => {},
+        [flag] if flag=="--help" || flag=="-h" || flag=="help" => {
+            println!("herdr — existing TUI, powered exclusively by herdr-core\n\nUsage: herdr [--core]\n       herdr --version | --default-config\n       herdr config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nIsolated Core home: HERDR_CORE_HOME\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
+            return Ok(())
+        },
+        [flag] if flag=="--version" || flag=="-V" => {println!("herdr {} (Core-only)",build_info::version());return Ok(())},
+        [flag] if flag=="--default-config" => {print!("# Core-only client: legacy server/detection/integration settings are inert.\n{DEFAULT_CONFIG}");return Ok(())},
+        [group,..] if group=="config" => {
+            let outcome=cli::maybe_run(&args)?;
+            if let cli::CommandOutcome::Handled(code)=outcome {std::process::exit(code)}
+            return Err(io::Error::new(io::ErrorKind::InvalidInput,"unsupported client command"));
+        },
+        // Updating this personal fork with upstream binaries would restore the retired runtime.
+        [group,..] if group=="update" => return Err(io::Error::new(io::ErrorKind::Unsupported,"self-update is disabled in this Core-only fork; rebuild this checkout so the legacy runtime cannot be restored by an upstream binary")),
+        _ => { eprintln!("herdr: {CORE_ONLY_UNAVAILABLE}");std::process::exit(2) }
     }
-    if let Some(outcome) = cli::maybe_run_machine(&raw_args) {
-        return finish_cli(outcome);
-    }
-    let args = match session::configure_from_args(&raw_args) {
-        Ok(args) => args,
-        Err(err) => {
-            eprintln!("error: {err}");
-            eprintln!("run 'herdr --help' for usage");
-            std::process::exit(2);
-        }
-    };
-    let (args, remote_launch) = match remote::extract_remote_args(&args) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            eprintln!("error: {err}");
-            eprintln!("run 'herdr --help' for usage");
-            std::process::exit(2);
-        }
-    };
-
-    if remote_launch.is_some()
-        && args.get(1).is_some()
-        && !args.iter().any(|a| {
-            matches!(
-                a.as_str(),
-                "--help" | "-h" | "--version" | "-V" | "--default-config" | "--skill"
-            )
-        })
-    {
-        eprintln!("error: --remote can only be used with the default launch command");
-        eprintln!("run 'herdr --help' for usage");
-        std::process::exit(2);
-    }
-
-    finish_cli(cli::maybe_run(&args))?;
-
-    if args.get(1).map(String::as_str) == Some("remote-api-bridge") {
-        return remote::run_remote_api_bridge(&args[2..]);
-    }
-
-    // Subcommands and flags (no TUI, no logging needed)
-    if args.get(1).map(|s| s.as_str()) == Some("remote-client-bridge") {
-        return remote::run_remote_client_bridge(&args[2..]);
-    }
-
-    if args.get(1).map(|s| s.as_str()) == Some("server") {
-        return server::headless::run_server();
-    }
-
-    // Hidden client mode: connect to an existing server's client socket.
-    if args.get(1).map(|s| s.as_str()) == Some("client") {
-        let loaded_config = config::Config::load();
-        exit_if_nested_disabled(&loaded_config.config);
-        return client::run_client();
-    }
-
-    if args.get(1).map(|s| s.as_str()) == Some("update") {
-        let options = match update::parse_self_update_args(&args[2..]) {
-            Ok(options) => options,
-            Err(err) if err.starts_with("usage:") => {
-                eprintln!("{err}");
-                std::process::exit(0);
-            }
-            Err(err) => {
-                eprintln!("{err}");
-                eprintln!("usage: herdr update [--handoff]");
-                std::process::exit(2);
-            }
-        };
-        match update::self_update(options) {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                if e.starts_with("self-update is disabled") {
-                    eprintln!("{e}");
-                } else {
-                    eprintln!("update failed: {e}");
-                }
-                std::process::exit(1);
-            }
-        }
-    }
-
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        platform::begin_cli_output();
-        println!("herdr — terminal workspace manager for AI coding agents");
-        println!();
-        println!("Usage: herdr [options]");
-        println!("       herdr --session <name> [options]");
-        println!("       herdr --machine <label-or-id> <command>");
-        println!("       herdr --remote <ssh-target> [--session <name>]");
-        println!("       herdr session attach <name>");
-        println!("       herdr completion zsh");
-        println!("       herdr update [--handoff]");
-        println!("       herdr channel set <stable|preview>");
-        println!("       herdr machine <subcommand> ...");
-        println!("       herdr server stop");
-        println!("       herdr server reload-config");
-        println!("       herdr api <subcommand> ...");
-        println!("       herdr completion <shell>");
-        println!("       herdr config <subcommand> ...");
-        println!("       herdr channel <subcommand> ...");
-        println!("       herdr workspace <subcommand> ...");
-        println!("       herdr worktree <subcommand> ...");
-        println!("       herdr tab <subcommand> ...");
-        println!("       herdr notification <subcommand> ...");
-        println!("       herdr agent <subcommand> ...");
-        println!("       herdr pane <subcommand> ...");
-        println!("       herdr session <subcommand> ...");
-        println!("       herdr integration <subcommand> ...");
-        println!();
-        println!("Common commands:");
-        for (command, description) in [
-            ("herdr", "Launch or attach to the persistent session"),
-            (
-                "herdr status [server|client]",
-                "Show local client and running server status",
-            ),
-            ("herdr update", "Download and install the latest version"),
-            ("herdr completion zsh", "Generate shell completions for zsh"),
-            (
-                "herdr server stop",
-                "Stop the running server via the API socket",
-            ),
-            (
-                "herdr channel set <stable|preview>",
-                "Choose the stable or preview update channel",
-            ),
-            (
-                "herdr server reload-config",
-                "Reload config.toml in the running server",
-            ),
-            (
-                "herdr config reset-keys",
-                "Back up config.toml and remove custom keybindings",
-            ),
-            (
-                "herdr channel <subcommand>",
-                "Manage the stable or preview update channel",
-            ),
-            ("herdr machine <subcommand>", "Manage saved SSH machines"),
-            (
-                "herdr api <subcommand>",
-                "Inspect socket API metadata and live runtime state",
-            ),
-            (
-                "herdr workspace <subcommand>",
-                "Workspace helpers over the socket API",
-            ),
-            (
-                "herdr worktree <subcommand>",
-                "Git worktree helpers over the socket API",
-            ),
-            ("herdr tab <subcommand>", "Tab helpers over the socket API"),
-            (
-                "herdr notification <subcommand>",
-                "Notification helpers over the socket API",
-            ),
-            (
-                "herdr agent <subcommand>",
-                "Agent/terminal helpers over the socket API",
-            ),
-            (
-                "herdr pane <subcommand>",
-                "Pane control helpers over the socket API",
-            ),
-            (
-                "herdr session <subcommand>",
-                "Manage named persistent sessions",
-            ),
-            (
-                "herdr integration <subcommand>",
-                "Manage built-in agent integrations",
-            ),
-        ] {
-            println!("  {command:<32} {description}");
-        }
-        println!();
-        println!("Advanced commands:");
-        println!("  {:<32} Run as headless server", "herdr server");
-        println!();
-        println!("Options:");
-        println!("  --session <name>    Use or create a named persistent session");
-        println!("  --machine <label-or-id>  Run an API command on a saved SSH machine");
-        println!("  --remote <target>   Attach through SSH to a remote Herdr server");
-        println!("  --remote-keybindings <local|server>");
-        println!("                      Keybindings for --remote app attach (default: local)");
-        println!("  --handoff           Opt into live handoff for update or remote attach");
-        println!("  --default-config    Print default configuration and exit");
-        println!("  --skill             Print the agent skill file and exit");
-        println!("  --version, -V       Print version and exit");
-        println!("  --help, -h          Show this help");
-        println!();
-        println!("Config: {}", config::config_path().display());
-        println!("Logs:   {}", logging::help_log_paths_summary());
-        println!("Env:    HERDR_CONFIG_PATH overrides config file path");
-        println!("Home:   https://herdr.dev");
-        println!();
-        println!("{}", cli::AGENT_HELP_FOOTER);
-        return Ok(());
-    }
-
-    if args.iter().any(|a| a == "--version" || a == "-V") {
-        platform::begin_cli_output();
-        println!("herdr {}", crate::build_info::version());
-        return Ok(());
-    }
-
-    if args.iter().any(|a| a == "--default-config") {
-        platform::begin_cli_output();
-        print!("{DEFAULT_CONFIG}");
-        return Ok(());
-    }
-
-    if args.iter().any(|a| a == "--skill") {
-        platform::begin_cli_output();
-        print!("{SKILL}");
-        return Ok(());
-    }
-
-    // Reject unknown flags
-    let known_flags = [
-        "--session",
-        "--machine",
-        "--remote",
-        "--remote-keybindings",
-        "--version",
-        "-V",
-        "--default-config",
-        "--skill",
-        "--help",
-        "-h",
-    ];
-    for arg in &args[1..] {
-        let arg_name = arg.split_once('=').map(|(name, _)| name).unwrap_or(arg);
-        if arg.starts_with('-') && !known_flags.contains(&arg_name) {
-            eprintln!("unknown option: {arg}");
-            eprintln!("run 'herdr --help' for usage");
-            std::process::exit(2);
-        }
-        if !arg.starts_with('-')
-            && ![
-                "server",
-                "client",
-                "remote-client-bridge",
-                "update",
-                "status",
-                "config",
-                "channel",
-                "machine",
-                "workspace",
-                "worktree",
-                "pane",
-                "session",
-                "integration",
-            ]
-            .contains(&arg.as_str())
-        {
-            eprintln!("unknown command: {arg}");
-            eprintln!("run 'herdr --help' for usage");
-            std::process::exit(2);
-        }
-    }
-
-    if let Some(remote_launch) = remote_launch {
-        let remote_target = remote_launch.target.clone();
-        if let Err(err) = remote::run_remote(remote_launch) {
-            eprintln!("error: {err}");
-            remote::print_remote_error_hint(&err, &remote_target);
-            std::process::exit(1);
-        }
-        return Ok(());
-    }
-
-    let loaded_config = config::Config::load();
-    exit_if_nested_disabled(&loaded_config.config);
-
-    let saved_federation =
-        client::endpoint::EndpointCatalog::load().is_ok_and(|catalog| catalog.has_enabled_ssh());
-    if let Err(err) = server::autodetect::auto_detect_launch(saved_federation) {
-        eprintln!("herdr: {err}");
-        std::process::exit(1);
-    }
-    Ok(())
+    let loaded = config::Config::load();
+    exit_if_nested_disabled(&loaded.config);
+    client::run_core_client()
 }
 
 #[cfg(test)]
@@ -853,16 +540,9 @@ mod tests {
             .all(|message| !message.starts_with("herdr:")));
     }
 
-    #[cfg(unix)]
     fn invalid_utf8_arg() -> std::ffi::OsString {
         use std::os::unix::ffi::OsStringExt;
         std::ffi::OsString::from_vec(vec![0xff])
-    }
-
-    #[cfg(windows)]
-    fn invalid_utf8_arg() -> std::ffi::OsString {
-        use std::os::windows::ffi::OsStringExt;
-        std::ffi::OsString::from_wide(&[0xd800])
     }
 
     #[test]

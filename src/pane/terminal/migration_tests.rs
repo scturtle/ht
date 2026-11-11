@@ -4,7 +4,6 @@ use super::*;
 
 struct Harness {
     pane: PaneTerminal,
-    tx: mpsc::Sender<Bytes>,
     width: u16,
     height: u16,
     effects: Effects,
@@ -34,11 +33,9 @@ struct Observation {
 
 impl Harness {
     fn new(width: u16, height: u16) -> Self {
-        let (tx, _rx) = mpsc::channel(16);
         let terminal = crate::ghostty::Terminal::new(width, height, 256).unwrap();
         Self {
-            pane: PaneTerminal::new(GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap()),
-            tx,
+            pane: PaneTerminal::new(GhosttyPaneTerminal::new(terminal).unwrap()),
             width,
             height,
             effects: Effects::default(),
@@ -49,10 +46,8 @@ impl Harness {
         self.write_from_process(0, bytes);
     }
 
-    fn write_from_process(&mut self, shell_pid: u32, bytes: &[u8]) {
-        let result = self
-            .pane
-            .process_pty_bytes(PaneId::from_raw(1), shell_pid, bytes, &self.tx);
+    fn write_from_process(&mut self, _shell_pid: u32, bytes: &[u8]) {
+        let result = self.pane.process_pty_bytes(PaneId::from_raw(1), bytes);
         for reply in result.terminal_responses {
             self.effects.replies.extend_from_slice(&reply);
         }
@@ -115,43 +110,10 @@ impl Harness {
     }
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn primary_screen_replay_honors_ed3_for_droid_at_chunk_boundaries() {
-    // A zero PID would bypass the former process-specific filter entirely.
-    // Use the real foreground-job lookup, with cleanup even on assertion failure.
-    struct ChildGuard(Box<dyn portable_pty::Child + Send + Sync>);
-    impl Drop for ChildGuard {
-        fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-        }
-    }
-    let pair = portable_pty::native_pty_system()
-        .openpty(portable_pty::PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .unwrap();
-    let mut command = portable_pty::CommandBuilder::new("bash");
-    command.args(["-c", "exec -a droid sleep 999"]);
-    let child = ChildGuard(pair.slave.spawn_command(command).unwrap());
-    let pid = child.0.process_id().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let ready = crate::detect::foreground_job(pid).is_some_and(|job| {
-            job.processes
-                .iter()
-                .any(|process| process.cmdline.as_deref() == Some("droid 999"))
-        });
-        if ready {
-            break;
-        }
-        assert!(Instant::now() < deadline, "Droid foreground job not ready");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    // Replay is process-independent in the presentation-only terminal.
+    let pid = 0;
 
     for clear in ["\x1b[3J", "\x1b[?3J"] {
         let prefix = format!("\x1b[?2026h\x1b[2J{clear}\x1b[H");

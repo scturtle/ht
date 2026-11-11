@@ -1,11 +1,5 @@
 use std::path::PathBuf;
 
-use tracing::info;
-
-use crate::layout::PaneId;
-
-use super::terminal::GhosttyPaneCore;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DefaultColorQuery {
     Foreground,
@@ -529,11 +523,12 @@ impl AgentOscStateTracker {
         terminal_title_changed
     }
 
+    #[cfg(test)]
     pub(super) fn terminal_title(&self) -> Option<&str> {
         self.terminal_title.as_deref()
     }
 
-    #[cfg(unix)]
+    #[cfg(test)]
     pub(super) fn seed_terminal_title(&mut self, title: Option<String>) {
         self.terminal_title = title;
     }
@@ -555,6 +550,7 @@ impl AgentOscStateTracker {
     /// inherit OSC evidence emitted by a previous process. The in-flight parse
     /// state is kept: a sequence spanning the agent change finalizes normally
     /// and is attributed to the new agent.
+    #[cfg(test)]
     pub(super) fn clear_retained(&mut self) {
         self.latest_title = None;
         self.latest_progress = None;
@@ -677,20 +673,6 @@ fn parse_file_uri_cwd(uri: &str) -> Option<PathBuf> {
     };
     let path = percent_decode_utf8(path)?;
 
-    #[cfg(windows)]
-    {
-        let mut path = path;
-        if path.len() >= 3
-            && path.as_bytes()[0] == b'/'
-            && path.as_bytes()[2] == b':'
-            && path.as_bytes()[1].is_ascii_alphabetic()
-        {
-            path.remove(0);
-        }
-        Some(PathBuf::from(path.replace('/', "\\")))
-    }
-
-    #[cfg(not(windows))]
     Some(PathBuf::from(path))
 }
 
@@ -719,60 +701,6 @@ fn hex_value(byte: u8) -> Option<u8> {
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
     }
-}
-
-fn foreground_job_is_shell(job: &crate::platform::ForegroundJob, shell_pid: u32) -> bool {
-    job.processes.iter().any(|process| process.pid == shell_pid)
-}
-
-pub(super) fn current_transient_default_color_owner(shell_pid: u32) -> Option<u32> {
-    let job = crate::detect::foreground_job(shell_pid)?;
-    (!foreground_job_is_shell(&job, shell_pid)).then_some(job.process_group_id)
-}
-
-#[cfg(target_os = "macos")]
-pub(super) fn should_restore_host_terminal_theme(
-    owner_pgid: u32,
-    shell_pid: u32,
-    alternate_screen: bool,
-    foreground_job: Option<&crate::platform::ForegroundJob>,
-) -> bool {
-    if alternate_screen {
-        return false;
-    }
-
-    let Some(foreground_job) = foreground_job else {
-        return false;
-    };
-
-    let _ = owner_pgid;
-    foreground_job_is_shell(foreground_job, shell_pid)
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(super) fn should_restore_host_terminal_theme(
-    owner_pgid: u32,
-    shell_pid: u32,
-    alternate_screen: bool,
-    foreground_job: Option<&crate::platform::ForegroundJob>,
-) -> bool {
-    if alternate_screen {
-        return false;
-    }
-
-    let Some(foreground_job) = foreground_job else {
-        return false;
-    };
-
-    foreground_job.process_group_id != owner_pgid
-        && foreground_job_is_shell(foreground_job, shell_pid)
-}
-
-pub(super) fn write_host_terminal_theme(
-    terminal: &mut crate::ghostty::Terminal,
-    theme: crate::terminal_theme::TerminalTheme,
-) {
-    write_host_terminal_theme_selective(terminal, theme, true, true);
 }
 
 pub(super) fn write_host_terminal_theme_selective(
@@ -808,35 +736,6 @@ fn write_host_default_color(
         crate::terminal_theme::osc_reset_default_color_sequence(kind).to_string()
     };
     terminal.write(sequence.as_bytes());
-}
-
-pub(super) fn restore_host_terminal_theme_if_needed(
-    core: &mut GhosttyPaneCore,
-    pane_id: PaneId,
-    shell_pid: u32,
-    alternate_screen: bool,
-    foreground_job: Option<&crate::platform::ForegroundJob>,
-) -> bool {
-    let Some(owner_pgid) = core.transient_default_color_owner_pgid else {
-        return false;
-    };
-    if core.host_terminal_theme.is_empty() {
-        return false;
-    }
-    if !should_restore_host_terminal_theme(owner_pgid, shell_pid, alternate_screen, foreground_job)
-    {
-        return false;
-    }
-
-    core.transient_default_color_owner_pgid = None;
-    core.child_default_foreground_changed = false;
-    core.child_default_background_changed = false;
-    write_host_terminal_theme(&mut core.terminal, core.host_terminal_theme);
-    info!(
-        pane = pane_id.raw(),
-        owner_pgid, "restored host terminal default colors after transient override"
-    );
-    true
 }
 
 #[cfg(test)]
@@ -894,49 +793,7 @@ mod tests {
         }
     }
 
-    use tokio::sync::mpsc;
-
     use super::*;
-    use crate::layout::PaneId;
-
-    fn pane_default_theme(
-        pane: &super::super::GhosttyPaneTerminal,
-    ) -> crate::terminal_theme::TerminalTheme {
-        let mut core = pane.core.lock().unwrap();
-        let super::super::terminal::GhosttyPaneCore {
-            terminal,
-            render_state,
-            ..
-        } = &mut *core;
-        render_state.update(terminal).unwrap();
-        let colors = render_state.colors().unwrap();
-        crate::terminal_theme::TerminalTheme {
-            foreground: Some(crate::terminal_theme::RgbColor {
-                r: colors.foreground.r,
-                g: colors.foreground.g,
-                b: colors.foreground.b,
-            }),
-            background: Some(crate::terminal_theme::RgbColor {
-                r: colors.background.r,
-                g: colors.background.g,
-                b: colors.background.b,
-            }),
-            ..Default::default()
-        }
-    }
-
-    fn shell_job(shell_pid: u32) -> crate::platform::ForegroundJob {
-        crate::platform::ForegroundJob {
-            process_group_id: shell_pid,
-            processes: vec![crate::platform::ForegroundProcess {
-                pid: shell_pid,
-                name: "zsh".to_string(),
-                argv0: Some("zsh".to_string()),
-                argv: Some(vec!["zsh".to_string()]),
-                cmdline: Some("zsh".to_string()),
-            }],
-        }
-    }
 
     fn tracked_default_color_events(
         events: Vec<DefaultColorTrackedEvent>,
@@ -1049,7 +906,6 @@ mod tests {
         assert_eq!(tracker.terminal_title(), Some("✳ 修复🙂标题"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn handoff_seed_does_not_restore_agent_detection_evidence() {
         let mut tracker = AgentOscStateTracker::default();
@@ -1374,104 +1230,5 @@ mod tests {
             tracked_default_color_events(tracker.drain_pending()),
             vec![DefaultColorEvent::Query(DefaultColorQuery::Background)]
         );
-    }
-
-    #[test]
-    fn host_theme_restore_waits_for_shell_and_non_alternate_screen() {
-        assert!(!should_restore_host_terminal_theme(
-            42,
-            7,
-            true,
-            Some(&shell_job(7)),
-        ));
-        assert!(!should_restore_host_terminal_theme(42, 7, false, None));
-        assert!(!should_restore_host_terminal_theme(
-            42,
-            7,
-            false,
-            Some(&crate::platform::ForegroundJob {
-                process_group_id: 42,
-                processes: vec![crate::platform::ForegroundProcess {
-                    pid: 42,
-                    name: "droid".to_string(),
-                    argv0: Some("droid".to_string()),
-                    argv: Some(vec!["droid".to_string()]),
-                    cmdline: Some("droid".to_string()),
-                }],
-            }),
-        ));
-        assert!(should_restore_host_terminal_theme(
-            42,
-            7,
-            false,
-            Some(&shell_job(7)),
-        ));
-
-        #[cfg(target_os = "macos")]
-        assert!(should_restore_host_terminal_theme(
-            7,
-            7,
-            false,
-            Some(&shell_job(7)),
-        ));
-
-        #[cfg(not(target_os = "macos"))]
-        assert!(!should_restore_host_terminal_theme(
-            7,
-            7,
-            false,
-            Some(&shell_job(7)),
-        ));
-    }
-
-    #[test]
-    fn restore_host_terminal_theme_reapplies_cached_colors() {
-        let (tx, _rx) = mpsc::channel(4);
-        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
-        let pane = super::super::GhosttyPaneTerminal::new(terminal, tx).unwrap();
-        let pane_id = PaneId::from_raw(1);
-        let shell_pid = 7;
-        let host_theme = crate::terminal_theme::TerminalTheme {
-            foreground: Some(crate::terminal_theme::RgbColor {
-                r: 0xaa,
-                g: 0xbb,
-                b: 0xcc,
-            }),
-            background: Some(crate::terminal_theme::RgbColor {
-                r: 0x11,
-                g: 0x22,
-                b: 0x33,
-            }),
-            ..Default::default()
-        };
-
-        pane.apply_host_terminal_theme(host_theme);
-        {
-            let mut core = pane.core.lock().unwrap();
-            core.transient_default_color_owner_pgid = Some(42);
-            core.terminal.write(b"\x1b]11;rgb:dd/ee/ff\x1b\\");
-        }
-        assert_eq!(
-            pane_default_theme(&pane).background,
-            Some(crate::terminal_theme::RgbColor {
-                r: 0xdd,
-                g: 0xee,
-                b: 0xff,
-            })
-        );
-
-        {
-            let mut core = pane.core.lock().unwrap();
-            assert!(restore_host_terminal_theme_if_needed(
-                &mut core,
-                pane_id,
-                shell_pid,
-                false,
-                Some(&shell_job(shell_pid)),
-            ));
-        }
-
-        assert_eq!(pane_default_theme(&pane).background, host_theme.background);
-        assert_eq!(pane_default_theme(&pane).foreground, host_theme.foreground);
     }
 }

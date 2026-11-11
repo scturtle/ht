@@ -248,22 +248,10 @@ impl ClientShellState {
                     pane_id: snapshot.focused_pane_id.clone(),
                     selection,
                 };
-                if action == crate::protocol::ClientShellCommandAction::Popup {
-                    self.popup_pending = true;
-                    self.popup_pending_deadline = None;
-                    if !self.push_endpoint_method_with_kind(
-                        crate::api::schema::Method::CommandInvoke(params),
-                        PendingEndpointKind::PopupCommand,
-                        outcome,
-                    ) {
-                        self.popup_pending = false;
-                    }
-                } else {
-                    self.push_endpoint_method(
-                        crate::api::schema::Method::CommandInvoke(params),
-                        outcome,
-                    );
-                }
+                self.push_endpoint_method(
+                    crate::api::schema::Method::CommandInvoke(params),
+                    outcome,
+                );
             }
         }
     }
@@ -428,12 +416,12 @@ impl ClientShellState {
     }
 
     pub(crate) fn receive_endpoint_error(&mut self, message: String) -> bool {
-        self.push_endpoint_notice(
-            ClientEndpointNoticeKind::Rejected,
-            "paste_rejected",
-            "Paste rejected",
-            message,
-        )
+        let (code, title) = if message.starts_with("Paste rejected") {
+            ("paste_rejected", "Paste rejected")
+        } else {
+            ("input_rejected", "Input rejected")
+        };
+        self.push_endpoint_notice(ClientEndpointNoticeKind::Rejected, code, title, message)
     }
 
     pub(crate) fn receive_endpoint_unavailable(&mut self, message: String) -> bool {
@@ -449,10 +437,6 @@ impl ClientShellState {
         &mut self,
         target: ClientEndpointFocusTarget,
     ) -> Vec<ClientShellAction> {
-        #[cfg(windows)]
-        if !self.notification_target_is_current(&self.active_endpoint_id, &target) {
-            return Vec::new();
-        }
         let method = match target {
             ClientEndpointFocusTarget::Workspace(workspace_id) => {
                 crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
@@ -463,10 +447,6 @@ impl ClientShellState {
                 crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id })
             }
             ClientEndpointFocusTarget::Pane(pane_id) => {
-                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
-            }
-            #[cfg(windows)]
-            ClientEndpointFocusTarget::Notification { pane_id, .. } => {
                 crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
             }
         };
@@ -610,20 +590,6 @@ impl ClientShellState {
                                 ));
                             }
                         }
-                        (true, Vec::new())
-                    }
-                };
-            }
-            PendingEndpointKind::PopupCommand => {
-                return match result {
-                    Ok(_) => {
-                        self.popup_pending_deadline =
-                            Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
-                        (false, Vec::new())
-                    }
-                    Err(_) => {
-                        self.popup_pending = false;
-                        self.popup_pending_deadline = None;
                         (true, Vec::new())
                     }
                 };

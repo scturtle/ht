@@ -19,18 +19,24 @@ fn plus_commands_survive_snapshots_and_reload_for_both_keybinding_sources() {
             ))
             .unwrap();
             assert!(config.collect_diagnostics().is_empty());
-            let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-            let app = crate::app::App::new(
-                &config,
-                crate::app::AppPolicy::TEST,
-                None,
-                api_rx,
-                crate::api::EventHub::default(),
-            );
+            // Exercise client manifest projection without constructing a server/PTY owner.
+            let commands = config
+                .keybinds()
+                .custom_commands
+                .iter()
+                .enumerate()
+                .map(|(index, binding)| crate::protocol::ClientShellCommand {
+                    command_id: format!("test-command-{index}"),
+                    binding_label: binding.label.clone(),
+                    binding_labels: binding.bindings.labels(),
+                    action: binding.action.into(),
+                    description: binding.description.clone(),
+                })
+                .collect();
             let mut projection = snapshot();
             projection.revision = revision;
             projection.server_keybindings_toml = config.local_keybindings_profile_toml().ok();
-            projection.commands = app.client_shell_command_manifest();
+            projection.commands = commands;
             assert_eq!(projection.commands.len(), 1);
             let command_id = projection.commands[0].command_id.clone();
             state.set_snapshot(Box::new(projection));
@@ -174,69 +180,13 @@ fn remote_client_preferences_process_child() {
         )
         .unwrap();
     }
-    let socket = crate::server::socket_paths::client_socket_path();
+    let socket = crate::endpoint_paths::client_socket_path();
     let config = ClientShellConfig::from_config(&Config::default())
         .with_process_endpoint_preferences(&socket);
     assert_eq!(config.preferences_path, Some(expected_path));
     let restored = ClientShellState::new(config);
     assert_eq!(restored.sidebar_width, 31);
     assert!(restored.sidebar_collapsed);
-}
-
-#[test]
-fn manual_client_chrome_preferences_round_trip_per_endpoint() {
-    let path = std::env::temp_dir().join(format!(
-        "herdr-client-shell-prefs-{}.json",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_file(&path);
-    let config =
-        ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone());
-    let mut state = ClientShellState::new(config);
-    state.sidebar_width = 31;
-    state.sidebar_width_manual = true;
-    state.sidebar_section_split = 0.7;
-    state.sidebar_section_split_manual = true;
-    state.sidebar_collapsed = true;
-    state.sidebar_collapsed_manual = true;
-    state.collapsed_groups.insert("repo-two".into());
-    state.collapsed_groups.insert("repo-one".into());
-    let profile =
-        SavedSshEndpoint::new("Build", "dev@build.example", "agents").expect("saved SSH profile");
-    let remote_id = ClientEndpointId::Ssh(profile.id.clone());
-    state
-        .remote_collapsed_groups
-        .insert(remote_id.clone(), HashSet::from(["/repo".to_owned()]));
-    state.persist_chrome_preferences(&mut ClientShellInput::default());
-    let stored = std::fs::read_to_string(&path).expect("stored client chrome preferences");
-    assert!(stored.contains(profile.id.as_str()));
-    assert!(stored.contains("repo-one"));
-    assert!(!stored.contains(&profile.label));
-    assert!(!stored.contains(&profile.target));
-
-    let reloaded_config =
-        ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone());
-    let reloaded = ClientShellState::new(reloaded_config);
-    assert_eq!(reloaded.sidebar_width, 31);
-    assert!(reloaded.sidebar_width_manual);
-    assert_eq!(reloaded.sidebar_section_split, 0.7);
-    assert!(reloaded.sidebar_section_split_manual);
-    assert!(reloaded.sidebar_collapsed);
-    assert!(reloaded.sidebar_collapsed_manual);
-    assert_eq!(
-        reloaded.collapsed_groups,
-        HashSet::from(["repo-one".to_string(), "repo-two".to_string()])
-    );
-    assert_eq!(
-        reloaded.remote_collapsed_groups.get(&remote_id),
-        Some(&HashSet::from(["/repo".to_owned()]))
-    );
-    let mut reloaded = reloaded;
-    reloaded.persist_chrome_preferences(&mut ClientShellInput::default());
-    let stored_again = std::fs::read_to_string(&path).expect("restored client chrome preferences");
-    assert!(stored_again.contains(profile.id.as_str()));
-    assert!(stored_again.contains("/repo"));
-    std::fs::remove_file(path).expect("remove client chrome preferences");
 }
 
 #[test]
@@ -546,8 +496,6 @@ fn custom_binding_invokes_only_the_endpoint_manifest_id() {
         command: "secret-command --token hidden".into(),
         action: crate::config::CustomCommandAction::Shell,
         description: None,
-        width: None,
-        height: None,
     };
     let mut projection = snapshot();
     projection
@@ -589,8 +537,6 @@ fn plugin_command_carries_client_owned_selection_coordinates() {
         command: "plugin.action".into(),
         action: crate::config::CustomCommandAction::PluginAction,
         description: None,
-        width: None,
-        height: None,
     };
     let mut projection = snapshot();
     projection
@@ -742,6 +688,22 @@ fn generic_endpoint_failures_and_control_errors_are_visible() {
 }
 
 #[test]
+fn non_paste_input_errors_are_not_labeled_as_paste_rejections() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    assert!(state.receive_endpoint_error("Input rejected: Core pane not found".into()));
+    assert_eq!(
+        state.visible_endpoint_notice.as_ref().unwrap().key.code,
+        "input_rejected"
+    );
+    assert!(state.receive_endpoint_error("Paste rejected: too large".into()));
+    assert_eq!(
+        state.visible_endpoint_notice.as_ref().unwrap().key.code,
+        "paste_rejected"
+    );
+}
+
+#[test]
 fn endpoint_timeout_is_a_deduplicated_server_notice() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
@@ -818,8 +780,6 @@ fn custom_binding_missing_from_endpoint_manifest_is_not_forwarded() {
         command: "secret-command".into(),
         action: crate::config::CustomCommandAction::Shell,
         description: None,
-        width: None,
-        height: None,
     };
 
     let mut outcome = ClientShellInput::default();
