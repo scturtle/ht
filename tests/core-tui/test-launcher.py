@@ -35,12 +35,21 @@ print(json.dumps({"stdin_tty": os.isatty(0), "stdout_tty": os.isatty(1),
                   "inherited_home": os.environ.get("HERDR_CORE_HOME"),
                   "inherited_socket": os.environ.get("HERDR_SOCKET_PATH"),
                   "client_id": os.environ.get("HERDR_CORE_CLIENT_ID"),
+                  "session": os.environ.get("HC_SESSION"),
+                  "runtime": os.environ.get("XDG_RUNTIME_DIR"),
+                  "state": os.environ.get("XDG_STATE_HOME"),
+                  "config": os.environ.get("XDG_CONFIG_HOME"),
+                  "socket": os.environ.get("HC_SOCKET"),
                   "input": sys.stdin.readline().rstrip("\\n")}), flush=True)
 ''')
         self.core = self.root / "fake-core"
         self.executable(self.core, '''#!/usr/bin/env python3
 import json, os, sys
-print(json.dumps({"args": sys.argv[1:], "socket": os.environ.get("HC_SOCKET")}), flush=True)
+print(json.dumps({"args": sys.argv[1:], "socket": os.environ.get("HC_SOCKET"),
+                  "session": os.environ.get("HC_SESSION"),
+                  "runtime": os.environ.get("XDG_RUNTIME_DIR"),
+                  "state": os.environ.get("XDG_STATE_HOME"),
+                  "config": os.environ.get("XDG_CONFIG_HOME")}), flush=True)
 ''')
         self.home = self.root / "private-core"
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(("HC_", "HERDR_", "CORE_UI_", "CORE_TUI_"))}
@@ -116,7 +125,27 @@ print(json.dumps({"args": sys.argv[1:], "socket": os.environ.get("HC_SOCKET")}),
                                 env=self.env, capture_output=True, timeout=10, check=True)
         record = json.loads(result.stdout)
         self.assertEqual(record["args"], ["server", "stop"])
-        self.assertEqual(record["socket"], str(self.home / "core.sock"))
+        self.assertIsNone(record["socket"])
+        self.assertEqual(record["runtime"], str(self.home / "run"))
+        self.assertEqual(record["state"], str(self.home / "state"))
+        self.assertEqual(record["config"], str(self.home / "config"))
+        start = subprocess.run(["sh", str(self.launcher)], input=b"START\\n",
+                               env=self.env, capture_output=True, timeout=10, check=True)
+        started = json.loads(start.stdout.splitlines()[-1])
+        self.assertEqual(started["argv"][3], record["session"])
+        for key in ["session", "runtime", "state", "config", "socket"]:
+            self.assertEqual(started[key], record[key])
+
+    def test_distinct_private_homes_cannot_stop_each_others_session(self):
+        sessions = []
+        for home in [self.home, self.root / "another-core"]:
+            result = subprocess.run(["sh", str(self.launcher), "--stop"],
+                                    env=dict(self.env, CORE_UI_HOME=str(home)),
+                                    capture_output=True, timeout=10, check=True)
+            record = json.loads(result.stdout)
+            sessions.append(record["session"])
+            self.assertEqual(record["runtime"], str(home / "run"))
+        self.assertNotEqual(*sessions)
 
 
 if __name__ == "__main__":

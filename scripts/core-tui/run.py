@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Select the isolated runtime without redirecting the TUI\'s standard input."""
+import hashlib
 import os
 from pathlib import Path
 import sys
@@ -10,10 +11,13 @@ config = os.environ.get('CORE_UI_CONFIG')
 env = {k:v for k,v in os.environ.items() if not k.startswith(('HERDR_', 'HC_'))}
 if not hc.is_file():
     sys.exit(f'Core missing: {hc}. Build it with just core-source-build, or set CORE_TUI_HC to a compatible patched binary.')
+# Start and stop select the same private hc session and XDG homes. Leave
+# HC_SOCKET unset so hc and ht derive the session socket by the same rule.
+session_name = 'trial-' + hashlib.sha1(str(home).encode()).hexdigest()[:12]
+env.update(HC_SESSION=session_name,
+           XDG_RUNTIME_DIR=str(home / 'run'), XDG_STATE_HOME=str(home / 'state'),
+           XDG_CONFIG_HOME=str(home / 'config'))
 if sys.argv[2:] == ['--stop']:
-    env.update(HC_SESSION='herdr-tui', HC_SOCKET=str(home / 'core.sock'),
-               XDG_RUNTIME_DIR=str(home / 'run'), XDG_STATE_HOME=str(home / 'state'),
-               XDG_CONFIG_HOME=str(home / 'config'))
     os.execve(hc, [str(hc), 'server', 'stop'], env)
 if sys.argv[2:]:
     sys.exit('usage: run.sh [--stop]')
@@ -32,7 +36,5 @@ if config and Path(config).resolve() == (root / 'scripts/core-tui/try-config.tom
     print('Trial keys: Ctrl+b or F12 prefix; F2/F3 split; F6 next pane; F10 detach.', flush=True)
 else:
     print('An outer Herdr/tmux may capture the same prefix. Optional trial config: scripts/core-tui/try-config.toml', flush=True)
-# A private session name keeps a trial run off the session `hc` uses by default.
-session_name = 'trial-' + __import__('hashlib').sha1(str(home).encode()).hexdigest()[:12]
 os.execve(root / 'target/release/ht',
           ['ht', '--core-home', str(home), '--core-session', session_name], env)
