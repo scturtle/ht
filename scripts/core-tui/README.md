@@ -106,6 +106,47 @@ CORE_UI_BASELINE=/absolute/path/to/old-ht just core-scheduling-smoke
 这些是**本机 PTY 调度/输出测量，不是 WAN RTT，也不是物理终端绘制时间或整机 CPU 指标**。
 测试只运行本地原始终端 fixture，不调用模型；Core、程序及临时文件均属于本次测试。
 
+## 能力与测试边界
+
+- reload config 重新加载客户端配置；Core 未实现 `server.reload_config` 时不发送该请求。
+- pane/workspace/tab 右键菜单按实际方法表过滤；例如 Core 缺少 `terminal.label` 时不显示重命名。
+- Core 未实现 integration list/install，设置中不显示 integrations；worktree 操作也不因旧 UI 类型仍存在而获得能力。
+- Core 转发真实终端 BEL 与 OSC 52，因此声音/剪贴板链路保留。它没有 semantic agent-notification
+  事件生产者，设置中不展示对应 toasts 选项；历史配置仍可解析，但不会凭空生成通知。
+  剪贴板 toast 是另一条客户端链路，不受此限制。
+
+`tests/core-tui/harness.py` 统一身份清理、私有 session/socket 校验、exec 前 PTY 几何和停止逻辑。
+所有 Core smoke 使用相同隔离环境；停止前校验 session 和实际 socket，socket 缺失不自启。
+不再用已经废弃的 `core/core.sock` 判断清理是否必要。harness 安全测试随 `just test` 执行。
+旧 `existing-ui-smoke.py` 只保留兼容导入入口，直接运行改为当前 organization gate，不再运行已失效的
+“单客户端独占 / tab.create 不支持 / layout.json 权威”断言。
+
+`just core-network-smoke` 对私有 PTY 的双向传输加入约 40ms 名义 RTT、±5ms 抖动、
+1/2/7/31/127/1024 字节分片、650ms 停止读输出和有界 32KiB 队列。
+它覆盖 copy/scroll/退出、连续输入、积压恢复以及仅杀 verified owned relay 后的 epoch 恢复，
+验证原程序 PID 和网格不变，不以手动 split/resize/focus 恢复。
+这是用户态有序字节流模拟，停读期间保留字节，**不是丢包重传、真实 SSH/TCP 断开重建或真实 Pi/model/extensions 测试**。
+报告中的延迟包含测试驱动的读/轮询开销，不能当作真实网络性能数据。
+
+### 渲染 profiling
+
+`just bench-render-stages` 分别计时 geometry、links、paint、frame、metadata/graphics，以及 frame drop。
+计时字段和代码仅在 `cfg(test)` 存在，生产渲染不添加时钟、环境查询或采样分支。
+旧/新 release 测试可执行文件可用固定 CPU 的 3 个 ABBA 周期比较：
+
+```sh
+python3 scripts/compare_core_render.py /path/to/old-render-tests /path/to/new-render-tests
+```
+
+比较的是固定几何测试进程，不是整机 CPU 或真实客户端端到端耗时。不要只用一次测量判断收益。
+若系统禁止 perf，则使用上述有界阶段计时，不自动修改 perf_event_paranoid 或请求系统级权限。
+
+当前绘制对“未写入且默认样式”的空白格使用已有 packed-cell 判定，省掉重复的 style/grapheme FFI。
+样式只在同一把锁保护的一次 render 中缓存，并通过完整路径解析真实默认颜色；不跨帧缓存颜色。
+行尾标量探测使全密集行沿用原完整路径，避免逐格额外探测。`bench-render-scale` 还包含
+0/50/100% 内容密度与完整路径的 ABBA 对照；功能测试比较两条路径的 buffer，覆盖实时颜色、
+BCE、palette、inverse/invisible、中文宽字符换行、链接及备用屏幕。
+
 ## Pane 冻结现场诊断
 
 遇到冻结时，先不要分屏、调整尺寸或切换 pane：点击侧栏 `menu` →

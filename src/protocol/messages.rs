@@ -845,7 +845,7 @@ where
 /// Initial resource projection used by the stable client-owned shell.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientShellSnapshot {
-    /// Changes whenever the endpoint process restarts.
+    /// Changes whenever the adapter projection is rebuilt, including relay recovery.
     pub boot_id: String,
     /// Monotonic replacement revision within one endpoint boot.
     pub revision: u64,

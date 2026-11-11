@@ -538,11 +538,11 @@ fn main() -> io::Result<()> {
         [] => {},
         [flag] if flag=="--core" => {},
         [flag] if flag=="--help" || flag=="-h" || flag=="help" => {
-            println!("herdr — existing TUI, powered exclusively by herdr-core\n\nUsage: herdr [--core]\n       herdr --version | --default-config\n       herdr config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nCore home (client state): --core-home <dir>\nCore session: --core-session <name> (default: default, the session hc uses)\nCore socket: HC_SOCKET overrides the default socket (cannot combine with --core-session)\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
+            println!("ht — existing TUI, powered exclusively by herdr-core\n\nUsage: ht [--core] [--core-home <dir>] [--core-session <name>]\n       ht --version | --default-config\n       ht config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nCore home (client state): --core-home <dir>\nCore session: --core-session <name> (default: default, the session hc uses)\nCore socket: HC_SOCKET overrides the default socket (cannot combine with --core-session)\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
             return Ok(())
         },
         [flag] if flag=="--version" || flag=="-V" => {println!("herdr {} (Core-only)",build_info::version());return Ok(())},
-        [flag] if flag=="--default-config" => {print!("# Core-only client: legacy server/detection/integration settings are inert.\n{DEFAULT_CONFIG}");return Ok(())},
+        [flag] if flag=="--default-config" => {print!("# Core-only client: legacy server/detection/integration and semantic agent-notification settings are inert; clipboard toasts and terminal bells remain active.\n{DEFAULT_CONFIG}");return Ok(())},
         [group,..] if group=="config" => {
             let outcome=cli::maybe_run(&args)?;
             if let cli::CommandOutcome::Handled(code)=outcome {std::process::exit(code)}
