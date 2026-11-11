@@ -1,4 +1,3 @@
-use crate::protocol;
 use std::io;
 
 /// Endpoint failures are client-local. No error path starts a legacy runtime.
@@ -14,7 +13,6 @@ pub enum ClientError {
         reason: Option<String>,
     },
     ConnectionLost(io::Error),
-    Protocol(protocol::FramingError),
 }
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -27,7 +25,6 @@ impl std::fmt::Display for ClientError {
                 else {write!(f,"Core server shut down")?;if let Some(reason)=reason {write!(f,": {reason}")?;}Ok(())}
             },
             Self::ConnectionLost(err)=>write!(f,"lost connection to Core: {err}\nIf Core survived, its panes may still be running.\nRun `ht` to reattach with the same Core selection and --core-home"),
-            Self::Protocol(err)=>write!(f,"protocol error: {err}"),
         }
     }
 }
@@ -35,20 +32,7 @@ impl std::error::Error for ClientError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::ConnectionFailed(e) | Self::ConnectionLost(e) => Some(e),
-            Self::Protocol(e) => Some(e),
             _ => None,
-        }
-    }
-}
-impl From<protocol::FramingError> for ClientError {
-    fn from(err: protocol::FramingError) -> Self {
-        match err {
-            protocol::FramingError::UnexpectedEof => Self::ConnectionLost(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Core closed connection",
-            )),
-            protocol::FramingError::Io(e) => Self::ConnectionLost(e),
-            e => Self::Protocol(e),
         }
     }
 }

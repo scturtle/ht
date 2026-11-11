@@ -25,13 +25,11 @@ default-members = [".", "crates/ghostty-vt"]
 ghostty-vt = { path = "crates/ghostty-vt" }
 signal-hook = "0.3"
 base64 = "0.22.1"
-bincode = { version = "2", features = ["serde"] }
 bytes = "1"
 clap = { version = "4.5", default-features = false, features = ["std", "help", "usage", "error-context", "string"] }
 clap_complete = "4.5"
 crossterm = "0.29"
 ctrlc = { version = "3", features = ["termination"] }
-interprocess = "2.4.2"
 jsonc-parser = { version = "0.33.1", default-features = false, features = ["cst", "serde_json"] }
 libc = "0.2"
 png = "0.17"

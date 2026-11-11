@@ -1,7 +1,7 @@
-//! Shared wire protocol and presentation encoding code.
+//! Shared semantic messages and presentation encoding code.
 
 pub mod endpoint;
+mod messages;
 pub(crate) mod render_ansi;
-mod wire;
 
-pub use wire::*;
+pub use messages::*;

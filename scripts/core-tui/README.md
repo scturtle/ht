@@ -2,7 +2,7 @@
 
 这里只保留**真实现有 Herdr TUI 的默认 Core 后端**，没有独立的替代 TUI。
 旧 Herdr runtime 已物理删除；默认 `ht` 使用 Core，`--core` 仅为兼容别名，没有旧后端 fallback。
-公开 generation-1 wire codec 和冻结夹具保持不变。
+UI 和适配器共用语义消息；旧 Herdr socket/bincode codec 已删除，Core 自身 wire 不变。
 这是个人 fork 的进行中迁移，**不是功能完整或稳定版承诺**。
 
 ## 目录与职责

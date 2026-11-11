@@ -1,14 +1,7 @@
-//! Wire protocol for herdr server/client communication.
-//!
-//! Defines the message types, framing, version negotiation, and safety
-//! constraints for the binary protocol over local sockets.
-//!
-//! `PROTOCOL_VERSION` still guards same-install direct-terminal and internal
-//! operations. Client-owned shells negotiate the independent stable endpoint
-//! contract in [`super::endpoint`].
+//! In-process client/Core adapter messages and shared presentation data.
+//! Core's actual channel framing lives in client/core/transport.rs.
 
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
@@ -16,23 +9,11 @@ use serde::{Deserialize, Serialize};
 // Protocol constants
 // ---------------------------------------------------------------------------
 
-/// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 22;
-
-/// Maximum allowed frame payload size (2 MB). Frames larger than this are
-/// rejected to prevent denial-of-service via oversized length prefixes.
+/// Control/presentation reserve used when budgeting graphics publication.
 pub const MAX_FRAME_SIZE: usize = 2 * 1024 * 1024;
 
-/// Maximum allowed server-to-client frame payload when Kitty graphics are enabled.
-/// Normal traffic keeps `MAX_FRAME_SIZE`; this larger cap is only for explicit
-/// image payloads that are naturally much larger after base64 encoding.
+/// Total surface publication budget including graphics; not a socket frame limit.
 pub const MAX_GRAPHICS_FRAME_SIZE: usize = 32 * 1024 * 1024;
-
-/// Maximum clipboard image payload size for remote paste bridging.
-pub const MAX_CLIPBOARD_IMAGE_PAYLOAD: usize = 16 * 1024 * 1024;
-
-/// Length of the u32 little-endian length prefix in bytes.
-const LENGTH_PREFIX_BYTES: usize = 4;
 
 // ---------------------------------------------------------------------------
 // Client → Server messages
@@ -564,8 +545,6 @@ pub enum ClientMessage {
 
     /// Extensible named control message for the stable client-owned endpoint protocol.
     ///
-    /// This variant is append-only. Its bincode tag and two-string payload are part
-    /// of endpoint generation 1 and must not change.
     EndpointControl { kind: String, data: String },
 }
 
@@ -645,7 +624,7 @@ pub enum AttachScrollSource {
 
 /// A single cell in a rendered frame, serialized independently from ratatui's
 /// `Cell` type to keep the wire protocol stable.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CellData {
     /// Grapheme cluster displayed in this cell (usually 1–2 chars).
     pub symbol: String,
@@ -697,7 +676,7 @@ impl CellData {
 pub type CursorShapeParam = u8;
 
 /// Cursor position within a rendered frame.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CursorState {
     /// Column offset (0-based) of the cursor.
     pub x: u16,
@@ -1035,7 +1014,7 @@ pub struct ClientShellAgent {
 }
 
 /// Origin-relative geometry for one pane in a rendered pane surface.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneSurfacePane {
     pub pane_id: String,
     pub content_revision: u64,
@@ -1051,7 +1030,7 @@ pub struct PaneSurfacePane {
     pub pixel_height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneSurfaceScrollMetrics {
     pub offset_from_bottom: u64,
     pub max_offset_from_bottom: u64,
@@ -1068,14 +1047,14 @@ pub struct PaneSurfaceSplit {
     pub path: Vec<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaneSurfaceSplitDirection {
     Horizontal,
     Vertical,
 }
 
 /// Wire-safe rectangle relative to a pane surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SurfaceRect {
     pub x: u16,
     pub y: u16,
@@ -1094,12 +1073,12 @@ impl From<ratatui::layout::Rect> for SurfaceRect {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SurfaceGraphicsTarget {
     Pane { pane_id: String },
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SurfaceGraphicsSource {
     Terminal {
         target: SurfaceGraphicsTarget,
@@ -1111,14 +1090,14 @@ pub enum SurfaceGraphicsSource {
     },
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SurfaceGraphicsFormat {
     Rgb,
     Rgba,
     Png,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SurfaceGraphicsAssetKey {
     pub source: SurfaceGraphicsSource,
     pub image_width: u32,
@@ -1182,7 +1161,7 @@ fn deserialize_graphics_bytes<'de, D: serde::Deserializer<'de>>(
 }
 
 /// One already-clipped desired placement relative to its target surface.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SurfaceGraphicsPlacement {
     pub asset: SurfaceGraphicsAssetKey,
     pub logical_placement_id: u32,
@@ -1465,8 +1444,6 @@ pub enum ServerMessage {
 
     /// Extensible named control message for the stable client-owned endpoint protocol.
     ///
-    /// This variant is append-only. Its bincode tag and two-string payload are part
-    /// of endpoint generation 1 and must not change.
     EndpointControl { kind: String, data: String },
 }
 
@@ -1566,174 +1543,6 @@ fn u16_to_modifier(val: u16) -> ratatui::style::Modifier {
 }
 
 // ---------------------------------------------------------------------------
-// Framing: length-prefixed binary messages
-// ---------------------------------------------------------------------------
-
-/// Errors that can occur during framing operations.
-#[derive(Debug)]
-pub enum FramingError {
-    /// The decoded payload length exceeds the configured maximum frame size.
-    Oversized { claimed: usize, max: usize },
-    /// An I/O error occurred while reading or writing.
-    Io(io::Error),
-    /// Bincode serialization or deserialization failed.
-    Bincode(String),
-    /// The connection was closed before a complete frame could be read.
-    UnexpectedEof,
-}
-
-impl std::fmt::Display for FramingError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FramingError::Oversized { claimed, max } => {
-                write!(f, "frame size {claimed} exceeds maximum {max}")
-            }
-            FramingError::Io(e) => write!(f, "I/O error: {e}"),
-            FramingError::Bincode(e) => write!(f, "bincode error: {e}"),
-            FramingError::UnexpectedEof => write!(f, "unexpected end of stream"),
-        }
-    }
-}
-
-impl std::error::Error for FramingError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            FramingError::Io(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<io::Error> for FramingError {
-    fn from(e: io::Error) -> Self {
-        FramingError::Io(e)
-    }
-}
-
-/// Serializes a message and writes it as a length-prefixed frame:
-/// `[u32LE length][bincode payload]`.
-///
-/// This is a blocking/synchronous write suitable for use with `std::os::unix::net::UnixStream`
-/// in blocking mode, or with any `Write` implementor.
-///
-/// # Errors
-///
-/// Returns `FramingError::Bincode` if the payload length exceeds `u32::MAX`
-/// (would be truncated by the length prefix cast).
-pub fn write_message<W: Write, M: Serialize>(writer: &mut W, msg: &M) -> Result<(), FramingError> {
-    let payload = bincode::serde::encode_to_vec(msg, bincode::config::standard())
-        .map_err(|e| FramingError::Bincode(e.to_string()))?;
-
-    let len = payload.len();
-    if len > u32::MAX as usize {
-        return Err(FramingError::Bincode(format!(
-            "payload length {len} exceeds u32::MAX ({}), would be truncated by length prefix",
-            u32::MAX
-        )));
-    }
-
-    writer.write_all(&(len as u32).to_le_bytes())?;
-    writer.write_all(&payload)?;
-    writer.flush()?;
-    Ok(())
-}
-
-/// Reads and deserializes a length-prefixed frame from a reader.
-///
-/// Reassembles partial reads correctly. Rejects frames whose declared
-/// length exceeds `max_frame_size` without panicking or allocating
-/// oversized buffers.
-pub fn read_message<R: Read, M: for<'de> Deserialize<'de>>(
-    reader: &mut R,
-    max_frame_size: usize,
-) -> Result<M, FramingError> {
-    // Read the 4-byte length prefix, reassembling partial reads.
-    let mut len_buf = [0u8; LENGTH_PREFIX_BYTES];
-    read_exact_or_eof(reader, &mut len_buf)?;
-    let claimed_len = u32::from_le_bytes(len_buf) as usize;
-
-    if claimed_len > max_frame_size {
-        return Err(FramingError::Oversized {
-            claimed: claimed_len,
-            max: max_frame_size,
-        });
-    }
-
-    // Read the payload, reassembling partial reads.
-    let mut payload = vec![0u8; claimed_len];
-    read_exact_or_eof(reader, &mut payload)?;
-
-    let (msg, consumed) = bincode::serde::decode_from_slice(&payload, bincode::config::standard())
-        .map_err(|e| FramingError::Bincode(e.to_string()))?;
-
-    // Enforce that the decoder consumed the full payload.
-    // Trailing bytes after the decoded message indicate a protocol violation
-    // (e.g., a corrupted length prefix or concatenated payloads).
-    if consumed != claimed_len {
-        return Err(FramingError::Bincode(format!(
-            "decoded {} bytes but payload length was {claimed_len}; trailing bytes are not allowed",
-            consumed
-        )));
-    }
-
-    Ok(msg)
-}
-
-/// Like `Read::read_exact`, but returns `FramingError::UnexpectedEof`
-/// when the reader hits end-of-stream before filling the buffer, instead
-/// of the generic `io::ErrorKind::UnexpectedEof`.
-fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> Result<(), FramingError> {
-    reader.read_exact(buf).map_err(|e| {
-        if e.kind() == io::ErrorKind::UnexpectedEof {
-            FramingError::UnexpectedEof
-        } else {
-            FramingError::Io(e)
-        }
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Version negotiation
-// ---------------------------------------------------------------------------
-
-/// Result of checking a client's protocol version against the server's.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VersionCheck {
-    /// Versions are compatible. The server should reply with a successful Welcome.
-    Compatible,
-    /// Versions are incompatible. The server should reply with a Welcome error and close.
-    Incompatible(String),
-}
-
-/// Checks whether a client's protocol version is compatible with this server.
-///
-/// Current rules:
-/// - Version 0 (pre-persistence client) is always rejected.
-/// - Matching major versions are accepted.
-/// - A client with a newer version than the server is rejected.
-/// - A client with an older version than the server is rejected
-///   (backward compatibility is not yet supported).
-pub fn check_client_version(client_version: u32) -> VersionCheck {
-    if client_version == 0 {
-        return VersionCheck::Incompatible(
-            "pre-persistence client (version 0) is not supported".to_owned(),
-        );
-    }
-
-    if client_version == PROTOCOL_VERSION {
-        VersionCheck::Compatible
-    } else if client_version < PROTOCOL_VERSION {
-        VersionCheck::Incompatible(format!(
-            "client version {client_version} is older than server version {PROTOCOL_VERSION}; please upgrade your herdr client"
-        ))
-    } else {
-        VersionCheck::Incompatible(format!(
-            "client version {client_version} is newer than server version {PROTOCOL_VERSION}; please upgrade the herdr server"
-        ))
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1742,20 +1551,6 @@ mod tests {
     use super::*;
 
     use ratatui::style::{Color, Modifier};
-    use sha2::{Digest, Sha256};
-
-    fn encoded_sha256(value: &impl Serialize) -> String {
-        let encoded = bincode::serde::encode_to_vec(value, bincode::config::standard()).unwrap();
-        format!("{:x}", Sha256::digest(encoded))
-    }
-
-    // These digests freeze representative generation-1 bincode payloads. A mismatch
-    // requires a new named codec; do not update a v1 digest to bless a wire change.
-    // They do not detect appended enum variants, so every type reachable from a v1
-    // payload is also append-closed.
-
-    // ---- Round-trip: ClientMessage ----
-
     #[test]
     fn client_shell_pane_input_reconstructs_windows_dead_key_without_native_source() {
         let event = ClientPaneInputEvent::Key {
@@ -1865,79 +1660,6 @@ mod tests {
         assert_ne!(encoded, b"/");
         assert!(encoded.starts_with(b"\x1b["));
     }
-
-    // ---- Round-trip: ServerMessage ----
-
-    // ---- Framing ----
-
-    // ---- Version negotiation ----
-
-    #[test]
-    fn version_compatible() {
-        assert_eq!(
-            check_client_version(PROTOCOL_VERSION),
-            VersionCheck::Compatible
-        );
-    }
-
-    #[test]
-    fn version_older_client_rejected() {
-        let result = check_client_version(PROTOCOL_VERSION - 1);
-        assert!(matches!(result, VersionCheck::Incompatible(_)));
-        if let VersionCheck::Incompatible(msg) = result {
-            assert!(msg.contains("older"), "error should mention older version");
-        }
-    }
-
-    #[test]
-    fn version_newer_client_rejected() {
-        let result = check_client_version(PROTOCOL_VERSION + 1);
-        assert!(matches!(result, VersionCheck::Incompatible(_)));
-        if let VersionCheck::Incompatible(msg) = result {
-            assert!(msg.contains("newer"), "error should mention newer version");
-        }
-    }
-
-    // ---- Pre-persistence client rejection ----
-
-    #[test]
-    fn prepersistence_version_zero_rejected() {
-        let result = check_client_version(0);
-        match result {
-            VersionCheck::Incompatible(msg) => {
-                assert!(
-                    msg.contains("pre-persistence"),
-                    "error should mention pre-persistence: {msg}"
-                );
-            }
-            _ => panic!("version 0 should be rejected as incompatible"),
-        }
-    }
-
-    #[test]
-    fn prepersistence_version_zero_welcome_has_error() {
-        // Simulating what the server would send to a v0 client.
-        let check = check_client_version(0);
-        let response = match check {
-            VersionCheck::Compatible => ServerMessage::Welcome {
-                version: PROTOCOL_VERSION,
-                encoding: RenderEncoding::SemanticFrame,
-                error: None,
-            },
-            VersionCheck::Incompatible(reason) => ServerMessage::Welcome {
-                version: PROTOCOL_VERSION,
-                encoding: RenderEncoding::SemanticFrame,
-                error: Some(reason),
-            },
-        };
-
-        match response {
-            ServerMessage::Welcome { error: Some(_), .. } => {}
-            other => panic!("expected Welcome with error, got: {other:?}"),
-        }
-    }
-
-    // ---- Malformed/oversized input ----
 
     // ---- FrameData ↔ ratatui Buffer conversion ----
 
@@ -2109,41 +1831,6 @@ mod tests {
                 m,
                 "roundtrip failed for {m:?}"
             );
-        }
-    }
-
-    // ---- Unix socketpair integration test ----
-
-    // ---- Helper: chunked reader for simulating partial reads ----
-
-    /// A `Read` wrapper that yields at most `chunk_size` bytes per `read()` call,
-    /// simulating partial reads on a real socket.
-    struct ChunkedReader {
-        data: Vec<u8>,
-        pos: usize,
-        chunk_size: usize,
-    }
-
-    impl ChunkedReader {
-        fn new(data: Vec<u8>, chunk_size: usize) -> Self {
-            Self {
-                data,
-                pos: 0,
-                chunk_size,
-            }
-        }
-    }
-
-    impl Read for ChunkedReader {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            if self.pos >= self.data.len() {
-                return Ok(0);
-            }
-            let remaining = self.data.len() - self.pos;
-            let to_read = buf.len().min(remaining).min(self.chunk_size);
-            buf[..to_read].copy_from_slice(&self.data[self.pos..self.pos + to_read]);
-            self.pos += to_read;
-            Ok(to_read)
         }
     }
 }

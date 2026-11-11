@@ -6,7 +6,7 @@ mod agent_resume;
 mod api;
 mod app;
 mod build_info;
-// Frozen API argument projections stay available for codec/schema conformance,
+// API argument projections stay available for shared UI/schema tests,
 // including methods that the Core endpoint deliberately does not advertise.
 #[allow(dead_code)]
 mod cli;
@@ -17,17 +17,13 @@ mod client;
 mod config;
 mod copy_mode;
 mod detect;
-// Generic local-stream primitives are retained for published endpoint conformance
-// tests and platform contracts, not for a runnable legacy server.
 mod input;
-#[allow(dead_code)]
-mod ipc;
 mod kitty_graphics;
 mod layout;
 mod logging;
 mod pane;
 mod platform;
-// Published codecs are append-closed; retain their vocabulary and conformance helpers.
+// Shared semantic messages and presentation data, not a legacy socket codec.
 mod endpoint_paths;
 #[cfg(test)]
 mod noninteractive_process;
