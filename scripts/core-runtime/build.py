@@ -16,6 +16,12 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 CACHE = ROOT / ".local/core-runtime"
 
+# The pinned Core bundle vendors libghostty-vt from before 1.0 and still needs
+# Zig 0.16. Herdr's own vendored tree is on 1.0, which needs 0.17. Keep the two
+# toolchains apart instead of letting one ZIG export serve both.
+CORE_ZIG_ENV = "HERDR_CORE_SOURCE_ZIG"
+DEFAULT_CORE_ZIG = ROOT / ".local/toolchain/zig-py/ziglang/zig"
+
 
 def digest(path):
     result = hashlib.sha256()
@@ -116,6 +122,16 @@ def main():
     # another patched source bundle (even when crate versions are unchanged).
     target = CACHE / "artifacts" / source.name
     env["CARGO_TARGET_DIR"] = str(target)
+    # The Core source bundle vendors its own libghostty snapshot, which still
+    # needs Zig 0.16. Herdr's own vendored tree is on 1.0 and needs 0.17, so the
+    # two builds must not share whichever ZIG the caller exported.
+    core_zig = os.environ.get(CORE_ZIG_ENV)
+    if core_zig:
+        env["ZIG"] = core_zig
+    elif DEFAULT_CORE_ZIG.exists():
+        env["ZIG"] = str(DEFAULT_CORE_ZIG)
+    else:
+        env.pop("ZIG", None)
     command = ["cargo", "build" if args.action == "build" else "test", "--locked"]
     if args.action == "build":
         command += ["-p", "herdr-core"]

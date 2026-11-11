@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-VENDORED_DIR=${VENDORED_GHOSTTY_DIR:-"$ROOT_DIR/vendor/libghostty-vt"}
+VENDORED_DIR=${VENDORED_GHOSTTY_DIR:-"$ROOT_DIR/3rdparty/libghostty-vt"}
 OPTIMIZE=${LIBGHOSTTY_VT_OPTIMIZE:-ReleaseFast}
 
 if [[ ! -f "$VENDORED_DIR/build.zig" ]]; then

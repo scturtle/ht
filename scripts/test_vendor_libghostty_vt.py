@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -73,16 +74,18 @@ class VendorLibghosttyVtTests(unittest.TestCase):
                     ensure_dist_archive(repo)
 
     def test_vendored_tree_contains_required_upstream_files(self) -> None:
-        root = Path(__file__).resolve().parent.parent / "vendor" / "libghostty-vt"
-        # This fork builds the vendored tree with `zig build` only: the CMake and
-        # dist packaging files were removed with the rest of the upstream clutter.
+        root = Path(__file__).resolve().parent.parent / "3rdparty" / "libghostty-vt"
+        if not (root / "build.zig").is_file():
+            self.skipTest("libghostty-vt submodule is not checked out")
+        # The submodule is the pristine upstream checkout. VERSION and LIB_VERSION
+        # are written into the staged copy by the build script, not here.
         required = [
             root / "build.zig",
             root / "build.zig.zon",
-            root / "VERSION",
             root / "include" / "ghostty" / "vt.h",
             root / "include" / "ghostty" / "vt" / "render.h",
             root / "src" / "lib_vt.zig",
+            root / "dist" / "cmake" / "ghostty-vt-config.cmake.in",
         ]
 
         missing = [str(path.relative_to(root)) for path in required if not path.exists()]
@@ -115,27 +118,50 @@ class VendorLibghosttyVtTests(unittest.TestCase):
         ]
         self.assertEqual(missing, [])
 
-    def test_local_vendor_patches_are_applied_to_vendored_tree(self) -> None:
+    def test_local_vendor_patches_apply_to_the_pinned_submodule(self) -> None:
+        # The submodule stays pristine, so patches are applied to a staged copy
+        # during the build. Verify each one still applies to a clean export of
+        # the pinned commit instead of reverse-applying against a patched tree.
         project_root = Path(__file__).resolve().parent.parent
         patch_dir = project_root / "vendor" / "patches" / "libghostty-vt"
+        source = project_root / "3rdparty" / "libghostty-vt"
 
-        for patch in sorted(patch_dir.glob("*.patch")):
-            result = subprocess.run(
-                ["git", "apply", "--check", "--reverse", str(patch.relative_to(project_root))],
-                cwd=project_root,
-                text=True,
-                capture_output=True,
-            )
-            self.assertEqual(
-                result.returncode,
-                0,
-                f"{patch.relative_to(project_root)} is not applied cleanly:\n"
-                f"stdout:\n{result.stdout}\n"
-                f"stderr:\n{result.stderr}",
-            )
+        patches = sorted(patch_dir.glob("*.patch"))
+        if not patches:
+            return
+        if not (source / "build.zig").is_file():
+            self.skipTest("libghostty-vt submodule is not checked out")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staged = Path(temp_dir) / "staged"
+            staged.mkdir()
+            for entry in ("build.zig", "build.zig.zon", "include", "src", "pkg"):
+                origin = source / entry
+                if origin.is_dir():
+                    shutil.copytree(origin, staged / entry)
+                elif origin.is_file():
+                    shutil.copy2(origin, staged / entry)
+
+            for patch in patches:
+                with patch.open("rb") as handle:
+                    result = subprocess.run(
+                        ["patch", "-p1", "--forward", "--dry-run"],
+                        cwd=staged,
+                        stdin=handle,
+                        text=False,
+                        capture_output=True,
+                    )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    f"{patch.relative_to(project_root)} no longer applies to the pinned "
+                    f"submodule commit:\n{result.stdout.decode(errors='replace')}",
+                )
 
     def test_embedded_libghostty_logging_is_silenced(self) -> None:
-        root = Path(__file__).resolve().parent.parent / "vendor" / "libghostty-vt"
+        root = Path(__file__).resolve().parent.parent / "3rdparty" / "libghostty-vt"
+        if not (root / "src" / "lib_vt.zig").is_file():
+            self.skipTest("libghostty-vt submodule is not checked out")
         lib_vt = root / "src" / "lib_vt.zig"
         sys_zig = root / "src" / "terminal" / "c" / "sys.zig"
         lib_text = lib_vt.read_text()

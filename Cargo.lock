@@ -677,6 +677,7 @@ dependencies = [
  "base64",
  "libc",
  "png",
+ "sha2",
  "tracing",
 ]
 

@@ -47,14 +47,30 @@ hidden-pane/retained-render early exits.
 `just bench-render-scale` profiles fixed geometry at 1 and 15+ panes when a
 change widens work in one of these loops.
 
-## Vendored libghostty-vt and portable-pty
+## Vendored libghostty-vt
 
-`vendor/*.vendor.json` pins upstream commits. Local patches live under
-`vendor/patches/<crate>/` and must be indexed in `vendor/*.patches.md` with the
-reason, base commit, touched files, verification and removal condition.
-`just vendor-patches-test` enforces that every patch file is indexed and
-reverse-applies cleanly. Never leave an untracked patch or an indexed patch
-unapplied.
+`libghostty-vt` lives in the `3rdparty/libghostty-vt` submodule, pinned to the
+`vt-1.0.0` tag with a sparse checkout of the paths the build needs. The submodule
+stays pristine: `crates/ghostty-vt/build.rs` stages a copy under `OUT_DIR`, writes
+the `VERSION`/`LIB_VERSION` files the tag does not ship, and applies the local
+patches there before `zig build`.
+
+Local patches live under `vendor/patches/libghostty-vt/` and must be indexed in
+`vendor/libghostty-vt.patches.md` with the reason, base commit, touched files,
+verification and removal condition. `just vendor-patches-test` enforces that every
+patch file is indexed and still applies to the pinned submodule commit. Never
+leave an untracked patch or an indexed patch that no longer applies.
+
+Check out the submodule after cloning:
+
+```bash
+git submodule update --init --depth 1
+```
+
+Building requires Zig 0.17.0. The pinned Core source bundle under
+`scripts/core-runtime/` still vendors a pre-1.0 libghostty snapshot and needs Zig
+0.16.0; `scripts/core-runtime/build.py` pins that toolchain separately through
+`HERDR_CORE_SOURCE_ZIG` so one `ZIG` export cannot serve both builds.
 
 ## Testing
 

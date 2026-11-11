@@ -1,39 +1,40 @@
---- a/vendor/libghostty-vt/include/ghostty/vt/terminal.h
-+++ b/vendor/libghostty-vt/include/ghostty/vt/terminal.h
-@@ -1951,6 +1951,14 @@
-    * Output type: size_t *
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3088,6 +3130,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
+    * Output type: GhosttyTerminalMemoryUsage *
     */
-   GHOSTTY_TERMINAL_DATA_CLIPBOARD_WRITE_MAX_BYTES = 40,
+   GHOSTTY_TERMINAL_DATA_MEMORY_USAGE = 42,
 +
 +  /**
 +   * Whether xterm modifyOtherKeys mode 2 is enabled.
 +   *
 +   * Output type: bool *
 +   */
-+  GHOSTTY_TERMINAL_DATA_MODIFY_OTHER_KEYS = 41,
-+
++  GHOSTTY_TERMINAL_DATA_MODIFY_OTHER_KEYS = 43,
    GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
  } GhosttyTerminalData;
  
---- a/vendor/libghostty-vt/src/terminal/c/terminal.zig
-+++ b/vendor/libghostty-vt/src/terminal/c/terminal.zig
-@@ -1556,6 +1556,7 @@
-     vt_ground = 38,
-     cursor_at_prompt = 39,
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1979,6 +2052,7 @@ pub const TerminalData = enum(c_int) {
      clipboard_write_max_bytes = 40,
-+    modify_other_keys = 41,
+     mouse_shape = 41,
+     memory_usage = 42,
++    modify_other_keys = 43,
  
-     /// Output type expected for querying the data of the given kind.
-     pub fn OutType(comptime self: TerminalData) type {
-@@ -1569,6 +1570,7 @@
+     _,
+ 
+@@ -1994,6 +2068,7 @@ pub const TerminalData = enum(c_int) {
              .vt_processing_error,
              .vt_ground,
              .cursor_at_prompt,
 +            .modify_other_keys,
              => bool,
+             .mouse_shape => mouse.Shape,
              .active_screen => TerminalScreen,
-             .kitty_keyboard_flags => u8,
-@@ -1719,6 +1721,7 @@
+@@ -2142,6 +2217,7 @@ fn getTyped(
              t.screens.active.selection orelse return .no_value,
          ),
          .viewport_active => out.* = t.screens.active.pages.viewport == .active,
@@ -41,7 +42,7 @@
          .vt_processing_error => out.* = wrapper.stream.handler.semantic_failure,
          .vt_ground => out.* = wrapper.stream.ground(),
          .scrollback_max_bytes => {
-@@ -3139,6 +3142,24 @@
+@@ -4379,6 +4455,24 @@ test "get kitty_keyboard_flags" {
      try testing.expectEqual(3, flags);
  }
  

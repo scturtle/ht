@@ -16,7 +16,7 @@ pub(super) fn image_source(
     let result = unsafe {
         ffi::ghostty_kitty_graphics_image_get(
             image,
-            ffi::GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_FILE_CONTEXT,
+            ffi::GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FILE_CONTEXT,
             (&mut context as *mut *mut c_void).cast(),
         )
     };
@@ -31,7 +31,7 @@ pub(super) fn image_source(
     unsafe {
         ffi::ghostty_kitty_graphics_image_get(
             image,
-            ffi::GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_FILE_IDENTITY,
+            ffi::GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FILE_IDENTITY,
             (&mut identity as *mut u64).cast(),
         )
         .into_result()?;

@@ -7,6 +7,9 @@ license = "Apache-2.0"
 repository = "https://github.com/herdrdev/herdr"
 publish = false
 
+[build-dependencies]
+sha2 = "0.10"
+
 [dependencies]
 base64 = "0.22.1"
 libc = "0.2"
