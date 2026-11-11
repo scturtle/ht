@@ -1,98 +1,109 @@
---- a/crates/herdr-core/src/viewers.rs
-+++ b/crates/herdr-core/src/viewers.rs
-@@ -12,6 +12,8 @@
- use std::sync::Arc;
- use std::time::Instant;
+diff --git a/crates/herdr-core/src/SKILL.md b/crates/herdr-core/src/SKILL.md
+index bf08c31..7798b2a 100644
+--- a/crates/herdr-core/src/SKILL.md
++++ b/crates/herdr-core/src/SKILL.md
+@@ -139,6 +139,20 @@ still resize the terminal normally. `display: {fg, bg, cursor, cell}` (as in
+ `terminal.attach`) likewise answers the program's color and cell-size queries
+ from its start, before any viewer attaches.
  
-+#[cfg(test)]
-+mod ordered_tests;
- #[cfg(test)]
- mod tests;
- 
-@@ -33,6 +35,7 @@
-     pub channel: u32,
-     pub observe: bool,
-     resize_notifications: bool,
-+    ordered: bool,
-     repaint_pending: bool,
-     size: (u16, u16),
-     /// None: not active since it came back after a dropped line.
-@@ -42,6 +45,12 @@
-     pub(crate) recovering: bool,
++Local experimental build: `hello.features` advertises `ordered_attach` and
++`hello.methods` advertises `terminal.attach_ordered`. On a direct framed
++connection this method takes the existing attach parameters but always sends
++an authoritative RESIZE before its initial paint and after effective size changes,
++then a replacement paint before further live bytes. This includes interactive
++viewers; `terminal.attach` retains its existing observer-only opt-in semantics.
++Keep requested geometry separate from received geometry, and do not answer an
++authoritative RESIZE by echoing it back. Automatic input does not claim size
++leadership. An ordered attach with `resumed: true` passively reads the current
++grid without claiming leadership, including when it is the only viewer; later
++explicit focus, input or resize activates it. Remote ordered attach is explicitly
++rejected, not downgraded.
++This extension does not claim graphics or exact restart/snapshot fidelity.
++
+ ```sh
+ hc run cargo test                  # wait, stream output, return its exit code
+ hc run "cd app && bun test"        # one quoted string is a shell command
+diff --git a/crates/herdr-core/src/api.rs b/crates/herdr-core/src/api.rs
+index dae084c..4b82cc6 100644
+--- a/crates/herdr-core/src/api.rs
++++ b/crates/herdr-core/src/api.rs
+@@ -22,6 +22,7 @@ pub const FEATURES: &[&str] = &[
+     "resize_notifications",
+     "automatic_input",
+     "restart_environment",
++    "ordered_attach",
+ ];
+ pub const FINISHED_LINES: usize = 1000;
+ /// Terminal identity variables replaced by the core's defaults unless explicitly overridden.
+@@ -103,6 +104,9 @@ methods! { Ctx<'_>;
+     "terminal.attach" => terminal_attach, AttachParams => AttachResult,
+         "Open a raw stream to a live terminal on this framed connection (see `hello` with `framed`). Loss ends the stream even when kept; reattach after the restarted event.",
+         errors ["not_found", "machine_unknown", "finished", "unavailable", "needs_framed"];
++    "terminal.attach_ordered" => terminal_attach_ordered, AttachParams => AttachResult,
++        "Direct-Core framed stream with authoritative RESIZE before initial and replacement paints, including interactive viewers. Always enables resize notifications. Remote hops are explicitly unsupported. Existing terminal.attach is unchanged.",
++        errors ["not_found", "finished", "unavailable", "needs_framed", "needs_update"];
+     "terminal.send" => terminal_send, SendParams => SendResult,
+         "Paste text and press Enter after a person sends or clears their draft (at most 60 s since their last key), otherwise after ~3 s of quiet. Keys pressed during delivery are held, then delivered. Refuses a blocked program unless `force`.",
+         errors ["not_found", "machine_unknown", "finished", "unavailable", "blocked", "status_mismatch", "invalid_params", "config", "cancelled"];
+@@ -424,6 +428,12 @@ async fn terminal_read(core: Ctx<'_>, p: ReadParams) -> Result<ReadResult, RpcEr
  }
  
-+impl Viewer {
-+    fn size_candidate(&self) -> bool {
-+        !self.observe && (!self.ordered || self.active_at.is_some())
-+    }
+ async fn terminal_attach(core: Ctx<'_>, p: AttachParams) -> Result<AttachResult, RpcError> {
++    attach_stream(core, p, false)
 +}
-+
- impl Display {
-     /// Answer the program's color and cell-size queries with these facts.
-     pub(crate) fn apply(&self, screen: &mut ghostty_vt::Terminal) {
-@@ -67,6 +76,15 @@
- impl Core {
-     /// Adds a viewer: queues the first paint, then every live byte follows in order.
-     pub fn attach(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest) -> Result<u32, RpcError> {
-+        self.attach_policy(conn, id, req, false)
-+    }
-+
-+    /// Opt-in interactive authoritative geometry, followed by replacement paint.
-+    pub fn attach_ordered(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest) -> Result<u32, RpcError> {
-+        self.attach_policy(conn, id, req, true)
-+    }
-+
-+    fn attach_policy(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest, ordered: bool) -> Result<u32, RpcError> {
-         let mut st = self.lock();
-         if let Some(t) = st.reg.terminals.get(&id) {
-             t.check_program()?;
-@@ -84,19 +102,24 @@
-             conn: conn.clone(),
-             channel,
-             observe: req.observe,
--            resize_notifications: req.observe && req.resize_notifications,
-+            resize_notifications: ordered || (req.observe && req.resize_notifications),
-+            ordered,
-             repaint_pending: false,
-             size: req.size,
-             active_at: (!req.resumed).then(Instant::now),
-             display: req.display,
-             recovering,
-         });
--        self.apply_size(&mut st, id);
-+        // An enhanced resumed/passive attach only reads the current grid. It
-+        // cannot become leader merely because no active viewer exists yet.
-+        if !ordered || !req.resumed {
-+            self.apply_size(&mut st, id);
-+        }
-         let paint = first_paint(&st, id, req.history);
-         st.viewers.get_mut(&id).unwrap().last_mut().unwrap().repaint_pending = false;
-         conn.with(|out| {
-             out.open_paused(channel);
--            if req.observe && req.resize_notifications {
-+            if ordered || (req.observe && req.resize_notifications) {
-                 let t = &st.reg.terminals[&id];
-                 let size = [t.cols.to_le_bytes(), t.rows.to_le_bytes()].concat();
-                 out.resize(channel, &size);
-@@ -280,7 +303,7 @@
-         v.display.cell = display.cell.or(v.display.cell);
-         let display = st.viewers[&id]
-             .iter()
--            .filter(|v| !v.observe)
-+            .filter(|v| v.size_candidate())
-             .max_by_key(|v| v.active_at)
-             .filter(|v| Arc::ptr_eq(&v.conn, conn) && v.channel == channel)
-             .map(|v| v.display.clone());
-@@ -326,7 +349,8 @@
-     /// The most recently active typing viewer sets size and display facts;
-     /// with none, the terminal runs headless.
-     fn apply_size(&self, st: &mut State, id: u32) {
--        let leader = st.viewers.get(&id).and_then(|vs| vs.iter().filter(|v| !v.observe).max_by_key(|v| v.active_at));
-+        let leader =
-+            st.viewers.get(&id).and_then(|vs| vs.iter().filter(|v| v.size_candidate()).max_by_key(|v| v.active_at));
-         let (cols, rows) = leader.map_or_else(|| self.headless(), |v| v.size);
-         let display = leader.map(|v| v.display.clone());
-         if !st.screens.contains_key(&id) {
++async fn terminal_attach_ordered(core: Ctx<'_>, p: AttachParams) -> Result<AttachResult, RpcError> {
++    attach_stream(core, p, true)
++}
++fn attach_stream(core: Ctx<'_>, p: AttachParams, ordered: bool) -> Result<AttachResult, RpcError> {
+     let Some(conn) = core.conn else {
+         return Err(RpcError::new(
+             "needs_framed",
+@@ -450,11 +460,11 @@ async fn terminal_attach(core: Ctx<'_>, p: AttachParams) -> Result<AttachResult,
+         display: p.display,
+         resumed: p.resumed,
+     };
+-    let channel = core.attach(conn, id, req)?;
++    let channel = if ordered { core.attach_ordered(conn, id, req)? } else { core.attach(conn, id, req)? };
+     Ok(AttachResult {
+         channel,
+         terminal: Public(record(core, id)?),
+-        resize_notifications: p.observe && p.resize_notifications,
++        resize_notifications: ordered || (p.observe && p.resize_notifications),
+         automatic_input: true,
+     })
+ }
+diff --git a/crates/herdr-core/src/cli.rs b/crates/herdr-core/src/cli.rs
+index c629263..7bea614 100644
+--- a/crates/herdr-core/src/cli.rs
++++ b/crates/herdr-core/src/cli.rs
+@@ -911,7 +911,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
+     ("machine rm", "machine.rm"),
+ ];
+ /// Client-only methods: handshake and opaque document storage.
+-pub const API_ONLY: &[&str] = &["hello", "doc.get", "doc.set"];
++pub const API_ONLY: &[&str] = &["hello", "doc.get", "doc.set", "terminal.attach_ordered"];
+ 
+ #[cfg(test)]
+ mod tests {
+diff --git a/crates/herdr-core/src/server.rs b/crates/herdr-core/src/server.rs
+index 5040c06..5ec2ca2 100644
+--- a/crates/herdr-core/src/server.rs
++++ b/crates/herdr-core/src/server.rs
+@@ -491,6 +491,11 @@ async fn handle(
+     let params = crate::remote::from_peer(core, conn, request["params"].clone());
+     let result = match crate::remote::route(core, method, &params) {
+         _ if method == "$/orphaned" => crate::remote::orphaned(core, conn, &params).await,
++        Ok(Some(_)) if method == "terminal.attach_ordered" => Err(RpcError::new(
++            "needs_update",
++            "ordered attach requires a direct Core connection",
++            "connect directly to that Core; remote ordered attach is not implemented",
++        )),
+         Ok(Some((crate::remote::To::Machine(machine), params))) if method == "terminal.attach" => match conn {
+             Some(conn) => crate::remote::attach(core, conn, &machine, params).await,
+             None => Err(RpcError::new(
+diff --git t1/crates/herdr-core/src/viewers/ordered_tests.rs t1/crates/herdr-core/src/viewers/ordered_tests.rs
+new file mode 100644
+index 0000000..982b935
 --- /dev/null
 +++ b/crates/herdr-core/src/viewers/ordered_tests.rs
 @@ -0,0 +1,147 @@
@@ -243,108 +254,112 @@
 +    drop(core);
 +    std::fs::remove_dir_all(root).unwrap();
 +}
---- a/crates/herdr-core/src/api.rs
-+++ b/crates/herdr-core/src/api.rs
-@@ -14,7 +14,7 @@
+diff --git a/crates/herdr-core/src/viewers.rs b/crates/herdr-core/src/viewers.rs
+index 03798e7..dd28cd8 100644
+--- a/crates/herdr-core/src/viewers.rs
++++ b/crates/herdr-core/src/viewers.rs
+@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
+ use std::sync::Arc;
+ use std::time::Instant;
  
- pub const GENERATION: u32 = 1;
- pub const FEATURES: &[&str] =
--    &["framed", "attach", "events", "status", "shell", "resize_notifications", "automatic_input"];
-+    &["framed", "attach", "events", "status", "shell", "resize_notifications", "automatic_input", "ordered_attach"];
- pub const FINISHED_LINES: usize = 1000;
- /// A terminal's identity: fixed at start from whoever starts it.
- pub const IDENTITY_VARS: &[&str] = &["TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM"];
-@@ -95,6 +95,9 @@
-     "terminal.attach" => terminal_attach, AttachParams => AttachResult,
-         "Open a raw stream to a live terminal on this framed connection (see `hello` with `framed`). Loss ends the stream even when kept; reattach after the restarted event.",
-         errors ["not_found", "machine_unknown", "finished", "unavailable", "needs_framed"];
-+    "terminal.attach_ordered" => terminal_attach_ordered, AttachParams => AttachResult,
-+        "Direct-Core framed stream with authoritative RESIZE before initial and replacement paints, including interactive viewers. Always enables resize notifications. Remote hops are explicitly unsupported. Existing terminal.attach is unchanged.",
-+        errors ["not_found", "finished", "unavailable", "needs_framed", "needs_update"];
-     "terminal.send" => terminal_send, SendParams => SendResult,
-         "Paste text and press Enter after a person sends or clears their draft (at most 60 s since their last key), otherwise after ~3 s of quiet. Keys pressed during delivery are held, then delivered. Refuses a blocked program unless `force`.",
-         errors ["not_found", "machine_unknown", "finished", "unavailable", "blocked", "status_mismatch", "invalid_params", "config"];
-@@ -410,6 +413,12 @@
- }
- 
- async fn terminal_attach(core: Ctx<'_>, p: AttachParams) -> Result<AttachResult, RpcError> {
-+    attach_stream(core, p, false)
-+}
-+async fn terminal_attach_ordered(core: Ctx<'_>, p: AttachParams) -> Result<AttachResult, RpcError> {
-+    attach_stream(core, p, true)
-+}
-+fn attach_stream(core: Ctx<'_>, p: AttachParams, ordered: bool) -> Result<AttachResult, RpcError> {
-     let Some(conn) = core.conn else {
-         return Err(RpcError::new(
-             "needs_framed",
-@@ -436,11 +445,11 @@
-         display: p.display,
-         resumed: p.resumed,
-     };
--    let channel = core.attach(conn, id, req)?;
-+    let channel = if ordered { core.attach_ordered(conn, id, req)? } else { core.attach(conn, id, req)? };
-     Ok(AttachResult {
-         channel,
-         terminal: Public(record(core, id)?),
--        resize_notifications: p.observe && p.resize_notifications,
-+        resize_notifications: ordered || (p.observe && p.resize_notifications),
-         automatic_input: true,
-     })
- }
---- a/crates/herdr-core/src/server.rs
-+++ b/crates/herdr-core/src/server.rs
-@@ -490,6 +490,11 @@
-     let params = crate::remote::from_peer(core, conn, request["params"].clone());
-     let result = match crate::remote::route(core, method, &params) {
-         _ if method == "$/orphaned" => crate::remote::orphaned(core, conn, &params).await,
-+        Ok(Some(_)) if method == "terminal.attach_ordered" => Err(RpcError::new(
-+            "needs_update",
-+            "ordered attach requires a direct Core connection",
-+            "connect directly to that Core; remote ordered attach is not implemented",
-+        )),
-         Ok(Some((crate::remote::To::Machine(machine), params))) if method == "terminal.attach" => match conn {
-             Some(conn) => crate::remote::attach(core, conn, &machine, params).await,
-             None => Err(RpcError::new(
---- a/crates/herdr-core/src/cli.rs
-+++ b/crates/herdr-core/src/cli.rs
-@@ -882,7 +882,7 @@
-     ("machine rm", "machine.rm"),
- ];
- /// Client-only methods: handshake and opaque document storage.
--pub const API_ONLY: &[&str] = &["hello", "doc.get", "doc.set"];
-+pub const API_ONLY: &[&str] = &["hello", "doc.get", "doc.set", "terminal.attach_ordered"];
- 
++#[cfg(test)]
++mod ordered_tests;
  #[cfg(test)]
- mod tests {
---- a/crates/herdr-core/src/SKILL.md
-+++ b/crates/herdr-core/src/SKILL.md
-@@ -129,6 +129,20 @@
- still resize the terminal normally. `display: {fg, bg, cursor, cell}` (as in
- `terminal.attach`) likewise answers the program's color and cell-size queries
- from its start, before any viewer attaches.
-+
-+Local experimental build: `hello.features` advertises `ordered_attach` and
-+`hello.methods` advertises `terminal.attach_ordered`. On a direct framed
-+connection this method takes the existing attach parameters but always sends
-+an authoritative RESIZE before its initial paint and after effective size changes,
-+then a replacement paint before further live bytes. This includes interactive
-+viewers; `terminal.attach` retains its existing observer-only opt-in semantics.
-+Keep requested geometry separate from received geometry, and do not answer an
-+authoritative RESIZE by echoing it back. Automatic input does not claim size
-+leadership. An ordered attach with `resumed: true` passively reads the current
-+grid without claiming leadership, including when it is the only viewer; later
-+explicit focus, input or resize activates it. Remote ordered attach is explicitly
-+rejected, not downgraded.
-+This extension does not claim graphics or exact restart/snapshot fidelity.
+ mod tests;
  
- ```sh
- hc run cargo test                  # wait, stream output, return its exit code
+@@ -33,6 +35,7 @@ pub struct Viewer {
+     pub channel: u32,
+     pub observe: bool,
+     resize_notifications: bool,
++    ordered: bool,
+     repaint_pending: bool,
+     size: (u16, u16),
+     /// None: not active since it came back after a dropped line.
+@@ -42,6 +45,12 @@ pub struct Viewer {
+     pub(crate) recovering: bool,
+ }
+ 
++impl Viewer {
++    fn size_candidate(&self) -> bool {
++        !self.observe && (!self.ordered || self.active_at.is_some())
++    }
++}
++
+ impl Display {
+     /// Answer the program's color and cell-size queries with these facts.
+     pub(crate) fn apply(&self, screen: &mut ghostty_vt::Terminal) {
+@@ -67,6 +76,15 @@ pub struct AttachRequest {
+ impl Core {
+     /// Adds a viewer: queues the first paint, then every live byte follows in order.
+     pub fn attach(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest) -> Result<u32, RpcError> {
++        self.attach_policy(conn, id, req, false)
++    }
++
++    /// Opt-in interactive authoritative geometry, followed by replacement paint.
++    pub fn attach_ordered(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest) -> Result<u32, RpcError> {
++        self.attach_policy(conn, id, req, true)
++    }
++
++    fn attach_policy(&self, conn: &Arc<Conn>, id: u32, req: AttachRequest, ordered: bool) -> Result<u32, RpcError> {
+         let mut st = self.lock();
+         if let Some(t) = st.reg.terminals.get(&id) {
+             t.check_program()?;
+@@ -84,19 +102,24 @@ impl Core {
+             conn: conn.clone(),
+             channel,
+             observe: req.observe,
+-            resize_notifications: req.observe && req.resize_notifications,
++            resize_notifications: ordered || (req.observe && req.resize_notifications),
++            ordered,
+             repaint_pending: false,
+             size: req.size,
+             active_at: (!req.resumed).then(Instant::now),
+             display: req.display,
+             recovering,
+         });
+-        self.apply_size(&mut st, id);
++        // An enhanced resumed/passive attach only reads the current grid. It
++        // cannot become leader merely because no active viewer exists yet.
++        if !ordered || !req.resumed {
++            self.apply_size(&mut st, id);
++        }
+         let paint = first_paint(&st, id, req.history);
+         st.viewers.get_mut(&id).unwrap().last_mut().unwrap().repaint_pending = false;
+         conn.with(|out| {
+             out.open_paused(channel);
+-            if req.observe && req.resize_notifications {
++            if ordered || (req.observe && req.resize_notifications) {
+                 let t = &st.reg.terminals[&id];
+                 let size = [t.cols.to_le_bytes(), t.rows.to_le_bytes()].concat();
+                 out.resize(channel, &size);
+@@ -280,7 +303,7 @@ impl Core {
+         v.display.cell = display.cell.or(v.display.cell);
+         let display = st.viewers[&id]
+             .iter()
+-            .filter(|v| !v.observe)
++            .filter(|v| v.size_candidate())
+             .max_by_key(|v| v.active_at)
+             .filter(|v| Arc::ptr_eq(&v.conn, conn) && v.channel == channel)
+             .map(|v| v.display.clone());
+@@ -326,7 +349,8 @@ impl Core {
+     /// The most recently active typing viewer sets size and display facts;
+     /// with none, the terminal runs headless.
+     fn apply_size(&self, st: &mut State, id: u32) {
+-        let leader = st.viewers.get(&id).and_then(|vs| vs.iter().filter(|v| !v.observe).max_by_key(|v| v.active_at));
++        let leader =
++            st.viewers.get(&id).and_then(|vs| vs.iter().filter(|v| v.size_candidate()).max_by_key(|v| v.active_at));
+         let (cols, rows) = leader.map_or_else(|| self.headless(), |v| v.size);
+         let display = leader.map(|v| v.display.clone());
+         if !st.screens.contains_key(&id) {
+diff --git a/schema/hc.openrpc.json b/schema/hc.openrpc.json
+index 5d77da6..ace8181 100644
 --- a/schema/hc.openrpc.json
 +++ b/schema/hc.openrpc.json
-@@ -2382,6 +2382,157 @@
+@@ -2443,6 +2443,157 @@
+         }
        }
      },
-     {
++    {
 +      "description": "Direct-Core framed stream with authoritative RESIZE before initial and replacement paints, including interactive viewers. Always enables resize notifications. Remote hops are explicitly unsupported. Existing terminal.attach is unchanged.",
 +      "errors": [
 +        {
@@ -495,7 +510,6 @@
 +        }
 +      }
 +    },
-+    {
+     {
        "description": "Paste text and press Enter after a person sends or clears their draft (at most 60 s since their last key), otherwise after ~3 s of quiet. Keys pressed during delivery are held, then delivered. Refuses a blocked program unless `force`.",
        "errors": [
-         {

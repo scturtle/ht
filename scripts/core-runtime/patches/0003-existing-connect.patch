@@ -1,6 +1,35 @@
+diff --git a/crates/herdr-core/src/SKILL.md b/crates/herdr-core/src/SKILL.md
+index 627e9d8..46477cc 100644
+--- a/crates/herdr-core/src/SKILL.md
++++ b/crates/herdr-core/src/SKILL.md
+@@ -156,6 +156,10 @@ stack replay, including inactive screen state, dirty viewers and overflow. Binar
+ snapshot round trips retain both stacks. These extensions do not claim graphics
+ replay or failure-safe exact server restart.
+ 
++`existing_connect` advertises `hc connect --existing`: it forwards to a running
++core but never starts one. Recovery probes should use it so they cannot undo an
++explicit server stop. Plain `hc connect` keeps its original auto-start behavior.
++
+ ```sh
+ hc run cargo test                  # wait, stream output, return its exit code
+ hc run "cd app && bun test"        # one quoted string is a shell command
+diff --git a/crates/herdr-core/src/api.rs b/crates/herdr-core/src/api.rs
+index 78c8254..9b0c213 100644
+--- a/crates/herdr-core/src/api.rs
++++ b/crates/herdr-core/src/api.rs
+@@ -24,6 +24,7 @@ pub const FEATURES: &[&str] = &[
+     "restart_environment",
+     "ordered_attach",
+     "keyboard_stacks_v1",
++    "existing_connect",
+ ];
+ pub const FINISHED_LINES: usize = 1000;
+ /// Terminal identity variables replaced by the core's defaults unless explicitly overridden.
+diff --git a/crates/herdr-core/src/cli.rs b/crates/herdr-core/src/cli.rs
+index 7bea614..50a0bb9 100644
 --- a/crates/herdr-core/src/cli.rs
 +++ b/crates/herdr-core/src/cli.rs
-@@ -100,6 +100,9 @@
+@@ -100,6 +100,9 @@ enum Cmd {
      Schema,
      /// Speak the protocol over stdin/stdout (`ssh box hc connect`).
      Connect {
@@ -10,7 +39,7 @@
          /// The hc session to reach, like HC_SESSION (one command that reads
          /// the same in sh, cmd and PowerShell).
          #[arg(long)]
-@@ -509,7 +512,7 @@
+@@ -507,7 +510,7 @@ fn run(cmd: Option<Cmd>, json: bool, asked: bool) -> Result<Option<Out>, RpcErro
              }
              Out { json: r, human: String::new() }
          }
@@ -19,7 +48,7 @@
              let paths = match session {
                  Some(s) => {
                      // SAFETY: no other thread runs yet; a core this starts inherits it.
-@@ -518,7 +521,7 @@
+@@ -516,7 +519,7 @@ fn run(cmd: Option<Cmd>, json: bool, asked: bool) -> Result<Option<Out>, RpcErro
                  }
                  None => paths,
              };
@@ -28,12 +57,12 @@
              return Ok(None);
          }
          Cmd::Events(p) => {
-@@ -827,8 +830,18 @@
+@@ -856,8 +859,18 @@ fn wait_closed(stream: &crate::platform::Stream) {
  }
  
  /// Copies bytes between stdin/stdout and the core: plain or framed, untouched.
 -fn connect(paths: &Paths) -> Result<(), RpcError> {
--    let stream = client::connect_or_start(paths)?;
+-    let stream = crate::platform::connect_for_app(paths)?;
 +fn connect(paths: &Paths, existing: bool) -> Result<(), RpcError> {
 +    let stream = if existing {
 +        client::connect_existing(paths).ok_or_else(|| {
@@ -44,42 +73,19 @@
 +            )
 +        })?
 +    } else {
-+        client::connect_or_start(paths)?
++        crate::platform::connect_for_app(paths)?
 +    };
      let mut to_core = stream.try_clone().map_err(|e| RpcError::internal(e.to_string()))?;
      std::thread::spawn(move || {
          pump(&mut *crate::platform::console::stdin(), &mut to_core);
---- a/crates/herdr-core/src/api.rs
-+++ b/crates/herdr-core/src/api.rs
-@@ -23,6 +23,7 @@
-     "automatic_input",
-     "ordered_attach",
-     "keyboard_stacks_v1",
-+    "existing_connect",
- ];
- pub const FINISHED_LINES: usize = 1000;
- /// A terminal's identity: fixed at start from whoever starts it.
---- a/crates/herdr-core/src/SKILL.md
-+++ b/crates/herdr-core/src/SKILL.md
-@@ -146,6 +146,10 @@
- stack replay, including inactive screen state, dirty viewers and overflow. Binary
- snapshot round trips retain both stacks. These extensions do not claim graphics
- replay or failure-safe exact server restart.
-+
-+`existing_connect` advertises `hc connect --existing`: it forwards to a running
-+core but never starts one. Recovery probes should use it so they cannot undo an
-+explicit server stop. Plain `hc connect` keeps its original auto-start behavior.
- 
- ```sh
- hc run cargo test                  # wait, stream output, return its exit code
+diff --git a/crates/herdr-core/tests/m0.rs b/crates/herdr-core/tests/m0.rs
+index a42935b..2777434 100644
 --- a/crates/herdr-core/tests/m0.rs
 +++ b/crates/herdr-core/tests/m0.rs
-@@ -40,6 +40,31 @@
-     let second = s.json(&["server", "status"]);
-     assert_eq!(second["core"]["id"], id.as_str());
+@@ -51,6 +51,31 @@ fn autostarts_and_keeps_its_identity_across_restarts() {
      assert_ne!(second["pid"].as_i64().unwrap(), pid);
-+}
-+
+ }
+ 
 +#[test]
 +fn existing_connect_never_starts_or_resurrects_a_stopped_core() {
 +    let s = Session::new();
@@ -103,12 +109,16 @@
 +    let stopped = s.hc_input(&["connect", "--existing"], hello);
 +    assert!(!stopped.status.success());
 +    assert!(!s.socket().exists(), "a reconnect probe must not undo explicit stop");
- }
- 
++}
++
  #[test]
+ fn concurrent_commands_start_one_core() {
+     let s = Session::new();
+diff --git a/docs/commands.md b/docs/commands.md
+index d26046c..03f8d4b 100644
 --- a/docs/commands.md
 +++ b/docs/commands.md
-@@ -94,6 +94,7 @@
+@@ -96,6 +96,7 @@ Speak the protocol over stdin/stdout (`ssh box hc connect`)
  Usage: hc connect [OPTIONS]
  
  Options:

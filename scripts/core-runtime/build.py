@@ -101,7 +101,12 @@ def prepare():
         vendor.rmdir()  # A pinned submodule placeholder, not a populated checkout.
         ghostty.rename(vendor)
         for patch in patches:
-            subprocess.run(["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(patch)], cwd=core, check=True, stdout=sys.stderr)
+            subprocess.run(
+                ["patch", "--batch", "--forward", "--fuzz=0", "--no-backup-if-mismatch", "-p1", "-i", str(patch)],
+                cwd=core,
+                check=True,
+                stdout=sys.stderr,
+            )
         (core / ".core-source.json").write_text(json.dumps({"bundle_sha256": bundle, "source_sha256": source_digest(core), "core": manifest["core"]["commit"], "ghostty": manifest["ghostty"]["commit"]}, indent=2) + "\n")
         core.rename(source)
     return source

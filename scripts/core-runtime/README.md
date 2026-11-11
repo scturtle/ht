@@ -1,6 +1,6 @@
 # Pinned local Core runtime
 
-This personal-fork runtime extends **Core 0.1.19** without reinstating Herdr's
+This personal-fork runtime extends **Core 0.1.20** without reinstating Herdr's
 retired PTY server. It is not an upstream release or an installation/update tool.
 
 ```sh
