@@ -547,12 +547,15 @@ async fn run_client_loop(
             }
         }
         while power_monitor.try_recv().is_some() {}
+        // Idle sessions wake once a second at most. The tick still reaps detached
+        // children and expires graphics/health state; those deadlines are seconds
+        // away, so a finer timer would only repaint frames that draw nothing.
+        const HOUSEKEEPING_TICK: Duration = Duration::from_secs(1);
         let timer_delay = state
             .shell
             .as_ref()
-            .map_or(Duration::from_millis(100), |shell| {
-                shell.timer_delay(std::time::Instant::now())
-            });
+            .and_then(|shell| shell.timer_delay(std::time::Instant::now()))
+            .unwrap_or(HOUSEKEEPING_TICK);
         let timer_deadline = client_timer.deadline(std::time::Instant::now(), timer_delay);
         let immediate_event = scheduled_activation.take();
         let event = if let Some(event) = immediate_event {

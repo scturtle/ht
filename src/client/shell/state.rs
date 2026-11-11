@@ -1791,14 +1791,16 @@ impl ClientShellState {
         false
     }
 
-    pub(crate) fn timer_delay(&self, now: std::time::Instant) -> std::time::Duration {
-        let default = std::time::Duration::from_millis(100);
+    /// How long until this shell needs another tick, or `None` when nothing is
+    /// scheduled. `None` lets the client block on input instead of waking ten
+    /// times a second for a repaint that would draw nothing.
+    pub(crate) fn timer_delay(&self, now: std::time::Instant) -> Option<std::time::Duration> {
+        let cap = std::time::Duration::from_millis(100);
         self.selection_autoscroll_deadline
             .into_iter()
             .chain(self.selection_repaint_deadline)
             .min()
-            .map(|deadline| deadline.saturating_duration_since(now).min(default))
-            .unwrap_or(default)
+            .map(|deadline| deadline.saturating_duration_since(now).min(cap))
     }
 
     pub(crate) fn invalidate_pane_surface(&mut self) {
