@@ -6,9 +6,35 @@ use std::{
     sync::OnceLock,
 };
 
-use super::{ClipboardCommand, ClipboardImage};
+use super::ClipboardCommand;
 
 mod clipboard;
+
+/// On-demand, self-only process evidence; never samples other users' programs.
+/// Missing procfs permissions are data, not a reason to discard the pane dump.
+pub(crate) fn diagnostic_process_snapshot() -> serde_json::Value {
+    use serde_json::json;
+    let read = |path: &std::path::Path| match std::fs::read_to_string(path) {
+        Ok(text) => json!({"text":text}),
+        Err(error) => json!({"error":error.to_string()}),
+    };
+    let threads = match std::fs::read_dir("/proc/self/task") {
+        Ok(entries) => serde_json::Value::Array(
+            entries
+                .filter_map(Result::ok)
+                .take(128)
+                .map(|entry| {
+                    let path = entry.path();
+                    json!({"tid":entry.file_name().to_string_lossy(),
+                "name":read(&path.join("comm")),"wait_channel":read(&path.join("wchan")),
+                "status":read(&path.join("status"))})
+                })
+                .collect(),
+        ),
+        Err(error) => json!({"error":error.to_string()}),
+    };
+    json!({"pid":std::process::id(),"status":read(std::path::Path::new("/proc/self/status")),"threads":threads,"thread_limit":128})
+}
 
 pub(crate) use super::unix_common::{create_remote_private_dir, create_remote_ssh_config_file};
 
@@ -17,10 +43,6 @@ mod clipboard_tests;
 
 #[cfg(test)]
 mod config_file_tests;
-
-mod power;
-
-pub(crate) use power::monitor_host_power;
 
 const WSL_MARKER_ENV_VARS: &[&str] = &["WSL_DISTRO_NAME", "WSL_INTEROP"];
 
@@ -91,110 +113,6 @@ pub fn open_url(url: &str) -> std::io::Result<Option<std::process::Child>> {
         .map(Some)
 }
 
-pub fn read_clipboard_image() -> Option<ClipboardImage> {
-    let deadline = std::time::Instant::now() + clipboard::TIMEOUT;
-    if running_inside_wsl() {
-        if let Some(image) =
-            read_wsl_clipboard_image_with_command_until(|program| Command::new(program), deadline)
-        {
-            return Some(image);
-        }
-    }
-
-    for (mime, extension) in [
-        ("image/png", "png"),
-        ("image/jpeg", "jpg"),
-        ("image/jpg", "jpg"),
-        ("image/gif", "gif"),
-        ("image/webp", "webp"),
-        ("image/bmp", "bmp"),
-    ] {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            if let Some(image) = read_validated_clipboard_image_until(
-                "wl-paste",
-                &["--type", mime],
-                extension,
-                deadline,
-            ) {
-                return Some(image);
-            }
-        }
-
-        if std::env::var_os("DISPLAY").is_some() {
-            if let Some(image) = read_validated_clipboard_image_until(
-                "xclip",
-                &["-selection", "clipboard", "-t", mime, "-o"],
-                extension,
-                deadline,
-            ) {
-                return Some(image);
-            }
-        }
-    }
-
-    None
-}
-
-fn read_wsl_clipboard_image_with_command_until(
-    mut command: impl FnMut(&str) -> Command,
-    deadline: std::time::Instant,
-) -> Option<ClipboardImage> {
-    let mut command = command("powershell.exe");
-    command.args([
-        "-NoProfile",
-        "-NonInteractive",
-        "-STA",
-        "-Command",
-        "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $image=[System.Windows.Forms.Clipboard]::GetImage(); if ($null -eq $image) { exit 1 }; $stream=[System.IO.MemoryStream]::new(); try { $image.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png); [Console]::OpenStandardOutput().Write($stream.GetBuffer(), 0, [int]$stream.Length) } finally { $stream.Dispose(); $image.Dispose() }",
-    ]);
-    let bytes = read_clipboard_image_until(
-        command,
-        crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD,
-        deadline,
-    )?;
-    bytes_match_image_signature("png", &bytes).then_some(ClipboardImage {
-        bytes,
-        extension: "png",
-    })
-}
-
-fn read_validated_clipboard_image_until(
-    program: &str,
-    args: &[&str],
-    extension: &'static str,
-    deadline: std::time::Instant,
-) -> Option<ClipboardImage> {
-    let mut command = Command::new(program);
-    command.args(args);
-    let bytes = read_clipboard_image_until(
-        command,
-        crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD,
-        deadline,
-    )?;
-    if !bytes_match_image_signature(extension, &bytes) {
-        return None;
-    }
-    Some(ClipboardImage { bytes, extension })
-}
-
-fn bytes_match_image_signature(extension: &str, bytes: &[u8]) -> bool {
-    match extension {
-        "png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "jpg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
-        "gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
-        "webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WEBP",
-        "bmp" => {
-            if bytes.len() < 26 || !bytes.starts_with(b"BM") {
-                return false;
-            }
-            let offset = u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]) as usize;
-            (26..=bytes.len()).contains(&offset)
-        }
-        _ => false,
-    }
-}
-
-/// Show a native desktop notification through libnotify's command-line helper.
 pub fn show_desktop_notification(title: &str, body: Option<&str>) -> std::io::Result<bool> {
     show_desktop_notification_with_command(title, body, |program| Command::new(program))
 }
@@ -229,15 +147,6 @@ fn run_notification_command(mut command: Command) -> std::io::Result<bool> {
     };
 
     Ok(status.success())
-}
-
-fn read_clipboard_image_until(
-    command: Command,
-    max_bytes: usize,
-    deadline: std::time::Instant,
-) -> Option<Vec<u8>> {
-    let bytes = clipboard::run(command, None, max_bytes, deadline).ok()?;
-    (!bytes.is_empty()).then_some(bytes)
 }
 
 fn clipboard_commands() -> Vec<ClipboardCommand> {
@@ -336,19 +245,6 @@ pub fn process_exists(pid: u32) -> bool {
     } else {
         std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-}
-
-#[cfg(test)]
-#[cfg(test)]
-fn read_clipboard_image_with_spawned_command_max(
-    command: Command,
-    max_bytes: usize,
-) -> Option<Vec<u8>> {
-    read_clipboard_image_until(
-        command,
-        max_bytes,
-        std::time::Instant::now() + clipboard::TIMEOUT,
-    )
 }
 
 #[cfg(test)]
@@ -615,142 +511,6 @@ mod tests {
         assert_eq!(commands[1].program, "wl-paste");
         assert_eq!(commands[2].program, "xclip");
         assert_eq!(commands[3].program, "xsel");
-    }
-    #[test]
-    fn read_clipboard_image_rejects_xclip_text_served_for_image_target() {
-        let _guard = env_lock().lock().unwrap();
-        let temp_dir =
-            std::env::temp_dir().join(format!("herdr-fake-xclip-{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
-        let fake_xclip = temp_dir.join("xclip");
-        std::fs::write(&fake_xclip, "#!/bin/sh\nprintf '# Tasks'\n")
-            .expect("fake xclip should be written");
-
-        {
-            use std::os::unix::fs::PermissionsExt;
-
-            let mut permissions = std::fs::metadata(&fake_xclip)
-                .expect("fake xclip metadata")
-                .permissions();
-            permissions.set_mode(0o700);
-            std::fs::set_permissions(&fake_xclip, permissions)
-                .expect("fake xclip should be executable");
-        }
-
-        let old_path = std::env::var_os("PATH");
-        let test_path = match old_path.as_ref() {
-            Some(path) => {
-                let mut paths = vec![temp_dir.clone()];
-                paths.extend(std::env::split_paths(path));
-                std::env::join_paths(paths).expect("test path should be valid")
-            }
-            None => temp_dir.clone().into_os_string(),
-        };
-
-        unsafe {
-            std::env::remove_var("WAYLAND_DISPLAY");
-            std::env::set_var("DISPLAY", ":0");
-            std::env::set_var("PATH", test_path);
-        }
-
-        let result = read_clipboard_image();
-
-        unsafe {
-            match old_path {
-                Some(path) => std::env::set_var("PATH", path),
-                None => std::env::remove_var("PATH"),
-            }
-        }
-        let _ = std::fs::remove_file(fake_xclip);
-        let _ = std::fs::remove_dir(temp_dir);
-
-        assert_eq!(result, None);
-    }
-    #[test]
-    fn read_clipboard_image_rejects_wayland_xclip_fallback_text_for_image_target() {
-        let _guard = env_lock().lock().unwrap();
-        let temp_dir =
-            std::env::temp_dir().join(format!("herdr-fake-wayland-xclip-{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
-        let fake_wl_paste = temp_dir.join("wl-paste");
-        let fake_xclip = temp_dir.join("xclip");
-        std::fs::write(&fake_wl_paste, "#!/bin/sh\nexit 1\n")
-            .expect("fake wl-paste should be written");
-        std::fs::write(&fake_xclip, "#!/bin/sh\nprintf '# Tasks'\n")
-            .expect("fake xclip should be written");
-
-        {
-            use std::os::unix::fs::PermissionsExt;
-
-            for command in [&fake_wl_paste, &fake_xclip] {
-                let mut permissions = std::fs::metadata(command)
-                    .expect("fake clipboard command metadata")
-                    .permissions();
-                permissions.set_mode(0o700);
-                std::fs::set_permissions(command, permissions)
-                    .expect("fake clipboard command should be executable");
-            }
-        }
-
-        let old_path = std::env::var_os("PATH");
-        let test_path = match old_path.as_ref() {
-            Some(path) => {
-                let mut paths = vec![temp_dir.clone()];
-                paths.extend(std::env::split_paths(path));
-                std::env::join_paths(paths).expect("test path should be valid")
-            }
-            None => temp_dir.clone().into_os_string(),
-        };
-
-        unsafe {
-            std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
-            std::env::set_var("DISPLAY", ":0");
-            std::env::set_var("PATH", test_path);
-        }
-
-        let result = read_clipboard_image();
-
-        unsafe {
-            match old_path {
-                Some(path) => std::env::set_var("PATH", path),
-                None => std::env::remove_var("PATH"),
-            }
-        }
-        let _ = std::fs::remove_file(fake_wl_paste);
-        let _ = std::fs::remove_file(fake_xclip);
-        let _ = std::fs::remove_dir(temp_dir);
-
-        assert_eq!(result, None);
-    }
-    #[test]
-    fn image_signatures_match_only_their_format() {
-        assert!(bytes_match_image_signature("png", b"\x89PNG\r\n\x1a\n..."));
-        assert!(bytes_match_image_signature(
-            "jpg",
-            &[0xFF, 0xD8, 0xFF, 0xE0]
-        ));
-        assert!(bytes_match_image_signature("gif", b"GIF87a..."));
-        assert!(bytes_match_image_signature("gif", b"GIF89a..."));
-        assert!(bytes_match_image_signature(
-            "webp",
-            b"RIFF\x10\x00\x00\x00WEBPVP8 "
-        ));
-
-        let mut bmp = vec![0u8; 26];
-        bmp[..2].copy_from_slice(b"BM");
-        bmp[10] = 26;
-        assert!(bytes_match_image_signature("bmp", &bmp));
-
-        assert!(!bytes_match_image_signature("png", b"# Tasks"));
-        assert!(!bytes_match_image_signature("jpg", b"plain clipboard text"));
-        assert!(!bytes_match_image_signature("gif", b""));
-        assert!(!bytes_match_image_signature("webp", b"RIFF but not webp"));
-        assert!(!bytes_match_image_signature("bmp", b"\x89PNG\r\n\x1a\n"));
-        assert!(!bytes_match_image_signature(
-            "bmp",
-            b"BM text is not a bitmap"
-        ));
-        assert!(!bytes_match_image_signature("svg", b"<svg></svg>"));
     }
     #[test]
     fn desktop_notification_sets_app_name_and_separates_option_like_titles() {

@@ -19,6 +19,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::layout::PaneId;
 
+mod diagnostics;
+
 #[cfg(test)]
 mod migration_tests;
 

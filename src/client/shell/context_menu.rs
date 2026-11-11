@@ -75,6 +75,7 @@ impl ClientContextMenuOverlay {
                         },
                         Action::ToggleRightClickPassthrough,
                     ),
+                    item("Dump pane diagnostics", Action::DumpPaneDiagnostics),
                     item("Close pane", Action::ClosePane),
                 ]);
                 items
@@ -370,6 +371,9 @@ impl ClientShellState {
         };
 
         match action {
+            ClientContextMenuAction::DumpPaneDiagnostics => {
+                self.dump_pane_diagnostics(pane_id, outcome)
+            }
             ClientContextMenuAction::RenamePane => {
                 let label = self.snapshot.as_deref().and_then(|snapshot| {
                     snapshot

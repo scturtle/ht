@@ -7,13 +7,6 @@ static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(1);
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(super) struct ClientRemoteCollapsedGroups {
-    pub(super) profile_id: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) collapsed_groups: Vec<String>,
-}
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct ClientChromePreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -26,8 +19,6 @@ pub(super) struct ClientChromePreferences {
     pub(super) agent_panel_sort: Option<crate::config::AgentPanelSortConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) collapsed_groups: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) remote_collapsed_groups: Vec<ClientRemoteCollapsedGroups>,
 }
 
 pub(super) fn path_for_local_endpoint(socket_path: &Path) -> PathBuf {
@@ -39,20 +30,6 @@ pub(super) fn path_for_local_endpoint(socket_path: &Path) -> PathBuf {
     crate::config::state_dir()
         .join("client-shell")
         .join(format!("local-{hash:016x}.json"))
-}
-
-/// SSH preferences belong to the target/session, not its per-process bridge socket.
-pub(super) fn path_for_remote_endpoint(target: &str, session: &str) -> PathBuf {
-    use sha2::{Digest as _, Sha256};
-
-    let mut hash = Sha256::new();
-    for part in [target, session] {
-        hash.update((part.len() as u64).to_le_bytes());
-        hash.update(part.as_bytes());
-    }
-    crate::config::state_dir()
-        .join("client-shell")
-        .join(format!("remote-{:x}.json", hash.finalize()))
 }
 
 pub(super) fn load(path: &Path) -> Option<ClientChromePreferences> {
@@ -97,29 +74,12 @@ mod tests {
     }
 
     #[test]
-    fn remote_preferences_distinguish_targets_sessions_and_component_boundaries() {
-        let original = path_for_remote_endpoint("dev@build", "agents");
-        assert_eq!(original, path_for_remote_endpoint("dev@build", "agents"));
-        assert_ne!(original, path_for_remote_endpoint("other@build", "agents"));
-        assert_ne!(original, path_for_remote_endpoint("dev@build", "other"));
-        assert_ne!(
-            path_for_remote_endpoint("ab", "c"),
-            path_for_remote_endpoint("a", "bc")
-        );
-        assert_ne!(
-            original,
-            path_for_local_endpoint(Path::new("dev@build/agents"))
-        );
-    }
-
-    #[test]
-    fn legacy_preferences_default_remote_collapses() {
+    fn legacy_local_preferences_still_load() {
         let preferences: ClientChromePreferences =
             serde_json::from_str(r#"{"collapsed_groups":["/repo"]}"#)
                 .expect("legacy client chrome preferences");
 
         assert_eq!(preferences.collapsed_groups, ["/repo"]);
-        assert!(preferences.remote_collapsed_groups.is_empty());
     }
 
     #[test]

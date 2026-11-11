@@ -271,11 +271,18 @@ pub(crate) fn render_sidebar(
         body.height,
         *state.workspace_scroll,
     );
-    if !body.is_empty() && std::mem::take(state.reveal_focused_workspace) {
-        if let Some(target) = entries
-            .iter()
-            .position(|entry| snapshot.workspaces[entry.index].focused)
-        {
+    let reveal_navigation = !body.is_empty() && std::mem::take(state.reveal_navigation_workspace);
+    let reveal_focus = !body.is_empty() && std::mem::take(state.reveal_focused_workspace);
+    if !body.is_empty() && (reveal_navigation || reveal_focus) {
+        let selected = state
+            .selected_workspace_id
+            .map(|target| target.workspace_id.as_str());
+        if let Some(target) = entries.iter().position(|entry| {
+            let workspace = &snapshot.workspaces[entry.index];
+            selected.map_or(reveal_focus && workspace.focused, |id| {
+                workspace.workspace_id == id
+            })
+        }) {
             *state.workspace_scroll = super::scroll::list_scroll_start_to_reveal(
                 &row_heights,
                 &gaps,

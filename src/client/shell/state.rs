@@ -63,7 +63,6 @@ pub(super) struct ClientShellLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ClientMobileTarget {
-    Machine(ClientEndpointId),
     NewWorkspace,
     Workspace {
         endpoint_id: ClientEndpointId,
@@ -83,7 +82,6 @@ pub(super) enum ClientMobileTarget {
 
 #[derive(Default)]
 pub(super) struct ShellHitMap {
-    pub(super) machines: Vec<MachineHit>,
     pub(super) workspaces: Vec<WorkspaceHit>,
     pub(super) workspace_body: Rect,
     pub(super) workspace_scrollbar: Rect,
@@ -93,7 +91,6 @@ pub(super) struct ShellHitMap {
     pub(super) panes: Vec<PaneHit>,
     pub(super) pane_splits: Vec<PaneSplitHit>,
     pub(super) agents: Vec<(Rect, String)>,
-    pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String)>,
     pub(super) agent_body: Rect,
     pub(super) agent_scrollbar: Rect,
     pub(super) agent_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -244,12 +241,12 @@ pub(crate) enum ClientShellAction {
         boot_id: String,
         request: Box<crate::api::schema::Request>,
     },
+    DumpPaneDiagnostics {
+        pane_id: String,
+        client: Box<serde_json::Value>,
+    },
     ClipboardWrite(Vec<u8>),
     OpenSafeWebUrl(String),
-    ActivateEndpoint {
-        endpoint_id: ClientEndpointId,
-        target: Option<ClientEndpointFocusTarget>,
-    },
     ReplayMouse(Vec<crossterm::event::MouseEvent>),
     Keybind(crate::input::KeybindAction),
 }
@@ -332,9 +329,6 @@ pub(super) enum ClientNavigatorFilter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ClientNavigatorTarget {
-    Machine {
-        endpoint_id: ClientEndpointId,
-    },
     Workspace {
         endpoint_id: ClientEndpointId,
         workspace_id: String,
@@ -518,6 +512,7 @@ pub(super) enum ClientContextMenuAction {
     RenamePane,
     ClearPaneName,
     SwapWithFocusedPane,
+    DumpPaneDiagnostics,
     SplitRight,
     SplitDown,
     Zoom,
@@ -682,6 +677,7 @@ pub(super) struct PendingEndpointRequest {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ClientEndpointNoticeKind {
+    Diagnostic,
     Unsupported,
     Rejected,
     Timeout,
@@ -863,7 +859,6 @@ pub(crate) struct ClientShellState {
     pub(super) workspace_press: Option<ClientWorkspacePress>,
     pub(super) tab_press: Option<ClientTabPress>,
     pub(super) collapsed_groups: HashSet<String>,
-    pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
     pub(super) workspace_scroll: usize,
     pub(super) agent_scroll: usize,
     pub(super) pending_agent_reveal: Option<(ClientEndpointId, String)>,
@@ -878,9 +873,8 @@ pub(crate) struct ClientShellState {
     pub(super) last_composed_at: Option<std::time::Instant>,
     pub(super) selection_repaint_deadline: Option<std::time::Instant>,
     pub(super) hits: ShellHitMap,
-    pub(super) endpoints: Vec<ClientShellEndpoint>,
+    pub(super) endpoint: ClientShellEndpoint,
     pub(super) active_endpoint_id: ClientEndpointId,
-    pub(super) collapsed_endpoints: HashSet<ClientEndpointId>,
     pub(super) mode: ClientShellMode,
     pub(super) navigate_workspace_id: Option<WorkspaceNavigationTarget>,
     pub(super) pending_workspace_highlight: Option<PendingWorkspaceHighlight>,
@@ -999,16 +993,6 @@ impl ClientShellState {
         if let Some(sort) = preferences.agent_panel_sort {
             config.agent_panel_sort = sort;
         }
-        let mut remote_collapsed_groups = HashMap::<ClientEndpointId, HashSet<String>>::new();
-        for saved in preferences.remote_collapsed_groups {
-            let Ok(profile_id) = crate::client::endpoint::ProfileId::parse(saved.profile_id) else {
-                continue;
-            };
-            remote_collapsed_groups
-                .entry(ClientEndpointId::Ssh(profile_id))
-                .or_default()
-                .extend(saved.collapsed_groups);
-        }
         Self {
             config,
             snapshot: None,
@@ -1033,7 +1017,6 @@ impl ClientShellState {
             workspace_press: None,
             tab_press: None,
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
-            remote_collapsed_groups,
             workspace_scroll: 0,
             agent_scroll: 0,
             pending_agent_reveal: None,
@@ -1048,9 +1031,8 @@ impl ClientShellState {
             last_composed_at: None,
             selection_repaint_deadline: None,
             hits: ShellHitMap::default(),
-            endpoints: vec![local_endpoint()],
+            endpoint: local_endpoint(),
             active_endpoint_id: ClientEndpointId::Local,
-            collapsed_endpoints: HashSet::new(),
             mode: ClientShellMode::Terminal,
             navigate_workspace_id: None,
             pending_workspace_highlight: None,
@@ -1132,30 +1114,16 @@ impl ClientShellState {
 
     pub(super) fn collapsed_groups_for_endpoint(
         &self,
-        endpoint_id: &ClientEndpointId,
+        _id: &ClientEndpointId,
     ) -> Option<&HashSet<String>> {
-        if endpoint_id.is_local() {
-            Some(&self.collapsed_groups)
-        } else {
-            self.remote_collapsed_groups.get(endpoint_id)
-        }
+        Some(&self.collapsed_groups)
     }
-
-    pub(super) fn group_is_collapsed(&self, endpoint_id: &ClientEndpointId, key: &str) -> bool {
-        self.collapsed_groups_for_endpoint(endpoint_id)
-            .is_some_and(|groups| groups.contains(key))
+    pub(super) fn group_is_collapsed(&self, _id: &ClientEndpointId, key: &str) -> bool {
+        self.collapsed_groups.contains(key)
     }
-
-    pub(super) fn toggle_collapsed_group(&mut self, endpoint_id: &ClientEndpointId, key: String) {
-        let groups = if endpoint_id.is_local() {
-            &mut self.collapsed_groups
-        } else {
-            self.remote_collapsed_groups
-                .entry(endpoint_id.clone())
-                .or_default()
-        };
-        if !groups.remove(&key) {
-            groups.insert(key);
+    pub(super) fn toggle_collapsed_group(&mut self, _id: &ClientEndpointId, key: String) {
+        if !self.collapsed_groups.remove(&key) {
+            self.collapsed_groups.insert(key);
         }
     }
 
@@ -1277,11 +1245,7 @@ impl ClientShellState {
         snapshot
             .commands
             .retain(|command| command.action != crate::protocol::ClientShellCommandAction::Unknown);
-        let graphics_scope = match &self.active_endpoint_id {
-            // Local direct uploads use image IDs authored by the server from its boot ID.
-            ClientEndpointId::Local => snapshot.boot_id.clone(),
-            endpoint_id => format!("{}:{}", endpoint_id.storage_key(), snapshot.boot_id),
-        };
+        let graphics_scope = snapshot.boot_id.clone();
         let endpoint_boot_changed =
             self.snapshot.is_some() && self.graphics.scope() != graphics_scope;
         let generation_changed = self.active_snapshot_generation != generation;
@@ -1577,10 +1541,6 @@ impl ClientShellState {
         }
         self.resume_mobile_switcher_if_ready();
         self.reconcile_input_source();
-    }
-
-    pub(crate) fn has_presented_surface(&self) -> bool {
-        self.pane_surface.is_some()
     }
 
     pub(crate) fn set_pane_surface(&mut self, surface: PaneSurfaceFrame) {

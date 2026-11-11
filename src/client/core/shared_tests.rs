@@ -13,6 +13,9 @@ struct Store {
     lose_reply: bool,
     reject_write: bool,
     null: bool,
+    runs: usize,
+    kills: Vec<String>,
+    fail_kill: bool,
 }
 impl Store {
     fn new(model: &Model) -> Self {
@@ -25,6 +28,9 @@ impl Store {
             lose_reply: false,
             reject_write: false,
             null: false,
+            runs: 0,
+            kills: Vec::new(),
+            fail_kill: false,
         }
     }
 }
@@ -67,7 +73,29 @@ impl DocumentRpc for Store {
                 .get(params["terminal"].as_str().unwrap())
                 .cloned()
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "confirmed absent")),
-            // Transactions must never repeat terminal.run, kill, or input on retry.
+            "terminal.run" => {
+                self.runs += 1;
+                let address = format!("repair-{}", self.runs);
+                let record = json!({"address":address,"state":"live","pid":100 + self.runs,
+                    "labels":params["labels"],"cwd":params["cwd"],
+                    "cols":params["size"]["cols"],"rows":params["size"]["rows"]});
+                self.facts.insert(address, record.clone());
+                Ok(record)
+            }
+            "terminal.kill" => {
+                let address = params["terminal"].as_str().unwrap();
+                assert!(
+                    self.doc.retiring.contains(address),
+                    "kill requires a committed intent"
+                );
+                assert!(!self.doc.addresses().contains(&address));
+                self.kills.push(address.into());
+                if self.fail_kill {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "lost kill reply"));
+                }
+                self.facts.get_mut(address).unwrap()["state"] = json!("finished");
+                Ok(json!({}))
+            }
             other => panic!("unexpected transaction RPC: {other}"),
         }
     }
@@ -76,6 +104,161 @@ fn initial() -> Model {
     let mut model = Model::new("client-one".into());
     model.insert(fact("base")).unwrap();
     model
+}
+
+fn repair_fixture() -> (Store, Organization, HashMap<String, Value>) {
+    let model = initial();
+    let mut store = Store::new(&model);
+    store.doc.workspaces[0].tabs[0].root_terminal = Some("base".into());
+    let document = store.doc.clone();
+    let facts = HashMap::from([(
+        "base".into(),
+        json!({"address":"base", "state":"finished",
+        "labels":{"herdr":"tui"},"cwd":"/work/project", "cols":80,"rows":24}),
+    )]);
+    (store, document, facts)
+}
+
+fn repair(
+    core: &mut Store,
+    document: Organization,
+    facts: &mut HashMap<String, Value>,
+) -> io::Result<(Organization, u64)> {
+    repair_finished_panes(
+        core,
+        document,
+        facts,
+        ClientSurfaceSize {
+            cols: 120,
+            rows: 40,
+        },
+        &["fish".into()],
+        1,
+    )
+}
+
+#[test]
+fn each_rehydration_gets_a_fresh_projection_scope_without_restarting_core() {
+    let first = projection_boot().unwrap();
+    let second = projection_boot().unwrap();
+    assert_ne!(first, second);
+    assert!(first.starts_with(&format!("core-client-{}-", std::process::id())));
+}
+
+#[test]
+fn finished_pane_repair_updates_layout_and_naming_root_in_place() {
+    let (mut core, document, mut facts) = repair_fixture();
+    let (doc, version) = repair(&mut core, document.clone(), &mut facts).unwrap();
+    assert_eq!(version, 2);
+    assert_eq!(core.runs, 1);
+    assert!(core.kills.is_empty());
+    let mut expected = document;
+    assert!(expected.replace_terminal("base", "repair-1"));
+    assert_eq!(doc, expected);
+    assert_eq!(
+        doc.workspaces[0].tabs[0].root_terminal.as_deref(),
+        Some("repair-1")
+    );
+    assert_eq!(facts["repair-1"]["cwd"], "/work/project");
+    assert_eq!(facts["repair-1"]["cols"], 80);
+}
+
+#[test]
+fn repair_rebases_other_client_edits_without_spawning_twice() {
+    let (mut core, document, mut facts) = repair_fixture();
+    let mut winner = document.clone();
+    winner.workspaces[0].label = "other client".into();
+    core.winners.push_back(winner);
+    let (doc, version) = repair(&mut core, document, &mut facts).unwrap();
+    assert_eq!(version, 3);
+    assert_eq!(core.runs, 1);
+    assert_eq!(doc.workspaces[0].label, "other client");
+    assert_eq!(doc.addresses(), ["repair-1"]);
+}
+
+#[test]
+fn competing_repair_keeps_winner_and_retires_only_our_unused_shell() {
+    for fail_kill in [false, true] {
+        let (mut core, document, mut facts) = repair_fixture();
+        let mut winner = document.clone();
+        winner.replace_terminal("base", "foreign");
+        core.facts.insert("foreign".into(), fact("foreign"));
+        core.winners.push_back(winner.clone());
+        core.fail_kill = fail_kill;
+        let (doc, version) = repair(&mut core, document, &mut facts).unwrap();
+        winner.retiring.insert("repair-1".into());
+        assert_eq!(doc, winner);
+        assert_eq!(version, 3);
+        assert_eq!(core.runs, 1);
+        assert_eq!(core.kills, ["repair-1"]);
+        assert!(
+            facts.contains_key("foreign"),
+            "bootstrap must install freshly hydrated winner facts"
+        );
+    }
+}
+
+#[test]
+fn concurrent_close_cannot_be_undone_by_bootstrap_repair() {
+    let (mut core, document, mut facts) = repair_fixture();
+    core.winners.push_back(Organization {
+        workspaces: Vec::new(),
+        ..document.clone()
+    });
+    let (doc, _) = repair(&mut core, document, &mut facts).unwrap();
+    assert!(doc.workspaces.is_empty());
+    assert_eq!(core.runs, 1);
+    assert_eq!(core.kills, ["repair-1"]);
+}
+
+#[test]
+fn repair_observes_a_winner_before_spawning() {
+    let (mut core, document, mut facts) = repair_fixture();
+    core.doc.replace_terminal("base", "foreign");
+    core.facts.insert("foreign".into(), fact("foreign"));
+    core.version = 2;
+    let (doc, version) = repair(&mut core, document, &mut facts).unwrap();
+    assert_eq!(doc, core.doc);
+    assert_eq!(version, 2);
+    assert_eq!(core.runs, 0);
+    assert!(facts.contains_key("foreign"));
+}
+
+#[test]
+fn repair_recognizes_a_confirmed_commit_after_its_reply_is_lost() {
+    let (mut core, document, mut facts) = repair_fixture();
+    core.lose_reply = true;
+    let (doc, version) = repair(&mut core, document, &mut facts).unwrap();
+    assert_eq!(version, 2);
+    assert_eq!(doc.addresses(), ["repair-1"]);
+    assert_eq!(core.runs, 1);
+    assert!(core.kills.is_empty());
+}
+
+#[test]
+fn uncertain_repair_never_kills_or_retries_a_possibly_published_program() {
+    let (mut core, document, mut facts) = repair_fixture();
+    core.reject_write = true;
+    let error = repair(&mut core, document.clone(), &mut facts).unwrap_err();
+    assert!(error.to_string().contains("repair-1"));
+    assert_eq!(core.doc, document);
+    assert_eq!(core.runs, 1);
+    assert!(core.kills.is_empty());
+}
+
+#[test]
+fn repeated_repair_contention_is_bounded_without_repeating_process_creation() {
+    let (mut core, document, mut facts) = repair_fixture();
+    for n in 0..4 {
+        let mut winner = document.clone();
+        winner.workspaces[0].label = format!("winner {n}");
+        core.winners.push_back(winner);
+    }
+    let error = repair(&mut core, document, &mut facts).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    assert_eq!(core.runs, 1);
+    assert!(core.kills.is_empty());
+    assert_eq!(core.calls.iter().filter(|m| *m == "doc.set").count(), 4);
 }
 
 #[test]

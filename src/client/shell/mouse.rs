@@ -1996,9 +1996,6 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                if self.handle_endpoint_machine_click(point, outcome) {
-                    return;
-                }
                 if super::contains(self.hits.global_launcher, point) {
                     self.toggle_global_menu();
                     outcome.repaint = true;
@@ -2097,9 +2094,6 @@ impl ClientShellState {
                     .flatten();
                 if let Some(tab_press) = tab_press {
                     self.tab_press = Some(tab_press);
-                    return;
-                }
-                if self.handle_endpoint_agent_click(point, outcome) {
                     return;
                 }
                 let agent_pane_id = self

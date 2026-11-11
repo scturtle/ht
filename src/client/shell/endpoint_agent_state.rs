@@ -16,6 +16,7 @@ pub(super) struct EndpointAgentPresentation {
 }
 
 impl EndpointAgentPresentation {
+    #[cfg(test)]
     pub(super) fn receive_completions(
         &mut self,
         generation: Option<u64>,

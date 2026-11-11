@@ -205,7 +205,7 @@ impl ClientShellState {
             filter: None,
         };
         let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, &navigator);
+            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, &navigator);
         navigator.selected = rows
             .iter()
             .find(|row| row.current)
@@ -218,7 +218,7 @@ impl ClientShellState {
             return;
         };
         let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, navigator);
+            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, navigator);
         if rows.is_empty() {
             navigator.selected = None;
             return;
@@ -235,7 +235,7 @@ impl ClientShellState {
             return;
         };
         let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, navigator);
+            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, navigator);
         let viewport_rows = viewport_rows.max(1);
         navigator.scroll = scroll.min(rows.len().saturating_sub(viewport_rows));
         let selected =
@@ -250,7 +250,7 @@ impl ClientShellState {
             return;
         };
         let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, navigator);
+            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, navigator);
         let Some(selected) =
             super::aggregate_navigation::navigator_selected_index(&rows, navigator)
         else {
@@ -283,7 +283,7 @@ impl ClientShellState {
         let target = self.overlay.as_ref().and_then(|overlay| match overlay {
             ClientShellOverlay::Navigator(navigator) => {
                 let rows = render::client_navigator_rows(
-                    &self.endpoints,
+                    &self.endpoint,
                     &self.active_endpoint_id,
                     navigator,
                 );
@@ -295,9 +295,6 @@ impl ClientShellState {
             return;
         };
         let activated = match target {
-            ClientNavigatorTarget::Machine { endpoint_id } => {
-                self.activate_endpoint(endpoint_id, outcome)
-            }
             ClientNavigatorTarget::Workspace {
                 endpoint_id,
                 workspace_id,
@@ -710,7 +707,7 @@ impl ClientShellState {
             if matches!(code, KeyCode::End | KeyCode::Char('G')) && modifiers.is_empty() {
                 let last = self.overlay.as_ref().and_then(|overlay| match overlay {
                     ClientShellOverlay::Navigator(navigator) => render::client_navigator_rows(
-                        &self.endpoints,
+                        &self.endpoint,
                         &self.active_endpoint_id,
                         navigator,
                     )

@@ -81,7 +81,7 @@ detach = "f10"
             a_grid = grid()
             rpc = ORG.Rpc(env)
             version = rpc.doc()["version"]
-            b = UI.Viewer(env); viewers.append(b); b.resize(72,19)
+            b = UI.Viewer(env, cols=72, rows=19); viewers.append(b)
             UI.until(lambda: "MULTI_READY" in screen(b,(72,19)), "second simultaneous default TUI")
             UI.until(lambda: grid()[0] < a_grid[0] and grid()[1] < a_grid[1], "smaller interactive viewer leads")
             b_grid = grid()

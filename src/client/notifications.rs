@@ -1,12 +1,14 @@
+#[cfg(test)]
 use std::io;
 
-use tracing::{debug, warn};
+#[cfg(test)]
+use tracing::debug;
+use tracing::warn;
 
+#[cfg(test)]
 use crate::protocol::NotifyKind;
 
 use super::shell;
-
-use crate::platform::show_desktop_notification as show_untargeted_system_notification;
 
 pub(super) fn handle_shell_notification_effects(
     effects: Vec<shell::ClientShellNotificationEffect>,
@@ -36,22 +38,7 @@ pub(super) fn handle_shell_notification_effects(
     }
 }
 
-pub(super) fn handle_notify(
-    kind: NotifyKind,
-    message: &str,
-    body: Option<&str>,
-    sound_config: &crate::config::SoundConfig,
-) {
-    handle_notify_with_notifiers(
-        kind,
-        message,
-        body,
-        sound_config,
-        crate::terminal_notify::show_notification,
-        show_untargeted_system_notification,
-    );
-}
-
+#[cfg(test)]
 pub(super) fn handle_notify_with_notifiers(
     kind: NotifyKind,
     message: &str,
@@ -94,6 +81,7 @@ pub(super) fn handle_notify_with_notifiers(
     }
 }
 
+#[cfg(test)]
 pub(super) fn sound_from_notify_message(message: &str) -> Option<crate::sound::Sound> {
     match message {
         "agent done" => Some(crate::sound::Sound::Done),

@@ -173,7 +173,7 @@ fn last_tab_confirmation_rejects_missing_moved_or_reconnected_targets() {
         match change {
             "missing" => projected.tabs.clear(),
             "moved" => projected.tabs[0].workspace_id = "different_workspace".into(),
-            "reconnected" => state.endpoints[0].snapshot_generation = Some(2),
+            "reconnected" => state.endpoint.snapshot_generation = Some(2),
             _ => unreachable!(),
         }
         if change != "reconnected" {

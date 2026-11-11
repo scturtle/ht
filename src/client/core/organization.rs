@@ -244,6 +244,20 @@ impl Branch {
 }
 
 impl Organization {
+    /// Replace a program identity everywhere, including the root used for naming.
+    pub fn replace_terminal(&mut self, from: &str, to: &str) -> bool {
+        let mut replaced = false;
+        for workspace in &mut self.workspaces {
+            for tab in &mut workspace.tabs {
+                replaced |= tab.root.repoint(from, to);
+                if tab.root_terminal.as_deref() == Some(from) {
+                    tab.root_terminal = Some(to.to_owned());
+                }
+            }
+        }
+        replaced
+    }
+
     pub fn decode(value: serde_json::Value) -> io::Result<Self> {
         if serde_json::to_vec(&value)?.len() > MAX_DOCUMENT_BYTES {
             return Err(invalid("shared organization exceeds 512 KiB"));

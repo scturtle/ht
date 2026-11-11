@@ -966,12 +966,14 @@ impl ClientShellState {
                 })
                 .is_some(),
             KeybindMatch::Action(KeybindAction::FocusAgent(index)) => {
-                super::aggregate_navigation::online_agent_targets(
-                    &self.endpoints,
-                    self.config.agent_panel_sort,
-                )
-                .get(*index)
-                .is_some()
+                self.snapshot.as_deref().is_some_and(|snapshot| {
+                    super::agent_sidebar::ordered_agent_pane_ids(
+                        snapshot,
+                        self.config.agent_panel_sort,
+                    )
+                    .get(*index)
+                    .is_some()
+                })
             }
             _ => true,
         }
@@ -1054,30 +1056,6 @@ impl ClientShellState {
         self.snapshot
             .as_deref()
             .and_then(|snapshot| snapshot.focused_pane_id.clone())
-    }
-
-    pub(crate) fn clipboard_image_target(
-        &self,
-    ) -> Option<crate::protocol::ClientClipboardImageTarget> {
-        if matches!(
-            self.overlay,
-            Some(
-                ClientShellOverlay::Onboarding
-                    | ClientShellOverlay::ProductAnnouncement(_)
-                    | ClientShellOverlay::ReleaseNotes(_)
-            )
-        ) || self
-            .copy_mode
-            .as_ref()
-            .is_some_and(|copy_mode| copy_mode.search_prompt.is_some())
-        {
-            return None;
-        }
-        if self.overlay.is_some() || self.mode != ClientShellMode::Terminal {
-            return None;
-        }
-        self.focused_pane_id()
-            .map(crate::protocol::ClientClipboardImageTarget::Pane)
     }
 
     /// The tracked press for a release. A press that arrived as text ("A") is

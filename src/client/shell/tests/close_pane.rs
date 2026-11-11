@@ -190,7 +190,6 @@ fn last_pane_confirmation_rejects_missing_moved_or_reconnected_targets() {
         "pane_missing",
         "pane_moved",
         "pane_workspace",
-        "endpoint",
     ] {
         let mut state = close_state(true, 1);
         assert_no_close(&request_close(&mut state, false));
@@ -202,22 +201,30 @@ fn last_pane_confirmation_rejects_missing_moved_or_reconnected_targets() {
         match change {
             "missing" => projected.tabs.clear(),
             "moved" => projected.tabs[0].workspace_id = "different_workspace".into(),
-            "reconnected" => state.endpoints[0].snapshot_generation = Some(2),
+            "reconnected" => state.endpoint.snapshot_generation = Some(2),
             "pane_missing" => projected.panes.clear(),
             "pane_moved" => projected.panes[0].tab_id = "different_tab".into(),
             "pane_workspace" => projected.panes[0].workspace_id = "different_workspace".into(),
-            "endpoint" => {
-                state.active_endpoint_id =
-                    ClientEndpointId::Ssh(crate::client::endpoint::ProfileId::generate())
-            }
             _ => unreachable!(),
         }
-        if !matches!(change, "reconnected" | "endpoint") {
+        if change != "reconnected" {
             state.set_snapshot(Box::new(projected));
         }
         assert_no_close(&state.handle_input_bytes(b"\r"));
         assert!(state.overlay.is_none());
     }
+}
+
+#[test]
+fn replacement_core_dismisses_an_old_confirmation_without_closing_a_pane() {
+    let mut state = close_state(true, 1);
+    assert_no_close(&request_close(&mut state, false));
+    let mut snapshot = state.snapshot.as_deref().unwrap().clone();
+    snapshot.boot_id = "replacement-Core".into();
+    state.set_snapshot(Box::new(snapshot));
+    assert!(state.overlay.is_none());
+    assert!(state.pending_requests.is_empty());
+    assert_eq!(state.snapshot.as_ref().unwrap().panes.len(), 1);
 }
 
 #[test]

@@ -37,7 +37,7 @@ pub(crate) fn render_client_overlay(
     b: &mut Buffer,
     o: &ClientShellOverlay,
     s: &ClientShellSnapshot,
-    endpoints: &[ClientShellEndpoint],
+    endpoints: &ClientShellEndpoint,
     active_endpoint_id: &ClientEndpointId,
     k: &LiveKeybindConfig,
     p: &Palette,
@@ -704,7 +704,7 @@ fn render_rename_overlay(
 fn render_navigator_overlay(
     b: &mut Buffer,
     n: &ClientNavigatorOverlay,
-    endpoints: &[ClientShellEndpoint],
+    endpoints: &ClientShellEndpoint,
     active_endpoint_id: &ClientEndpointId,
     p: &Palette,
 ) -> Option<OverlayRender> {
@@ -850,15 +850,7 @@ fn render_navigator_overlay(
                 .bg(p.accent)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
-                .fg(
-                    if matches!(r.target, ClientNavigatorTarget::Machine { .. }) {
-                        p.subtext0
-                    } else {
-                        p.text
-                    },
-                )
-                .bg(p.panel_bg)
+            Style::default().fg(p.text).bg(p.panel_bg)
         };
         let is_pane = matches!(r.target, ClientNavigatorTarget::Pane { .. });
         let connector = if !is_pane {
@@ -962,34 +954,7 @@ fn render_navigator_overlay(
                 );
             }
         }
-        let machine_status = match &r.target {
-            ClientNavigatorTarget::Machine { endpoint_id } if !endpoint_id.is_local() => endpoints
-                .iter()
-                .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-                .map(|endpoint| endpoint.status),
-            _ => None,
-        };
-        if let Some(status) = machine_status {
-            let (glyph, state, color) = endpoint_status_presentation(status, p);
-            let signal = if status == ClientEndpointStatus::Online {
-                glyph.to_owned()
-            } else {
-                format!("{glyph} {state}")
-            };
-            let signal_style = if ix == selected {
-                st
-            } else {
-                Style::default()
-                    .fg(color)
-                    .bg(p.panel_bg)
-                    .add_modifier(if r.stale {
-                        Modifier::DIM
-                    } else {
-                        Modifier::empty()
-                    })
-            };
-            put_right_text(b, rect, rect.y, &signal, signal_style);
-        } else if r.status.is_none() && !r.meta.is_empty() {
+        if r.status.is_none() && !r.meta.is_empty() {
             let label_width = display_width(&label).min(rect.width);
             let meta = Rect::new(
                 rect.x.saturating_add(label_width).saturating_add(1),

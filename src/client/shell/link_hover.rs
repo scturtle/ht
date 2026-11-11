@@ -158,10 +158,9 @@ impl ClientShellState {
         // Hover is optional and speculative: do not probe unadvertised methods or show notices.
         if !self.endpoint_is_online(&self.active_endpoint_id)
             || !self
-                .endpoints
-                .iter()
-                .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
-                .and_then(|endpoint| endpoint.methods.as_ref())
+                .endpoint
+                .methods
+                .as_ref()
                 .is_some_and(|methods| methods.iter().any(|method| method == "pane.link.resolve"))
         {
             if let Some(hover) = self.link_hover.as_mut() {

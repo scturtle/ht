@@ -82,6 +82,18 @@ fn hydrate(
     Ok(())
 }
 
+/// UI revisions restart when a relay rehydrates the document, even when Core
+/// and every program survive. Give that projection a fresh scope so old frames,
+/// leases and uncertain API replies cannot be mistaken for the new stream.
+fn projection_boot() -> io::Result<String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let epoch = NEXT
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        .map_err(|_| invalid("Core client projection epochs exhausted"))?;
+    Ok(format!("core-client-{}-{epoch}", std::process::id()))
+}
+
 pub(super) fn bootstrap(
     core: &mut Core,
     subscription: &Value,
@@ -98,7 +110,7 @@ pub(super) fn bootstrap(
         .iter()
         .filter_map(|v| v["address"].as_str().map(|a| (a.to_owned(), v.clone())))
         .collect::<HashMap<_, _>>();
-    let mut model = Model::new(format!("core-client-{}", std::process::id()));
+    let mut model = Model::new(projection_boot()?);
     let (mut version, document) = read(core)?;
     let document = if let Some(document) = document {
         document
@@ -165,11 +177,11 @@ pub(super) fn bootstrap(
 /// Re-creating the pane in place keeps a restart from stranding a workspace.
 fn repair_finished_panes(
     core: &mut impl DocumentRpc,
-    mut document: Organization,
+    document: Organization,
     facts: &mut HashMap<String, Value>,
     size: ClientSurfaceSize,
     shell: &[String],
-    version: u64,
+    mut version: u64,
 ) -> io::Result<(Organization, u64)> {
     let finished = document
         .addresses()
@@ -184,16 +196,28 @@ fn repair_finished_panes(
     if finished.is_empty() {
         return Ok((document, version));
     }
+    let mut model = Model::new("core-bootstrap-repair".into());
+    model.install(document, facts)?;
     for address in finished {
+        refresh(core, &mut model, &mut version)?;
+        if model.id(&address).is_none() {
+            continue; // Another client already replaced or closed this pane.
+        }
         let old = facts.get(&address).cloned().unwrap_or(Value::Null);
-        let cols = old["cols"].as_u64().unwrap_or(u64::from(size.cols)) as u16;
-        let rows = old["rows"].as_u64().unwrap_or(u64::from(size.rows)) as u16;
+        let cols = old["cols"]
+            .as_u64()
+            .and_then(|v| u16::try_from(v).ok())
+            .unwrap_or(size.cols);
+        let rows = old["rows"]
+            .as_u64()
+            .and_then(|v| u16::try_from(v).ok())
+            .unwrap_or(size.rows);
         let cwd = old["cwd"].as_str().map(str::to_owned);
         let record = core.request(
             "terminal.run",
             json!({
                 "argv": shell,
-                "labels": {"herdr": "tui"},
+                "labels": {"herdr": "tui", "herdr.replaces": address},
                 "no_parent": true,
                 "keep": true,
                 "cwd": cwd,
@@ -205,19 +229,44 @@ fn repair_finished_panes(
             .as_str()
             .ok_or_else(|| invalid("Core returned a terminal without an address"))?
             .to_owned();
-        let mut repointed = false;
-        for workspace in &mut document.workspaces {
-            for tab in &mut workspace.tabs {
-                repointed |= tab.root.repoint(&address, &replacement);
+        facts.insert(replacement.clone(), record);
+        // Spawn once, outside the retried pure edit. A competing replacement wins
+        // without losing its layout/name changes. Persist retirement of our unused
+        // shell in the same CAS so a lost kill reply can be recovered later.
+        let result = transact(core, &mut model, &mut version, |candidate| {
+            let mut doc = candidate.shared()?;
+            if doc.addresses().contains(&address.as_str()) {
+                doc.replace_terminal(&address, &replacement);
+            } else if !doc.addresses().contains(&replacement.as_str()) {
+                doc.retiring.insert(replacement.clone());
+            }
+            candidate.install(doc, facts)
+        });
+        if let Err(error) = result {
+            let confirmed = model.shared()?;
+            if confirmed.addresses().contains(&address.as_str())
+                || (!confirmed.addresses().contains(&replacement.as_str())
+                    && !confirmed.retiring.contains(&replacement))
+            {
+                // Never kill a shell after an uncertain publication. The operation
+                // label keeps it inspectable if the confirmation read also failed.
+                return Err(io::Error::new(error.kind(), format!(
+                    "replacement {replacement} for {address} kept alive; publication not confirmed: {error}"
+                )));
             }
         }
-        if !repointed {
-            return Err(invalid("finished pane disappeared while it was replaced"));
+        if model.organization.retiring.contains(&replacement) {
+            if let Err(error) = core.request("terminal.kill", json!({"terminal":replacement})) {
+                if error.kind() != io::ErrorKind::NotFound {
+                    tracing::warn!(%replacement, %error, "unused repair shell has a committed close intent; termination pending");
+                }
+            }
         }
-        facts.insert(replacement.clone(), record);
     }
-    let version = write(core, version, &document)?;
-    Ok((document, version))
+    for record in model.records.values() {
+        facts.insert(record.address.clone(), record.facts.clone());
+    }
+    Ok((model.shared()?, version))
 }
 
 pub(super) fn restore_preferences(home: &Path, model: &mut Model) -> io::Result<()> {

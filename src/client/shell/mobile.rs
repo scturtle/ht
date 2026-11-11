@@ -206,9 +206,8 @@ fn mobile_endpoint_state(status: ClientEndpointStatus) -> &'static str {
     match status {
         ClientEndpointStatus::Connecting => "connecting",
         ClientEndpointStatus::Online => "online",
+        #[cfg(test)]
         ClientEndpointStatus::Reconnecting => "reconnecting",
-        ClientEndpointStatus::Attention => "attention",
-        ClientEndpointStatus::Disabled => "disabled",
     }
 }
 
@@ -364,7 +363,7 @@ pub(super) fn render_mobile_switcher(
     buffer: &mut Buffer,
     area: Rect,
     snapshot: &ClientShellSnapshot,
-    endpoints: &[ClientShellEndpoint],
+    endpoints: &ClientShellEndpoint,
     active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
     selected_workspace_id: Option<&WorkspaceNavigationTarget>,
@@ -574,7 +573,7 @@ fn render_close_button(buffer: &mut Buffer, area: Rect, palette: &Palette) {
 
 fn mobile_items(
     snapshot: &ClientShellSnapshot,
-    endpoints: &[ClientShellEndpoint],
+    endpoints: &ClientShellEndpoint,
     active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
     selected_workspace_id: Option<&WorkspaceNavigationTarget>,
@@ -582,34 +581,6 @@ fn mobile_items(
 ) -> Vec<MobileItem> {
     let palette = &config.palette;
     let mut items = Vec::new();
-    if endpoints.len() > 1 {
-        items.push(MobileItem::section("machines", palette));
-        for endpoint in endpoints {
-            let background = palette.panel_bg;
-            let (symbol, state, color) = endpoint_status_presentation(endpoint.status, palette);
-            items.push(MobileItem {
-                lines: vec![
-                    Line::from(vec![
-                        Span::styled("  ", Style::default().bg(background)),
-                        Span::styled(symbol, Style::default().fg(color).bg(background)),
-                        Span::styled(
-                            format!(" {}", endpoint.label),
-                            Style::default()
-                                .fg(palette.text)
-                                .bg(background)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ]),
-                    Line::from(Span::styled(
-                        format!("    {state}"),
-                        Style::default().fg(palette.overlay0).bg(background),
-                    )),
-                ],
-                background,
-                target: Some(ClientMobileTarget::Machine(endpoint.endpoint_id.clone())),
-            });
-        }
-    }
     let agents =
         super::aggregate_navigation::aggregate_agent_rows(endpoints, config.agent_panel_sort);
     let agent_view_label = snapshot.agent_view_label.as_deref();
@@ -750,7 +721,7 @@ fn mobile_items(
         ClientMobileTarget::NewWorkspace,
         palette,
     ));
-    for endpoint in super::aggregate_navigation::cached_endpoint_snapshots(endpoints) {
+    if let Some(endpoint) = super::aggregate_navigation::cached_core_snapshot(endpoints) {
         for entry in super::render::workspace_entries(endpoint.snapshot, &HashSet::new()) {
             let Some(workspace) = endpoint.snapshot.workspaces.get(entry.index) else {
                 continue;
@@ -1000,18 +971,6 @@ impl ClientShellState {
             .find(|(rect, _)| super::contains(*rect, point))
             .map(|(_, target)| target.clone());
         match target {
-            Some(ClientMobileTarget::Machine(endpoint_id)) => {
-                if endpoint_id == self.active_endpoint_id {
-                    self.mode = ClientShellMode::Terminal;
-                    self.navigate_workspace_id = None;
-                    if endpoint_id.is_local() {
-                        self.activate_endpoint(endpoint_id, outcome);
-                    }
-                } else if self.activate_endpoint(endpoint_id, outcome) {
-                    self.mode = ClientShellMode::Terminal;
-                    self.navigate_workspace_id = None;
-                }
-            }
             Some(ClientMobileTarget::NewWorkspace) => {
                 self.mobile_switcher_suspended = true;
                 self.record_binding(

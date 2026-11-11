@@ -47,13 +47,16 @@ def argv(env):
 
 
 class Viewer:
-    def __init__(self, env):
+    def __init__(self, env, binary=None, cols=100, rows=28):
         self.output = bytearray()
-        self.resizes = []
+        self.resizes = [(0, cols, rows)]
         self.pid, self.fd = pty.fork()
         if not self.pid:
-            os.execve(HERDR, argv(env), env)
-        self.resize(100, 28)
+            # Set geometry before exec: a parent-side ioctl races terminal setup.
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            args=argv(env)
+            args[0]=str(binary or HERDR)
+            os.execve(args[0], args, env)
 
     def resize(self, cols, rows):
         while select.select([self.fd], [], [], 0)[0]:

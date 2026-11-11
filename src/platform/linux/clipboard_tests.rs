@@ -32,7 +32,9 @@ fn hung_helper(case: &str) {
         )
         .is_err()
     } else {
-        read_clipboard_image_with_spawned_command_max(command, 16).is_none()
+        clipboard::run(command, None, 16, Instant::now() + clipboard::TIMEOUT)
+            .ok()
+            .is_none()
     };
     let elapsed = started.elapsed();
     let pid: u32 = std::fs::read_to_string(&marker)
@@ -72,7 +74,7 @@ fn clipboard_slow_success_is_not_a_startup_failure() {
     let mut command = Command::new("sh");
     command.args(["-c", "sleep 0.3; printf image"]);
     assert_eq!(
-        read_clipboard_image_with_spawned_command_max(command, 16),
+        clipboard::run(command, None, 16, Instant::now() + clipboard::TIMEOUT).ok(),
         Some(b"image".to_vec())
     );
 }
@@ -177,7 +179,7 @@ fn clipboard_forking_wl_copy_preserves_successful_owner() {
 }
 
 #[test]
-fn clipboard_large_image_round_trip() {
+fn clipboard_large_payload_round_trip() {
     let mut payload: Vec<u8> = (0..6 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
     payload[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
     let bytes = clipboard::run(
@@ -188,7 +190,6 @@ fn clipboard_large_image_round_trip() {
     )
     .expect("large image round trip");
     assert_eq!(bytes, payload);
-    assert!(bytes_match_image_signature("png", &bytes));
 }
 
 #[test]

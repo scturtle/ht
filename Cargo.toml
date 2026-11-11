@@ -24,9 +24,6 @@ default-members = [".", "crates/ghostty-vt"]
 [dependencies]
 ghostty-vt = { path = "crates/ghostty-vt" }
 signal-hook = "0.3"
-# logind's delay inhibitor lets the runtime save before host shutdown kills panes.
-zbus = { version = "5.19", default-features = false, features = ["tokio"] }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
 base64 = "0.22.1"
 bincode = { version = "2", features = ["serde"] }
 bytes = "1"

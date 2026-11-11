@@ -2,7 +2,10 @@
 use std::{
     collections::VecDeque,
     io::{self, Write},
-    sync::mpsc::{self, Receiver, SyncSender},
+    sync::{
+        mpsc::{self, Receiver, SyncSender},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -45,11 +48,14 @@ pub(super) struct FrameWriter {
     replies: Receiver<Completion>,
     deadlines: VecDeque<Instant>,
     failed: bool,
+    wake: Arc<super::wake::Wake>,
 }
 impl FrameWriter {
     pub fn new(mut pipe: impl Write + Send + 'static) -> io::Result<Self> {
         let (sender, receiver) = mpsc::sync_channel::<WriteJob>(MAX_IN_FLIGHT);
         let (complete, replies) = mpsc::sync_channel(MAX_IN_FLIGHT);
+        let wake = Arc::new(super::wake::Wake::default());
+        let worker_wake = wake.clone();
         std::thread::Builder::new()
             .name("core-frame-writer".into())
             .spawn(move || {
@@ -59,14 +65,14 @@ impl FrameWriter {
                         .and_then(|_| pipe.write_all(job.payload.bytes()))
                         .and_then(|_| pipe.flush());
                     let failed = result.is_err();
-                    if complete
+                    let receiver_gone = complete
                         .send(Completion {
                             at: Instant::now(),
                             result,
                         })
-                        .is_err()
-                        || failed
-                    {
+                        .is_err();
+                    worker_wake.notify();
+                    if receiver_gone || failed {
                         break;
                     }
                 }
@@ -76,7 +82,14 @@ impl FrameWriter {
             replies,
             deadlines: VecDeque::new(),
             failed: false,
+            wake,
         })
+    }
+    pub(super) fn worker_wake(&self) -> Arc<super::wake::Wake> {
+        self.wake.clone()
+    }
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        self.deadlines.front().copied()
     }
     fn poisoned() -> io::Error {
         io::Error::new(
@@ -322,6 +335,42 @@ mod tests {
         assert_eq!(&bytes[13..17], &8u32.to_le_bytes());
         assert_eq!(&bytes[22..26], &8192u32.to_le_bytes());
         assert_eq!(&bytes[35..], b"answer");
+    }
+
+    #[test]
+    fn a_parked_worker_still_times_out_a_stalled_credit_without_input_or_core_frames() {
+        let (release, blocked) = mpsc::channel();
+        let (finished, done) = mpsc::channel();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let mut writer = FrameWriter::new(Stalled {
+            release: blocked,
+            captured: captured.clone(),
+            finished,
+        })
+        .unwrap();
+        let wake = writer.worker_wake();
+        wake.bind_current();
+        writer
+            .notify_u32(7, 1, 123, Duration::from_millis(30))
+            .unwrap();
+        let error = loop {
+            match writer.health() {
+                Ok(()) => wake.wait(writer.deadline()),
+                Err(error) => break error,
+            }
+        };
+        release.send(()).unwrap();
+        done.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(
+            captured.lock().unwrap().len(),
+            13,
+            "one frame only; no retry after uncertain delivery"
+        );
+        assert_eq!(
+            writer.health().unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
     }
 
     #[test]

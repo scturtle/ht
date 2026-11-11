@@ -57,10 +57,7 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         workspace_id: &str,
     ) -> Option<WorkspaceNavigationTarget> {
-        let endpoint = self
-            .endpoints
-            .iter()
-            .find(|entry| &entry.endpoint_id == endpoint_id)?;
+        let endpoint = &self.endpoint;
         let snapshot = endpoint.snapshot.as_deref()?;
         Some(WorkspaceNavigationTarget {
             endpoint_id: endpoint_id.clone(),
@@ -76,18 +73,14 @@ impl ClientShellState {
     }
 
     pub(super) fn navigation_target_valid(&self, target: &WorkspaceNavigationTarget) -> bool {
-        self.endpoints.iter().any(|endpoint| {
-            endpoint.endpoint_id == target.endpoint_id
-                && endpoint.status == ClientEndpointStatus::Online
-                && endpoint.snapshot_generation == target.generation
-                && endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                    snapshot.boot_id == target.boot_id
-                        && snapshot
-                            .workspaces
-                            .iter()
-                            .any(|workspace| workspace.workspace_id == target.workspace_id)
-                })
-        })
+        self.endpoint.status == ClientEndpointStatus::Online
+            && self.endpoint.snapshot_generation == target.generation
+            && self.endpoint.snapshot.as_deref().is_some_and(|s| {
+                s.boot_id == target.boot_id
+                    && s.workspaces
+                        .iter()
+                        .any(|w| w.workspace_id == target.workspace_id)
+            })
     }
 
     pub(super) fn workspace_preview_action_blocked(&self) -> bool {
@@ -101,13 +94,12 @@ impl ClientShellState {
         let surface_available = self.snapshot.is_some() && self.pane_surface.is_some();
         let empty_collapsed_groups = HashSet::new();
         let mut targets = Vec::new();
-        for endpoint in &self.endpoints {
-            if endpoint.status != ClientEndpointStatus::Online {
-                continue;
-            }
-            let Some(snapshot) = endpoint.snapshot.as_deref() else {
-                continue;
-            };
+        let endpoint = &self.endpoint;
+        if let Some(snapshot) = endpoint
+            .snapshot
+            .as_deref()
+            .filter(|_| endpoint.status == ClientEndpointStatus::Online)
+        {
             let entries = if self.sidebar_collapsed && !mobile && surface_available {
                 snapshot
                     .workspaces
@@ -153,8 +145,7 @@ impl ClientShellState {
             None => 0,
         };
         let target = targets.swap_remove(next);
-        self.collapsed_endpoints.remove(&target.endpoint_id);
-        if self.endpoints.len() == 1 && !mobile {
+        if !mobile {
             self.reveal_workspace(&target.workspace_id);
         }
         self.navigate_workspace_id = Some(target);
@@ -182,7 +173,6 @@ impl ClientShellState {
             ClientEndpointFocusTarget::Workspace(target.workspace_id.clone()),
             outcome,
         ) {
-            // Endpoint handoffs already retain their coherent source frame in the runtime.
             // Only retain a highlight if a focus request was actually enqueued.
             if let Some(ClientShellAction::Endpoint { request, .. }) =
                 outcome.actions.get(action_index)

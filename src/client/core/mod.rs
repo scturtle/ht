@@ -1,4 +1,4 @@
-//! Opt-in Core runtime mounted into the existing client loop, not a second TUI.
+//! Core runtime mounted into the existing client loop, not a second TUI.
 mod copy;
 mod effects;
 pub(in crate::client) mod input;
@@ -15,6 +15,7 @@ mod swap;
 mod tests;
 mod transport;
 pub(in crate::client) mod view;
+mod wake;
 mod writer;
 mod zoom;
 
@@ -33,6 +34,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+pub(super) use transport::diagnostic_probe;
 
 #[derive(Clone)]
 pub(super) struct Options {
@@ -139,7 +141,7 @@ pub(super) fn prepare(
     size: crate::protocol::ClientSurfaceSize,
     cells: (u32, u32),
     config: &crate::config::Config,
-) -> io::Result<(super::InitialTransport, super::handshake::HandshakeResult)> {
+) -> io::Result<(Box<Session>, Vec<String>)> {
     let mut session = Session::connect(options, size, cells, config)?;
     // Explicit user startup, NOT connection/recovery: reuse the normal creation
     // action when the previous session was fully closed. Never adopt old programs.
@@ -157,14 +159,7 @@ pub(super) fn prepare(
         session.save()?;
     }
     let endpoint_methods = methods::advertised(&session.core.hello);
-    Ok((
-        super::InitialTransport::Core(Box::new(session)),
-        super::handshake::HandshakeResult {
-            encoding: crate::protocol::RenderEncoding::SemanticFrame,
-            endpoint_methods: Some(endpoint_methods),
-            endpoint_capabilities: Some(Vec::new()),
-        },
-    ))
+    Ok((Box::new(session), endpoint_methods))
 }
 
 struct QueuedMessage {
@@ -178,15 +173,46 @@ struct Batch {
 enum Command {
     Batch(Arc<Mutex<Batch>>),
     Flush(mpsc::Sender<()>),
+    Diagnostics {
+        pane: String,
+        deadline: Instant,
+        done: mpsc::Sender<serde_json::Value>,
+    },
 }
 struct CoreEndpoint {
     sender: mpsc::SyncSender<Command>,
+    wake: Arc<wake::Wake>,
     pending: Option<Arc<Mutex<Batch>>>,
     queued: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
     error: Arc<Mutex<Option<io::Error>>>,
+    options: Option<Options>,
+    events: tokio::sync::mpsc::Sender<ClientLoopEvent>,
 }
 impl EndpointTransport for CoreEndpoint {
+    fn diagnostic_source(&mut self, pane: &str) -> Option<super::diagnostics::DiagnosticSource> {
+        let options = self.options.clone()?;
+        self.pending = None; // Keep later input behind the capture barrier.
+        let (done, receive) = mpsc::channel();
+        let local = self
+            .sender
+            .try_send(Command::Diagnostics {
+                pane: pane.into(),
+                deadline: Instant::now() + Duration::from_secs(4),
+                done,
+            })
+            .map(|()| {
+                self.wake.notify();
+                receive
+            })
+            .map_err(|error| error.to_string());
+        Some(super::diagnostics::DiagnosticSource {
+            options,
+            local,
+            events: self.events.clone(),
+        })
+    }
+
     fn send(&mut self, message: &ClientMessage) -> io::Result<()> {
         if self.stopped.load(Ordering::Acquire) {
             return Err(io::Error::new(
@@ -215,6 +241,8 @@ impl EndpointTransport for CoreEndpoint {
             if !batch.messages.is_empty() && batch.bytes.saturating_add(bytes) <= 64 * 1024 {
                 batch.messages.push(message);
                 batch.bytes += bytes;
+                drop(batch);
+                self.wake.notify();
                 return Ok(());
             }
         }
@@ -230,10 +258,12 @@ impl EndpointTransport for CoreEndpoint {
             ));
         }
         self.pending = Some(batch);
+        self.wake.notify();
         Ok(())
     }
     fn disconnect(&mut self) {
         self.stopped.store(true, Ordering::Release);
+        self.wake.notify();
     }
     fn flush(&mut self, deadline: Instant) -> io::Result<()> {
         self.pending = None; // Preserve the flush barrier: never append behind it.
@@ -241,6 +271,7 @@ impl EndpointTransport for CoreEndpoint {
         self.sender
             .try_send(Command::Flush(done))
             .map_err(|_| io::Error::other("Core flush queue closed"))?;
+        self.wake.notify();
         wait.recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .map_err(io::Error::other)
     }
@@ -272,6 +303,10 @@ enum SessionEnd {
     Lost(io::Error),
 }
 
+fn should_wait_for_work(worked: bool, session: &Session) -> bool {
+    !worked && !session.dirty && !session.snapshot_dirty
+}
+
 fn recoverable(error: &io::Error) -> bool {
     !matches!(
         error.kind(),
@@ -286,7 +321,8 @@ fn drain_input(receiver: &mpsc::Receiver<Command>, queued: &AtomicUsize) -> usiz
     while let Ok(command) = receiver.try_recv() {
         match command {
             Command::Batch(batch) => {
-                if let Ok(batch) = batch.lock() {
+                if let Ok(mut batch) = batch.lock() {
+                    let batch = std::mem::take(&mut *batch);
                     queued.fetch_sub(batch.bytes, Ordering::AcqRel);
                     dropped += batch.messages.len();
                 }
@@ -294,6 +330,10 @@ fn drain_input(receiver: &mpsc::Receiver<Command>, queued: &AtomicUsize) -> usiz
             Command::Flush(done) => {
                 // A flush barrier for the dead connection is satisfied, not lost.
                 let _ = done.send(());
+            }
+            Command::Diagnostics { done, .. } => {
+                let _ = done
+                    .send(serde_json::json!({"error":"connection lost before adapter capture"}));
             }
         }
     }
@@ -304,6 +344,10 @@ pub(super) fn start(
     mut session: Box<Session>,
     events: &tokio::sync::mpsc::Sender<ClientLoopEvent>,
 ) -> io::Result<impl EndpointTransport + 'static> {
+    let options = session.diagnostic_options();
+    let wake = session.core.worker_wake();
+    let worker_wake = wake.clone();
+    let diagnostic_events = events.clone();
     let (sender, receiver) = mpsc::sync_channel(64);
     let queued = Arc::new(AtomicUsize::new(0));
     let worker_queued = queued.clone();
@@ -315,6 +359,7 @@ pub(super) fn start(
     std::thread::Builder::new()
         .name("core-endpoint".into())
         .spawn(move || {
+            worker_wake.bind_current();
             let emit = |message: ServerMessage| {
                 events
                     .blocking_send(ClientLoopEvent::ServerMessage {
@@ -327,6 +372,8 @@ pub(super) fn start(
             // One connection attempt. A transport failure is recoverable while a
             // client-initiated end is final.
             let run = |session: &mut Box<Session>| -> SessionEnd {
+                let connection_wake=session.core.worker_wake();
+                connection_wake.bind_current();
                 let step = (|| -> io::Result<SessionEnd> {
                     while !worker_stop.load(Ordering::Acquire) {
                         for message in session.publish()? {
@@ -340,8 +387,10 @@ pub(super) fn start(
                             })?;
                             return Ok(SessionEnd::Finished);
                         }
-                        match receiver.recv_timeout(Duration::from_millis(8)) {
+                        let mut worked=false;
+                        match receiver.try_recv() {
                             Ok(Command::Batch(batch)) => {
+                                worked=true;
                                 let batch =
                                     std::mem::take(&mut *batch.lock().map_err(|_| {
                                         io::Error::other("Core input batch poisoned")
@@ -365,20 +414,36 @@ pub(super) fn start(
                                 }
                             }
                             Ok(Command::Flush(done)) => {
+                                worked=true;
                                 let _ = done.send(());
                             }
-                            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            Ok(Command::Diagnostics { pane, deadline, done }) => {
+                                worked=true;
+                                let value = if Instant::now() < deadline {
+                                    session.diagnostic_snapshot(&pane)
+                                } else {
+                                    serde_json::json!({"error":"capture expired before the adapter became available"})
+                                };
+                                let _ = done.send(value);
+                            }
+                            Err(mpsc::TryRecvError::Disconnected) => {
                                 return Ok(SessionEnd::Finished);
                             }
-                            Err(mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(mpsc::TryRecvError::Empty) => {}
                         }
                         for _ in 0..128 {
                             let Some(frame) = session.core.poll()? else {
                                 break;
                             };
+                            worked=true;
                             for message in session.consume(frame)? {
                                 emit(message)?;
                             }
+                        }
+                        if should_wait_for_work(worked,session) {
+                            // Reader, writer completion, commands and stop all retain a
+                            // wake token. A stalled asynchronous credit keeps its deadline.
+                            connection_wake.wait(session.core.write_deadline());
                         }
                     }
                     Ok(SessionEnd::Finished)
@@ -417,7 +482,12 @@ pub(super) fn start(
                                     break Err(error);
                                 }
                             }
-                            std::thread::sleep(reconnect_delay(attempt));
+                            let until=Instant::now()+reconnect_delay(attempt);
+                            while !worker_stop.load(Ordering::Acquire) && Instant::now()<until {
+                                drain_input(&receiver,&worker_queued);
+                                worker_wake.wait(Some(until));
+                            }
+                            if worker_stop.load(Ordering::Acquire) {break Err(error);}
                             attempt += 1;
                             // A recovery probe reaches only a running Core, so a
                             // stop the user asked for is never undone.
@@ -465,10 +535,13 @@ pub(super) fn start(
         })?;
     Ok(CoreEndpoint {
         sender,
+        wake,
         pending: None,
         queued,
         stopped,
         error,
+        options,
+        events: diagnostic_events,
     })
 }
 

@@ -88,11 +88,6 @@ impl ClientShellState {
                 crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
                 outcome,
             );
-        } else if self.endpoint_is_online(&notification.endpoint_id) {
-            outcome.actions.push(ClientShellAction::ActivateEndpoint {
-                endpoint_id: notification.endpoint_id,
-                target: Some(ClientEndpointFocusTarget::Pane(pane_id)),
-            });
         }
     }
 
@@ -248,12 +243,7 @@ impl ClientShellState {
         if endpoint_id != &self.active_endpoint_id {
             return false;
         }
-        let Some(snapshot) = self
-            .endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .and_then(|endpoint| endpoint.snapshot.as_deref())
-        else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return false;
         };
         if let Some(tab_id) = event.tab_id.as_deref() {
@@ -266,7 +256,7 @@ impl ClientShellState {
 
     fn notification_validation(
         &self,
-        endpoint_id: &ClientEndpointId,
+        _endpoint_id: &ClientEndpointId,
         event: &SemanticNotification,
     ) -> NotificationValidation {
         let Some(pane_id) = event.pane_id.as_deref() else {
@@ -278,18 +268,12 @@ impl ClientShellState {
                 NotificationValidation::Current
             };
         };
-        let Some(agent) = self
-            .endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .and_then(|endpoint| endpoint.snapshot.as_deref())
-            .and_then(|snapshot| {
-                snapshot
-                    .agents
-                    .iter()
-                    .find(|agent| agent.pane_id == pane_id)
-            })
-        else {
+        let Some(agent) = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
+            snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.pane_id == pane_id)
+        }) else {
             return NotificationValidation::AwaitingSnapshot;
         };
         match event.kind {

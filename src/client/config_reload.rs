@@ -7,7 +7,6 @@ pub(super) fn init_logging() {
 pub(super) fn apply_reload(
     state: &mut ClientState,
     endpoints: &mut endpoint::EndpointRegistry,
-    pending_activation: &mut Option<endpoint::PendingEndpointActivation>,
     host_mouse_capture_active: &std::sync::atomic::AtomicBool,
     host_sgr_pixels_active: &std::sync::atomic::AtomicBool,
     prefix_input_source: &mut impl crate::platform::PrefixInputSource,
@@ -18,12 +17,10 @@ pub(super) fn apply_reload(
         &mut state.sound_config,
         &mut state.redraw_on_focus_gained,
         &mut state.draw_host_cursor,
-        &mut state.remote_image_paste_key,
         &mut mouse_capture,
     );
     state.shell_mouse_capture_preference = mouse_capture;
-    state.direct_mouse_capture_preference = state.attach_escape.is_some() && mouse_capture;
-    if state.shell.is_some() && previous_mouse_capture != mouse_capture {
+    if previous_mouse_capture != mouse_capture {
         write_to_server(
             endpoints,
             &ClientMessage::ClientShellMouseCapture {
@@ -47,7 +44,8 @@ pub(super) fn apply_reload(
     host_mouse_capture_active.store(enabled, Ordering::Release);
     host_sgr_pixels_active.store(sgr_pixels, Ordering::Release);
     let pixel_mouse_available = state.pixel_mouse_available();
-    let (frame, resize) = if let Some(shell) = state.shell.as_mut() {
+    let (frame, resize) = {
+        let shell = &mut state.shell;
         let previous_size = shell.surface_size(state.reported_size.0, state.reported_size.1);
         shell.reload_client_config();
         let next_size = shell.surface_size(state.reported_size.0, state.reported_size.1);
@@ -66,18 +64,10 @@ pub(super) fn apply_reload(
             shell.compose(state.reported_size.0, state.reported_size.1),
             resize,
         )
-    } else {
-        (None, None)
     };
     apply_client_shell_input_source_changes(state, prefix_input_source);
     if let Some(resize) = resize {
-        if let Some(activation) = pending_activation.as_mut() {
-            if let Err(error) = activation.update_resize(resize, endpoints) {
-                rollback_endpoint_activation(state, endpoints, pending_activation, error, false);
-            }
-        } else {
-            write_to_server(endpoints, &resize).map_err(ClientError::ConnectionLost)?;
-        }
+        write_to_server(endpoints, &resize).map_err(ClientError::ConnectionLost)?;
     }
     if let Some(frame) = frame {
         state.present_frame(frame);
@@ -89,10 +79,6 @@ pub(super) fn reload_local_client_config(
     sound_config: &mut crate::config::SoundConfig,
     redraw_on_focus_gained: &mut bool,
     draw_host_cursor: &mut bool,
-    remote_image_paste_key: &mut Option<(
-        crossterm::event::KeyCode,
-        crossterm::event::KeyModifiers,
-    )>,
     mouse_capture: &mut bool,
 ) {
     match crate::config::load_live_config() {
@@ -112,9 +98,6 @@ pub(super) fn reload_local_client_config(
                 *redraw_on_focus_gained = loaded.config.ui.redraw_on_focus_gained;
                 *draw_host_cursor = should_draw_host_cursor(loaded.config.ui.host_cursor);
                 *mouse_capture = loaded.config.ui.mouse_capture;
-            }
-            if !invalid_section("keys") {
-                *remote_image_paste_key = client_remote_image_paste_key(&loaded.config);
             }
             debug!("reloaded local client config");
         }

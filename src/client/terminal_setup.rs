@@ -24,22 +24,6 @@ use super::frame_output::clear_received_kitty_graphics;
 ///
 /// Returns a guard that restores the terminal when dropped.
 pub(super) fn setup_terminal(mouse_capture: bool) -> io::Result<TerminalGuard> {
-    setup_terminal_with_capabilities(true, mouse_capture)
-}
-
-/// Sets up a direct attach terminal.
-///
-/// Direct attach forwards stdin to the attached PTY. When configured, mouse
-/// capture lets wheel events drive the attached viewport or reach child
-/// programs that requested mouse input.
-pub(super) fn setup_direct_attach_terminal(mouse_capture: bool) -> io::Result<TerminalGuard> {
-    setup_terminal_with_capabilities(false, mouse_capture)
-}
-
-pub(super) fn setup_terminal_with_capabilities(
-    enable_client_protocols: bool,
-    mouse_capture: bool,
-) -> io::Result<TerminalGuard> {
     ratatui::init();
     let mut terminal_guard = TerminalGuard {
         host_escape_disambiguation_active: false,
@@ -53,33 +37,14 @@ pub(super) fn setup_terminal_with_capabilities(
         restored: false,
     };
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
-    let host_color_scheme_reports =
-        should_enable_host_color_scheme_reports(enable_client_protocols);
-
-    let (host_probe, buffered_host_input) = if enable_client_protocols {
-        terminal_guard.reset_keyboard_enhancements = true;
-        push_keyboard_enhancement_flags()?;
-        let (probe, buffered_input) = query_host_capabilities(true);
-        set_mouse_capture(mouse_capture, false)?;
-        execute!(io::stdout(), EnableBracketedPaste, EnableFocusChange)?;
-        if host_color_scheme_reports {
-            terminal_guard.reset_host_color_scheme_reports = true;
-            write_host_color_scheme_report_mode(&mut io::stdout(), true)?;
-        }
-        (probe, buffered_input)
-    } else {
-        if should_enable_host_color_scheme_reports(true) {
-            write_host_color_scheme_report_mode(&mut io::stdout(), false)?;
-        }
-        let (probe, buffered_input) = query_host_capabilities(false);
-        set_mouse_capture(mouse_capture, false)?;
-        execute!(io::stdout(), EnableBracketedPaste)?;
-        (probe, buffered_input)
-    };
-
-    let modify_other_keys_mode = enable_client_protocols
-        .then(crate::input::host_modify_other_keys_mode)
-        .flatten();
+    terminal_guard.reset_keyboard_enhancements = true;
+    push_keyboard_enhancement_flags()?;
+    let (host_probe, buffered_host_input) = query_host_capabilities(true);
+    set_mouse_capture(mouse_capture, false)?;
+    execute!(io::stdout(), EnableBracketedPaste, EnableFocusChange)?;
+    terminal_guard.reset_host_color_scheme_reports = true;
+    write_host_color_scheme_report_mode(&mut io::stdout(), true)?;
+    let modify_other_keys_mode = crate::input::host_modify_other_keys_mode();
     if let Some(mode) = modify_other_keys_mode {
         terminal_guard.reset_modify_other_keys = true;
         terminal_guard.modify_other_keys_sequence = Some(mode.set_sequence());
@@ -93,10 +58,6 @@ pub(super) fn setup_terminal_with_capabilities(
     terminal_guard.host_sgr_pixel_mouse = host_probe.sgr_pixel_mouse;
     terminal_guard.buffered_host_input = buffered_host_input;
     Ok(terminal_guard)
-}
-
-pub(super) fn should_enable_host_color_scheme_reports(enable_client_protocols: bool) -> bool {
-    enable_client_protocols
 }
 
 /// Guard that restores the terminal when dropped.

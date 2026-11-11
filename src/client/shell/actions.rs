@@ -169,9 +169,6 @@ impl ClientShellState {
                     }
                     return;
                 }
-                if self.handle_endpoint_navigation(action, outcome) {
-                    return;
-                }
                 if let Some(method) = self.endpoint_method_for_action(action) {
                     self.push_endpoint_method(method, outcome);
                     return;
@@ -315,7 +312,10 @@ impl ClientShellState {
             code: code.into(),
         };
         let body = body.into();
-        if kind == ClientEndpointNoticeKind::Rejected {
+        if matches!(
+            kind,
+            ClientEndpointNoticeKind::Rejected | ClientEndpointNoticeKind::Diagnostic
+        ) {
             if self
                 .visible_endpoint_notice
                 .as_ref()
@@ -433,6 +433,7 @@ impl ClientShellState {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn focus_endpoint_target(
         &mut self,
         target: ClientEndpointFocusTarget,

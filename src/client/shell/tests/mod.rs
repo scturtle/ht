@@ -233,3 +233,4 @@ mod link_hover;
 mod mobile;
 mod mouse_selection;
 mod startup_overlays;
+mod workspace_navigation;

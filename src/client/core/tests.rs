@@ -64,13 +64,41 @@ fn endpoint() -> (CoreEndpoint, mpsc::Receiver<Command>) {
     (
         CoreEndpoint {
             sender,
+            wake: Arc::default(),
             pending: None,
             queued: Arc::new(AtomicUsize::new(0)),
             stopped: Arc::new(AtomicBool::new(false)),
             error: Arc::new(Mutex::new(None)),
+            options: None,
+            events: tokio::sync::mpsc::channel(1).0,
         },
         receiver,
     )
+}
+
+#[test]
+fn diagnostic_capture_is_a_barrier_even_when_pane_input_is_stopped() {
+    let (mut endpoint, receiver) = endpoint();
+    endpoint.options = Some(Options {
+        binary: "hc".into(),
+        home: "/unused".into(),
+        socket: "/unused/socket".into(),
+        isolate: false,
+        client_id: None,
+    });
+    endpoint.stopped.store(true, Ordering::Release);
+    let source = endpoint
+        .diagnostic_source("pane-1")
+        .expect("diagnostics remain available during outage");
+    let Command::Diagnostics { pane, done, .. } = receiver.try_recv().unwrap() else {
+        panic!("diagnostic command, not input")
+    };
+    assert_eq!(pane, "pane-1");
+    assert!(endpoint.pending.is_none());
+    assert_eq!(endpoint.queued.load(Ordering::Acquire), 0);
+    done.send(json!({"closed":false})).unwrap();
+    assert_eq!(source.local.unwrap().recv().unwrap()["closed"], false);
+    assert!(receiver.try_recv().is_err());
 }
 
 #[test]
@@ -137,6 +165,32 @@ fn tiny_input_bursts_are_batched_and_keep_order() {
     assert_eq!(count, 1000);
     assert!(batches < 64);
     assert_eq!(endpoint.queued.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn recovery_drain_does_not_leave_new_input_in_an_orphaned_batch() {
+    let (mut endpoint, receiver) = endpoint();
+    endpoint
+        .send(&ClientMessage::ClientShellFocus { focused: true })
+        .unwrap();
+    assert_eq!(drain_input(&receiver, &endpoint.queued), 1);
+    assert_eq!(endpoint.queued.load(Ordering::Acquire), 0);
+    endpoint
+        .send(&ClientMessage::ClientShellFocus { focused: false })
+        .unwrap();
+    let Command::Batch(batch) = receiver
+        .try_recv()
+        .expect("new input must enqueue a live batch after recovery")
+    else {
+        panic!("input batch")
+    };
+    let batch = std::mem::take(&mut *batch.lock().unwrap());
+    assert_eq!(batch.messages.len(), 1);
+    assert!(matches!(
+        batch.messages[0].message,
+        ClientMessage::ClientShellFocus { focused: false }
+    ));
+    assert_eq!(endpoint.queued.load(Ordering::Acquire), batch.bytes);
 }
 
 #[test]
@@ -476,6 +530,32 @@ fn pane_name_updates_reuse_retained_surface_and_original_rename_dialog() {
         .map(|cell| cell.symbol.as_str())
         .collect::<String>();
     assert!(text.contains("rename pane") && text.contains("manual-pane-name"));
+}
+
+#[test]
+fn reused_renderer_retains_semantic_cells_not_backend_diff_residue() {
+    let (model, mut views, mut chrome) = fixture(1);
+    chrome.pane_borders = crate::config::PaneBordersConfig::Off;
+    let id = model.focused().unwrap();
+    let size = ClientSurfaceSize {
+        cols: 120,
+        rows: 40,
+    };
+    let mut renderer = view::Renderer::new().unwrap();
+    for text in ["abcdefgh", "中文测试", "a中b文c", "中文测试", "abcdefgh"] {
+        views
+            .get_mut(&id)
+            .unwrap()
+            .process_output(id, format!("\x1b[2J\x1b[H{text}").as_bytes());
+        let surface = renderer.compose(&model, &views, size, &chrome).unwrap();
+        let fresh = view::Renderer::new()
+            .unwrap()
+            .compose(&model, &views, size, &chrome)
+            .unwrap();
+        assert_eq!(surface.frame, fresh.frame, "{text}");
+        let retained = renderer.retain_projection(&model).unwrap();
+        assert_eq!(surface.frame, retained.frame, "metadata-only: {text}");
+    }
 }
 
 #[test]

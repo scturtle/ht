@@ -16,6 +16,10 @@ use super::{
 use crate::layout::PaneId;
 use crate::protocol::*;
 
+#[cfg(test)]
+#[path = "session_tests.rs"]
+mod tests;
+
 pub(super) fn ensure_private_directory(path: &std::path::Path) -> io::Result<()> {
     match crate::platform::create_remote_private_dir(path) {
         Ok(()) => Ok(()),
@@ -234,6 +238,32 @@ impl Session {
 
     /// The socket a recovery probe reaches. Its absence is the observable
     /// difference between a restart (which recreates it) and an explicit stop.
+    pub(super) fn diagnostic_options(&self) -> Option<super::Options> {
+        self.options.clone()
+    }
+
+    /// No RPC, render, geometry or lifecycle operations: observe only this pane.
+    pub(super) fn diagnostic_snapshot(&self, address: &str) -> Value {
+        let id = self.model.id(address);
+        let view = id.and_then(|id| self.views.get(&id));
+        json!({
+            "boot_id":self.model.boot,"revision":self.model.revision,
+            "document_version":self.document_version,"event_sequence":self.seq,
+            "active_workspace":self.model.active_workspace,"active_tab":self.model.active_tab(),
+            "organization_tab":id.and_then(|id| self.model.context(id)).map(|(_,tab)| tab),
+            "dirty":self.dirty,"snapshot_dirty":self.snapshot_dirty,
+            "focused":self.focused,"focused_id":self.model.focused().map(|id| id.raw()),
+            "last_focus":self.last_focus.map(|id| id.raw()),"size":[self.size.cols,self.size.rows],"cells":self.cells,
+            "facts":id.and_then(|id| self.model.records.get(&id)).map(|r| &r.facts),
+            "view":view.map(|v| json!({"channel":v.channel,"revision":v.revision,
+                "closed":v.closed,"visible":v.visible,"size":v.size,"requested":v.requested,
+                "channel_mapped":self.channels.get(&v.channel)==id.as_ref(),
+                "terminal":v.terminal.diagnostic_snapshot()})),
+            "transport":self.core.diagnostic_snapshot(),
+            "graphics_pending":self.renderer.graphics_pending(),
+        })
+    }
+
     pub fn socket_path(&self) -> PathBuf {
         self.options
             .as_ref()
@@ -542,9 +572,9 @@ impl Session {
         let mut out = Vec::new();
         let snapshot_changed = self.snapshot_dirty;
         if self.snapshot_dirty {
-            out.push(crate::protocol::endpoint::snapshot_message(
-                &self.model.snapshot(),
-            )?);
+            out.push(ServerMessage::ClientShellSnapshot(Box::new(
+                self.model.snapshot(),
+            )));
             self.snapshot_dirty = false;
         }
         if self.dirty {
@@ -552,9 +582,6 @@ impl Session {
                 .renderer
                 .compose(&self.model, &self.views, self.size, &self.ui)?;
             out.push(ServerMessage::PaneSurface(surface));
-            // Image bytes beyond the frame budget are delivered by the next
-            // projection, as the retired server did with `DeliveryCache::pending`.
-            self.dirty |= self.renderer.graphics_pending();
             let view = self
                 .model
                 .focused()
@@ -571,7 +598,9 @@ impl Session {
                 enabled: view.is_some_and(|view| view.terminal.mouse_reporting_enabled()),
                 sgr_pixels: view.is_some_and(|view| view.terminal.sgr_pixel_mouse_enabled()),
             });
-            self.dirty = false;
+            // Keep projecting until every budgeted image asset is delivered,
+            // even if no new Core output or input arrives between projections.
+            self.dirty = self.renderer.graphics_pending();
         } else if snapshot_changed {
             if let Some(surface) = self.renderer.retain_projection(&self.model) {
                 out.push(ServerMessage::PaneSurface(surface));

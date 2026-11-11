@@ -55,44 +55,6 @@ pub(crate) fn set_host_kitty_keyboard_report_all<W: Write>(
     )
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DirectHostKeyboardState {
-    kitty_flags: Option<u16>,
-    modify_other_keys_level: u8,
-}
-
-pub(crate) fn set_direct_host_keyboard_protocol<W: Write>(
-    writer: &mut W,
-    active: &mut DirectHostKeyboardState,
-    next_flags: u16,
-    next_modify_other_keys_level: u8,
-) -> io::Result<()> {
-    let next_kitty_flags = (next_flags != 0).then_some(next_flags);
-    if active.kitty_flags == next_kitty_flags
-        && active.modify_other_keys_level == next_modify_other_keys_level
-    {
-        return Ok(());
-    }
-
-    if active.kitty_flags != next_kitty_flags {
-        if active.kitty_flags.is_some() {
-            writer.write_all(b"\x1b[<1u")?;
-        }
-        if next_flags != 0 {
-            write!(writer, "\x1b[>{next_flags}u")?;
-        }
-    }
-    if active.modify_other_keys_level != next_modify_other_keys_level {
-        write!(writer, "\x1b[>4;{next_modify_other_keys_level}m")?;
-    }
-    writer.flush()?;
-    *active = DirectHostKeyboardState {
-        kitty_flags: next_kitty_flags,
-        modify_other_keys_level: next_modify_other_keys_level,
-    };
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,46 +67,6 @@ mod tests {
         set_host_kitty_keyboard_report_all(&mut output, false).unwrap();
 
         assert_eq!(output, b"\x1b[<1u\x1b[>31u\x1b[<1u\x1b[>7u");
-    }
-
-    #[test]
-    fn direct_keyboard_protocol_owns_exactly_one_stack_entry_and_modify_other_keys() {
-        let mut output = Vec::new();
-        let mut active = DirectHostKeyboardState::default();
-
-        set_direct_host_keyboard_protocol(&mut output, &mut active, 3, 0).unwrap();
-        set_direct_host_keyboard_protocol(&mut output, &mut active, 15, 2).unwrap();
-        set_direct_host_keyboard_protocol(&mut output, &mut active, 0, 0).unwrap();
-
-        assert_eq!(
-            output,
-            b"\x1b[>3u\x1b[<1u\x1b[>15u\x1b[>4;2m\x1b[<1u\x1b[>4;0m"
-        );
-        assert_eq!(active, DirectHostKeyboardState::default());
-    }
-
-    #[test]
-    fn direct_modify_other_keys_works_without_kitty_flags() {
-        let mut output = Vec::new();
-        let mut active = DirectHostKeyboardState::default();
-
-        set_direct_host_keyboard_protocol(&mut output, &mut active, 0, 1).unwrap();
-        set_direct_host_keyboard_protocol(&mut output, &mut active, 0, 2).unwrap();
-        set_direct_host_keyboard_protocol(&mut output, &mut active, 0, 0).unwrap();
-
-        assert_eq!(output, b"\x1b[>4;1m\x1b[>4;2m\x1b[>4;0m");
-        assert_eq!(active, DirectHostKeyboardState::default());
-    }
-
-    #[test]
-    fn direct_legacy_keyboard_mode_does_not_pop_the_host_stack() {
-        let mut output = Vec::new();
-        let mut active = DirectHostKeyboardState::default();
-
-        set_direct_host_keyboard_protocol(&mut output, &mut active, 0, 0).unwrap();
-
-        assert!(output.is_empty());
-        assert_eq!(active, DirectHostKeyboardState::default());
     }
 
     #[test]

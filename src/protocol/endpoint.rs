@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ClientShellSnapshot, ServerMessage};
+use super::ServerMessage;
 
 pub const ENDPOINT_PROTOCOL_GENERATION: u32 = 1;
 pub const ENDPOINT_HELLO_KIND: &str = "endpoint.hello.v1";
@@ -35,13 +35,6 @@ pub struct EndpointAgentCompletions {
     pub boot_id: String,
     pub revision: u64,
     pub completions: std::collections::BTreeMap<String, u64>,
-}
-
-pub fn snapshot_message(snapshot: &ClientShellSnapshot) -> serde_json::Result<ServerMessage> {
-    Ok(ServerMessage::EndpointControl {
-        kind: ENDPOINT_SNAPSHOT_KIND.into(),
-        data: serde_json::to_string(snapshot)?,
-    })
 }
 
 pub fn agent_completions_message(

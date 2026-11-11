@@ -1,6 +1,37 @@
 use super::*;
 use crate::client::endpoint::{ClientEndpointId, ClientEndpointStatus};
 
+#[test]
+fn a_new_projection_epoch_accepts_restarted_revisions_but_its_stale_updates_do_not() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let mut old = snapshot();
+    old.revision = 80;
+    assert!(state.set_endpoint_snapshot_for_generation(&ClientEndpointId::Local, 1, Box::new(old)));
+    let mut paint = surface();
+    paint.projection_revision = 80;
+    state.set_pane_surface(paint);
+    assert!(state.compose(100, 28).is_some());
+    let mut fresh = snapshot();
+    fresh.boot_id = "replacement-projection".into();
+    assert!(state.set_endpoint_snapshot_for_generation(
+        &ClientEndpointId::Local,
+        1,
+        Box::new(fresh.clone())
+    ));
+    assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
+    let mut paint = surface();
+    paint.boot_id = fresh.boot_id.clone();
+    state.set_pane_surface(paint);
+    assert!(state.compose(100, 28).is_some());
+    fresh.revision = 0;
+    assert!(!state.set_endpoint_snapshot_for_generation(
+        &ClientEndpointId::Local,
+        1,
+        Box::new(fresh)
+    ));
+    assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
+}
+
 fn pending_worktree() -> (ClientShellState, Vec<ClientShellAction>) {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
@@ -178,63 +209,42 @@ impl crate::client::endpoint::EndpointTransport for TestTransport {
 }
 
 #[test]
-fn local_selection_is_scheduled_ahead_of_a_full_event_queue() {
-    use crate::client::{
-        endpoint::{EndpointNegotiation, EndpointRegistry},
-        endpoint_commands::EndpointCommands,
-        ClientLoopEvent,
-    };
-    let mut endpoints = EndpointRegistry::new(
-        TestTransport { fail: false },
-        1,
-        EndpointNegotiation::default(),
-    );
-    let mut commands = EndpointCommands::default();
+fn local_selection_does_not_need_an_endpoint_activation_event() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-    tx.try_send(ClientLoopEvent::Timer).unwrap();
-    let mut scheduled = None;
-    crate::client::shell_runtime::dispatch_client_shell_actions(
-        vec![ClientShellAction::ActivateEndpoint {
-            endpoint_id: ClientEndpointId::Local,
-            target: Some(ClientEndpointFocusTarget::Workspace("ws_1".into())),
-        }],
-        &mut commands,
-        &mut endpoints,
-        None,
-        &mut Vec::new(),
-        &mut scheduled,
-    )
-    .unwrap();
-    let next = scheduled.take().or_else(|| rx.try_recv().ok());
-    assert!(matches!(next, Some(ClientLoopEvent::ActivateEndpoint {
-        endpoint_id: ClientEndpointId::Local,
-        target: Some(ClientEndpointFocusTarget::Workspace(id)), ..
-    }) if id == "ws_1"));
-    assert!(matches!(rx.try_recv(), Ok(ClientLoopEvent::Timer)));
+    tx.try_send(crate::client::ClientLoopEvent::Timer).unwrap();
+    let mut outcome = ClientShellInput::default();
+    assert!(state.focus_or_activate(
+        ClientEndpointId::Local,
+        ClientEndpointFocusTarget::Workspace("ws_1".into()),
+        &mut outcome
+    ));
+    assert!(
+        matches!(&outcome.actions[..],[ClientShellAction::Endpoint {request,..}] if matches!(request.method,crate::api::schema::Method::WorkspaceFocus(_)))
+    );
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(crate::client::ClientLoopEvent::Timer)
+    ));
 }
 
 #[test]
-fn dispatcher_cancels_worktree_requests_on_frozen_surface_or_failed_send() {
-    use crate::client::endpoint::{EndpointNegotiation, EndpointRegistry};
+fn dispatcher_cancels_requests_when_the_core_transport_fails() {
+    use crate::client::endpoint::EndpointRegistry;
     use crate::client::endpoint_commands::EndpointCommands;
 
-    for fail_send in [false, true] {
+    {
+        let fail_send = true;
         let (mut state, actions) = pending_worktree();
-        let mut endpoints = EndpointRegistry::new(
-            TestTransport { fail: fail_send },
-            1,
-            EndpointNegotiation::default(),
-        );
-        endpoints.set_surface_active(&ClientEndpointId::Local, fail_send);
+        let mut endpoints = EndpointRegistry::new(TestTransport { fail: fail_send }, 1);
         let mut commands = EndpointCommands::default();
-        let mut scheduled = None;
         let (replay, repaint) = crate::client::shell_runtime::dispatch_client_shell_actions(
             actions,
             &mut commands,
             &mut endpoints,
-            Some(&mut state),
+            &mut state,
             &mut Vec::new(),
-            &mut scheduled,
         )
         .unwrap();
         assert!(repaint);
@@ -248,13 +258,13 @@ fn dispatcher_cancels_worktree_requests_on_frozen_surface_or_failed_send() {
             .visible_endpoint_notice
             .as_ref()
             .is_some_and(|notice| { notice.title == "Action interrupted" }));
-        assert!(commands.disconnect(&ClientEndpointId::Local).is_empty());
+        assert_eq!(commands.diagnostic_snapshot()["queued"], 0);
     }
 }
 
 #[test]
 fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
-    use crate::client::endpoint::{EndpointNegotiation, EndpointRegistry};
+    use crate::client::endpoint::EndpointRegistry;
     use crate::client::endpoint_commands::EndpointCommands;
 
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
@@ -279,11 +289,7 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
             commands.enqueue(endpoint_id, generation, boot_id, request);
         }
     }
-    let mut endpoints = EndpointRegistry::new(
-        TestTransport { fail: false },
-        2,
-        EndpointNegotiation::default(),
-    );
+    let mut endpoints = EndpointRegistry::new(TestTransport { fail: false }, 2);
     let cancelled = commands.send_next(&ClientEndpointId::Local, &mut endpoints);
     assert_eq!(cancelled, vec![stale_id.clone()]);
     state.cancel_endpoint_request(&stale_id);

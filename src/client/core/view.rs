@@ -249,6 +249,8 @@ struct RetainedSurface {
     graphics: SurfaceGraphicsScene,
 }
 pub(super) struct Renderer {
+    // Use ratatui only to supply a Frame over its semantic buffer. Never flush
+    // diffs into TestBackend: it retains stale symbols under wide glyphs.
     terminal: Terminal<TestBackend>,
     revision: u64,
     retained: Option<RetainedSurface>,
@@ -299,7 +301,7 @@ impl Renderer {
             projection_revision: model.revision,
             surface_revision: self.revision,
             frame: FrameData::from_ratatui_buffer_with_hyperlinks(
-                self.terminal.backend().buffer(),
+                self.terminal.current_buffer_mut(),
                 retained.cursor.clone(),
                 &retained.hyperlinks,
             ),
@@ -337,27 +339,26 @@ impl Renderer {
                 }
             }
         }
-        self.terminal
-            .draw(|frame| {
-                for p in &infos {
-                    frame.render_widget(
-                        Block::default()
-                            .borders(p.borders)
-                            .border_style(Style::default().fg(if p.is_focused {
-                                config.palette.accent
-                            } else {
-                                config.palette.overlay0
-                            })),
-                        p.rect,
-                    );
-                    if let Some(view) = views.get(&p.id) {
-                        view.terminal.render(frame, p.inner_rect, p.is_focused);
-                    }
-                }
-            })
-            .map_err(io::Error::other)?;
+        let mut canvas = self.terminal.get_frame();
+        canvas.buffer_mut().reset();
+        for p in &infos {
+            canvas.render_widget(
+                Block::default()
+                    .borders(p.borders)
+                    .border_style(Style::default().fg(if p.is_focused {
+                        config.palette.accent
+                    } else {
+                        config.palette.overlay0
+                    })),
+                p.rect,
+            );
+            if let Some(view) = views.get(&p.id) {
+                view.terminal
+                    .render(&mut canvas, p.inner_rect, p.is_focused);
+            }
+        }
         let frame = FrameData::from_ratatui_buffer_with_hyperlinks(
-            self.terminal.backend().buffer(),
+            canvas.buffer_mut(),
             cursor.clone(),
             &hyperlinks,
         );

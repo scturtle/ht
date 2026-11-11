@@ -52,6 +52,7 @@ const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
 
 /// Returns the UTF-8 payload when `data` is exactly one complete bracketed paste.
+#[cfg(test)]
 pub(crate) fn complete_text_bracketed_paste(data: &[u8]) -> Option<&str> {
     if !data.starts_with(BRACKETED_PASTE_START) {
         return None;
@@ -63,8 +64,8 @@ pub(crate) fn complete_text_bracketed_paste(data: &[u8]) -> Option<&str> {
     std::str::from_utf8(&data[BRACKETED_PASTE_START.len()..end]).ok()
 }
 
-/// Client transport uses this to distinguish recoverable oversized interactive
-/// pastes from generic oversized input, which remains a protocol violation.
+/// Byte-framing conformance oracle; Core input uses typed paste events.
+#[cfg(test)]
 pub(crate) fn is_complete_text_bracketed_paste(data: &[u8]) -> bool {
     complete_text_bracketed_paste(data).is_some()
 }
@@ -731,6 +732,7 @@ fn plausible_control_string_tail(family: ControlStringFamily, buffer: &[u8]) -> 
     }
 }
 
+#[cfg(test)]
 pub(crate) fn events_require_host_surface_redraw(
     events: &[RawInputEvent],
     redraw_on_focus_gained: bool,
@@ -747,12 +749,14 @@ pub(crate) fn events_require_host_mode_refresh(events: &[RawInputEvent]) -> bool
         .any(|event| matches!(event, RawInputEvent::OuterFocusGained))
 }
 
+#[cfg(test)]
 pub(crate) fn events_require_host_terminal_appearance_query(events: &[RawInputEvent]) -> bool {
     events
         .iter()
         .any(|event| matches!(event, RawInputEvent::OuterFocusGained))
 }
 
+#[cfg(test)]
 pub(crate) fn events_require_host_terminal_theme_query(events: &[RawInputEvent]) -> bool {
     events
         .iter()

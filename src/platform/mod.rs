@@ -1,50 +1,4 @@
 // Platform support for the Core TUI: terminal I/O, input, files, and notifications.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// Native adapters construct only the event classifications their OS can report.
-#[allow(dead_code)]
-pub(crate) enum HostPowerEvent {
-    Suspend,
-    AutomaticResume,
-    InteractiveResume,
-    UnclassifiedResume,
-}
-
-pub(crate) struct HostPowerMonitor {
-    events: tokio::sync::mpsc::UnboundedReceiver<HostPowerEvent>,
-    task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl HostPowerMonitor {
-    pub(crate) fn start(enabled: bool) -> Self {
-        let (sender, events) = tokio::sync::mpsc::unbounded_channel();
-        let task = if enabled {
-            monitor_host_power(sender)
-        } else {
-            None
-        };
-        Self { events, task }
-    }
-
-    pub(crate) fn try_recv(&mut self) -> Option<HostPowerEvent> {
-        self.events.try_recv().ok()
-    }
-
-    pub(crate) async fn recv(&mut self) -> HostPowerEvent {
-        match self.events.recv().await {
-            Some(event) => event,
-            None => std::future::pending().await,
-        }
-    }
-}
-
-impl Drop for HostPowerMonitor {
-    fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-        }
-    }
-}
-
 pub(crate) use unix_common::{client_terminal_identity, poll_fd_readable, read_fd};
 
 pub(crate) fn prepare_paste_text_for_pty(text: String) -> String {
@@ -146,62 +100,10 @@ pub(crate) fn take_terminal_resize_signal() -> bool {
     TERMINAL_RESIZE_SIGNALLED.swap(false, std::sync::atomic::Ordering::AcqRel)
 }
 
-/// Windows relies on size polling.
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClipboardCommand {
     pub program: &'static str,
     pub args: &'static [&'static str],
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClipboardImage {
-    pub bytes: Vec<u8>,
-    pub extension: &'static str,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum LimitedRead {
-    Empty,
-    Complete(Vec<u8>),
-    Oversized,
-}
-
-pub(crate) fn read_limited_reader(
-    mut reader: impl std::io::Read,
-    max_bytes: usize,
-) -> std::io::Result<LimitedRead> {
-    let mut bytes = Vec::new();
-    let mut buffer = [0_u8; 8192];
-
-    while bytes.len() < max_bytes {
-        let remaining = max_bytes - bytes.len();
-        let read_len = remaining.min(buffer.len());
-        let bytes_read = match reader.read(&mut buffer[..read_len]) {
-            Ok(bytes_read) => bytes_read,
-            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(err) => return Err(err),
-        };
-        if bytes_read == 0 {
-            return if bytes.is_empty() {
-                Ok(LimitedRead::Empty)
-            } else {
-                Ok(LimitedRead::Complete(bytes))
-            };
-        }
-        bytes.extend_from_slice(&buffer[..bytes_read]);
-    }
-
-    let mut sentinel = [0_u8; 1];
-    loop {
-        return match reader.read(&mut sentinel) {
-            Ok(0) if bytes.is_empty() => Ok(LimitedRead::Empty),
-            Ok(0) => Ok(LimitedRead::Complete(bytes)),
-            Ok(_) => Ok(LimitedRead::Oversized),
-            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(err) => Err(err),
-        };
-    }
 }
 
 mod unix_common;
@@ -276,63 +178,5 @@ mod tests {
 
         assert!(take_terminal_resize_signal());
         assert!(!take_terminal_resize_signal());
-    }
-    #[test]
-    fn read_limited_reader_returns_complete_data_under_limit() {
-        let input = std::io::Cursor::new(b"image".to_vec());
-        assert_eq!(
-            read_limited_reader(input, 16).expect("limited read"),
-            LimitedRead::Complete(b"image".to_vec())
-        );
-    }
-    #[test]
-    fn read_limited_reader_returns_empty_for_empty_input() {
-        let input = std::io::Cursor::new(Vec::<u8>::new());
-        assert_eq!(
-            read_limited_reader(input, 16).expect("limited read"),
-            LimitedRead::Empty
-        );
-    }
-    #[test]
-    fn read_limited_reader_accepts_data_exactly_at_limit() {
-        let input = std::io::Cursor::new(b"four".to_vec());
-        assert_eq!(
-            read_limited_reader(input, 4).expect("limited read"),
-            LimitedRead::Complete(b"four".to_vec())
-        );
-    }
-    #[test]
-    fn read_limited_reader_rejects_data_over_limit() {
-        let input = std::io::Cursor::new(b"oversized".to_vec());
-        assert_eq!(
-            read_limited_reader(input, 4).expect("limited read"),
-            LimitedRead::Oversized
-        );
-    }
-    #[test]
-    fn read_limited_reader_retries_interrupted_reads() {
-        struct InterruptedOnce {
-            interrupted: bool,
-            inner: std::io::Cursor<Vec<u8>>,
-        }
-
-        impl std::io::Read for InterruptedOnce {
-            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-                if !self.interrupted {
-                    self.interrupted = true;
-                    return Err(std::io::ErrorKind::Interrupted.into());
-                }
-                self.inner.read(buffer)
-            }
-        }
-
-        let input = InterruptedOnce {
-            interrupted: false,
-            inner: std::io::Cursor::new(b"image".to_vec()),
-        };
-        assert_eq!(
-            read_limited_reader(input, 16).expect("limited read"),
-            LimitedRead::Complete(b"image".to_vec())
-        );
     }
 }

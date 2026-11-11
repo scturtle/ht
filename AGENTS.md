@@ -62,7 +62,11 @@ build fails with that instruction when the tree is missing.
 
 `crates/ghostty-vt/build.rs` stages a copy under `OUT_DIR`, writes the
 `VERSION`/`LIB_VERSION` files the tag does not ship, and applies the local
-patches there before `zig build`, so the fetched tree stays pristine.
+patches there before `zig build`, so the fetched tree stays pristine. Staging
+is keyed by the vendor identity, verified source stamp, selected source contents,
+patches and staging rules. The tag in the vendor manifest supplies all three build
+version strings; do not add another hardcoded version. The cache identity rules
+have direct tests in `crates/ghostty-vt/build_support.rs`.
 
 The C bindings are generated into `OUT_DIR` from those patched headers by
 `bindgen`, not committed. That is deliberate: a patch that changes the C API
@@ -100,6 +104,7 @@ just core-multiclient-smoke
 just core-organization-smoke  just core-copy-smoke
 just core-keyboard-smoke      just core-graphics-smoke
 just core-reconnect-smoke     just core-launcher-test
+just core-diagnostics-smoke    just core-scheduling-smoke
 ```
 
 Build the pinned Core runtime with `just core-source-build`; `source.json` lists

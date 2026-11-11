@@ -4,6 +4,7 @@ use super::*;
 pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
     WhatsNew,
+    DumpPaneDiagnostics,
 }
 
 pub(super) fn global_menu_attention(snapshot: &ClientShellSnapshot) -> bool {
@@ -46,6 +47,10 @@ pub(super) fn global_menu_items(
             ClientGlobalMenuAction::WhatsNew,
         ));
     }
+    items.push((
+        "dump pane diagnostics",
+        ClientGlobalMenuAction::DumpPaneDiagnostics,
+    ));
     items.push((
         "detach",
         ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach),
@@ -104,6 +109,9 @@ impl ClientShellState {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }
             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
+            ClientGlobalMenuAction::DumpPaneDiagnostics => {
+                self.dump_pane_diagnostics(self.focused_pane_id().unwrap_or_default(), outcome);
+            }
         }
         outcome.repaint = true;
     }

@@ -48,18 +48,13 @@ impl ClientShellState {
             });
         // A resize invalidates pane geometry, not the healthy Local workspace chrome.
         let local_snapshot = self.snapshot.as_deref().filter(|_| {
-            self.endpoints.len() == 1
-                && !self.sidebar_collapsed
-                && layout.sidebar.width > 0
+            layout.sidebar.width > 0
                 && self.endpoint_status(&self.active_endpoint_id)
                     == Some(ClientEndpointStatus::Online)
         });
         let mut render_state = render::ShellRenderState {
-            endpoints: &self.endpoints,
             active_endpoint_id: &self.active_endpoint_id,
-            collapsed_endpoints: &self.collapsed_endpoints,
             collapsed_groups: &self.collapsed_groups,
-            remote_collapsed_groups: &self.remote_collapsed_groups,
             workspace_scroll: &mut self.workspace_scroll,
             agent_scroll: &mut self.agent_scroll,
             tab_scroll: &mut self.tab_scroll,
@@ -86,15 +81,6 @@ impl ClientShellState {
                 &mut render_state,
                 &mut self.hits,
             );
-        } else {
-            super::endpoint_sidebar::render_expanded(
-                &mut buffer,
-                sidebar,
-                self.snapshot.as_deref(),
-                &self.config,
-                &mut render_state,
-                &mut self.hits,
-            );
         }
         if !self.config.mouse_capture {
             self.hits = ShellHitMap::default();
@@ -105,7 +91,7 @@ impl ClientShellState {
                 .unwrap_or(ClientEndpointStatus::Connecting);
             let (_, label, _) = endpoint_status_presentation(status, &self.config.palette);
             format!(
-                "{}: {label}. Select a connected machine.",
+                "{}: {label}. Waiting for Core.",
                 self.active_endpoint_label()
             )
         });
@@ -210,11 +196,8 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
-                endpoints: &self.endpoints,
                 active_endpoint_id: &self.active_endpoint_id,
-                collapsed_endpoints: &self.collapsed_endpoints,
                 collapsed_groups: &self.collapsed_groups,
-                remote_collapsed_groups: &self.remote_collapsed_groups,
                 workspace_scroll: &mut self.workspace_scroll,
                 agent_scroll: &mut self.agent_scroll,
                 tab_scroll: &mut self.tab_scroll,
@@ -450,12 +433,8 @@ impl ClientShellState {
         restore_mode_bar(&mut frame, mode_bar, mode_bar_cells.as_deref());
         self.hits.notification_toast = Rect::default();
         let has_config_diagnostic = self.config_diagnostic.is_some();
-        let active_lifecycle = self
-            .endpoints
-            .iter()
-            .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
-            .filter(|endpoint| endpoint.status != ClientEndpointStatus::Online)
-            .map(|endpoint| (endpoint.label.clone(), endpoint.status));
+        let active_lifecycle = (self.endpoint.status != ClientEndpointStatus::Online)
+            .then(|| (self.endpoint.label.clone(), self.endpoint.status));
         if has_config_diagnostic
             || active_lifecycle.is_some()
             || self.visible_endpoint_notice.is_some()
@@ -565,7 +544,7 @@ impl ClientShellState {
                 &mut composed,
                 Rect::new(0, 0, cols, rows),
                 snapshot,
-                &self.endpoints,
+                &self.endpoint,
                 &self.active_endpoint_id,
                 &self.config,
                 self.navigate_workspace_id
@@ -626,7 +605,7 @@ impl ClientShellState {
                     &mut composed,
                     overlay,
                     snapshot,
-                    &self.endpoints,
+                    &self.endpoint,
                     &self.active_endpoint_id,
                     &self.config.keybinds,
                     &self.config.palette,

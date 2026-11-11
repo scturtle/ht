@@ -1,4 +1,4 @@
-//! Endpoint-qualified rows shared by aggregate navigation surfaces.
+//! Snapshot rows shared by the Core navigation surfaces.
 
 use super::*;
 use crate::protocol::ClientShellAgent;
@@ -18,21 +18,19 @@ impl CachedEndpointSnapshot<'_> {
     }
 }
 
-pub(super) fn cached_endpoint_snapshots(
-    endpoints: &[ClientShellEndpoint],
-) -> impl Iterator<Item = CachedEndpointSnapshot<'_>> {
-    endpoints.iter().filter_map(|endpoint| {
-        endpoint
-            .snapshot
-            .as_deref()
-            .map(|snapshot| CachedEndpointSnapshot {
-                endpoint_id: &endpoint.endpoint_id,
-                label: &endpoint.label,
-                status: endpoint.status,
-                snapshot,
-                agent_recency: &endpoint.agent_recency,
-            })
-    })
+pub(super) fn cached_core_snapshot(
+    endpoint: &ClientShellEndpoint,
+) -> Option<CachedEndpointSnapshot<'_>> {
+    endpoint
+        .snapshot
+        .as_deref()
+        .map(|snapshot| CachedEndpointSnapshot {
+            endpoint_id: &endpoint.endpoint_id,
+            label: &endpoint.label,
+            status: endpoint.status,
+            snapshot,
+            agent_recency: &endpoint.agent_recency,
+        })
 }
 
 pub(super) struct AggregateAgentRow<'a> {
@@ -41,16 +39,12 @@ pub(super) struct AggregateAgentRow<'a> {
     pub(super) recency: u64,
 }
 
-pub(super) struct AggregateAgentTarget {
-    pub(super) endpoint_id: ClientEndpointId,
-    pub(super) pane_id: String,
-}
-
 pub(super) fn aggregate_agent_rows<'a>(
-    endpoints: &'a [ClientShellEndpoint],
+    endpoints: &'a ClientShellEndpoint,
     sort: crate::config::AgentPanelSortConfig,
 ) -> Vec<AggregateAgentRow<'a>> {
-    let mut rows = cached_endpoint_snapshots(endpoints)
+    let mut rows = cached_core_snapshot(endpoints)
+        .into_iter()
         .flat_map(|endpoint| {
             super::agent_sidebar::ordered_agent_pane_ids(endpoint.snapshot, sort)
                 .into_iter()
@@ -91,22 +85,8 @@ fn sort_aggregate_rows(
     }
 }
 
-pub(super) fn online_agent_targets(
-    endpoints: &[ClientShellEndpoint],
-    sort: crate::config::AgentPanelSortConfig,
-) -> Vec<AggregateAgentTarget> {
-    aggregate_agent_rows(endpoints, sort)
-        .into_iter()
-        .filter(|row| !row.endpoint.stale())
-        .map(|row| AggregateAgentTarget {
-            endpoint_id: row.endpoint.endpoint_id.clone(),
-            pane_id: row.agent.pane_id.clone(),
-        })
-        .collect()
-}
-
 pub(super) fn navigator_rows(
-    endpoints: &[ClientShellEndpoint],
+    endpoints: &ClientShellEndpoint,
     active_endpoint_id: &ClientEndpointId,
     navigator: &ClientNavigatorOverlay,
 ) -> Vec<ClientNavigatorRow> {
@@ -127,11 +107,10 @@ pub(super) fn navigator_rows(
         words.iter().all(|word| value.contains(word))
     };
     let filtering = navigator.filter.is_some() || !query.is_empty();
-    let federated = endpoints.len() > 1;
-    let depth_offset = u8::from(federated);
     let mut rows = Vec::new();
 
-    for endpoint in endpoints {
+    let endpoint = endpoints;
+    {
         let stale = endpoint.status != ClientEndpointStatus::Online;
         let endpoint_query_matches = !query.is_empty() && text(&endpoint.label);
         let mut endpoint_rows = Vec::new();
@@ -141,9 +120,7 @@ pub(super) fn navigator_rows(
                 .iter()
                 .map(|agent| (agent.pane_id.as_str(), agent))
                 .collect::<HashMap<_, _>>();
-            // Build endpoint-local indexes once. Walk each bucket in snapshot
-            // order so interleaved input and overlapping IDs on other endpoints
-            // retain their existing navigation order and targets.
+            // Build indexes once and preserve snapshot order within each bucket.
             let mut tabs_by_workspace = HashMap::new();
             for tab in &snapshot.tabs {
                 tabs_by_workspace
@@ -230,7 +207,7 @@ pub(super) fn navigator_rows(
                                 || text(&pane.pane_id))
                         {
                             children.push(ClientNavigatorRow {
-                                depth: 1 + depth_offset,
+                                depth: 1,
                                 label,
                                 meta: meta.to_owned(),
                                 detail: format!(
@@ -255,7 +232,7 @@ pub(super) fn navigator_rows(
                     || (navigator.filter.is_none() && !query.is_empty() && workspace_matches)
                 {
                     endpoint_rows.push(ClientNavigatorRow {
-                        depth: depth_offset,
+                        depth: 0,
                         label: workspace.label.clone(),
                         meta: workspace.branch.clone().unwrap_or_default(),
                         detail: workspace.new_workspace_cwd.clone(),
@@ -273,21 +250,6 @@ pub(super) fn navigator_rows(
             }
         }
         if !filtering || endpoint_query_matches || !endpoint_rows.is_empty() {
-            if federated {
-                rows.push(ClientNavigatorRow {
-                    depth: 0,
-                    label: endpoint.label.to_owned(),
-                    meta: String::new(),
-                    detail: String::new(),
-                    agent: None,
-                    status: None,
-                    stale,
-                    current: false,
-                    target: ClientNavigatorTarget::Machine {
-                        endpoint_id: endpoint.endpoint_id.clone(),
-                    },
-                });
-            }
             rows.extend(endpoint_rows);
         }
     }

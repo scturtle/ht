@@ -1,24 +1,18 @@
 use super::*;
 
+/// Metadata for this client's sole Core connection. The projected snapshot is
+/// kept separately from the cached metadata while a replacement surface arrives.
 #[derive(Clone, Debug)]
 pub(crate) struct ClientShellEndpoint {
     pub(crate) endpoint_id: ClientEndpointId,
     pub(crate) label: String,
     pub(crate) status: ClientEndpointStatus,
     pub(crate) snapshot: Option<Box<ClientShellSnapshot>>,
-    /// Connection generation that produced `snapshot`. `None` is reserved for local tests.
     pub(crate) snapshot_generation: Option<u64>,
     pub(crate) agent_recency: HashMap<String, u64>,
     pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) methods: Option<HashSet<String>>,
 }
-
-pub(super) struct MachineHit {
-    pub(super) rect: Rect,
-    pub(super) collapse_toggle: Rect,
-    pub(super) endpoint_id: ClientEndpointId,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClientEndpointFocusTarget {
     Workspace(String),
@@ -29,417 +23,206 @@ pub(crate) enum ClientEndpointFocusTarget {
 impl ClientShellState {
     pub(crate) fn set_endpoint_status(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        _id: &ClientEndpointId,
         status: ClientEndpointStatus,
     ) {
-        if endpoint_id == &self.active_endpoint_id && status != ClientEndpointStatus::Online {
+        if status != ClientEndpointStatus::Online {
             self.pending_workspace_highlight = None;
         }
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint.status = status;
-        }
+        self.endpoint.status = status;
     }
-
-    pub(crate) fn mark_endpoint_disconnected(&mut self, endpoint_id: &ClientEndpointId) {
-        self.set_endpoint_status(endpoint_id, ClientEndpointStatus::Reconnecting);
-        if endpoint_id == &self.active_endpoint_id {
-            let pending = self.pending_requests.keys().cloned().collect::<Vec<_>>();
-            for request_id in pending {
-                self.cancel_endpoint_request(&request_id);
-            }
-            self.pending_integration_installs = 0;
-            self.pane_scroll_in_flight.clear();
-            self.pane_scroll_queued.clear();
+    #[cfg(test)]
+    pub(crate) fn mark_endpoint_disconnected(&mut self, id: &ClientEndpointId) {
+        self.set_endpoint_status(id, ClientEndpointStatus::Reconnecting);
+        let pending = self.pending_requests.keys().cloned().collect::<Vec<_>>();
+        for request in pending {
+            self.cancel_endpoint_request(&request);
         }
+        self.pending_integration_installs = 0;
+        self.pane_scroll_in_flight.clear();
+        self.pane_scroll_queued.clear();
     }
-
     pub(crate) fn set_endpoint_methods_for(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        _id: &ClientEndpointId,
         methods: Option<Vec<String>>,
     ) {
-        let methods = methods.map(|methods| methods.into_iter().collect::<HashSet<_>>());
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint.methods = methods;
+        self.endpoint.methods = methods.map(|methods| methods.into_iter().collect());
+    }
+    #[cfg(test)]
+    pub(crate) fn activate_endpoint_projection(&mut self, _id: &ClientEndpointId) -> bool {
+        if self.endpoint.status != ClientEndpointStatus::Online {
+            return false;
         }
-    }
-
-    pub(crate) fn endpoint_projection_available(&self, endpoint_id: &ClientEndpointId) -> bool {
-        self.endpoints.iter().any(|endpoint| {
-            &endpoint.endpoint_id == endpoint_id
-                && endpoint.status == ClientEndpointStatus::Online
-                && endpoint.snapshot.is_some()
-        })
-    }
-
-    pub(crate) fn activate_endpoint_projection(&mut self, endpoint_id: &ClientEndpointId) -> bool {
-        let pending_agent_reveal = self
-            .pending_agent_reveal
-            .take_if(|(target_endpoint, _)| target_endpoint == endpoint_id);
-        let agent_body_height = self.hits.agent_body.height;
-        let Some(endpoint) = self
-            .endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        else {
+        let Some(snapshot) = self.endpoint.snapshot.clone() else {
             return false;
         };
-        if endpoint.status != ClientEndpointStatus::Online {
-            return false;
-        }
-        let Some(snapshot) = endpoint.snapshot.clone() else {
-            return false;
-        };
-        let generation = endpoint.snapshot_generation;
-        let switching_endpoint = endpoint_id != &self.active_endpoint_id;
-        let agent_scroll = self.agent_scroll;
-        if switching_endpoint {
-            self.active_endpoint_id = endpoint_id.clone();
-            self.pane_surface = None;
-            self.pending_pane_surface = None;
-        }
-        self.apply_active_snapshot(snapshot, generation);
-        if switching_endpoint {
-            // The aggregate agent list belongs to the client, not one endpoint.
-            self.agent_scroll = agent_scroll;
-        }
-        if let Some((_, pane_id)) = pending_agent_reveal {
-            self.reveal_endpoint_agent(endpoint_id, &pane_id, agent_body_height);
-        }
+        self.apply_active_snapshot(snapshot, self.endpoint.snapshot_generation);
         true
     }
-
-    pub(crate) fn endpoint_status(
-        &self,
-        endpoint_id: &ClientEndpointId,
-    ) -> Option<ClientEndpointStatus> {
-        self.endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .map(|endpoint| endpoint.status)
+    pub(crate) fn endpoint_status(&self, _id: &ClientEndpointId) -> Option<ClientEndpointStatus> {
+        Some(self.endpoint.status)
     }
-
-    pub(crate) fn endpoint_has_snapshot(&self, endpoint_id: &ClientEndpointId) -> bool {
-        self.endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .is_some_and(|endpoint| endpoint.snapshot.is_some())
+    pub(crate) fn endpoint_is_online(&self, _id: &ClientEndpointId) -> bool {
+        self.endpoint.status == ClientEndpointStatus::Online && self.endpoint.snapshot.is_some()
     }
-
-    pub(crate) fn endpoint_is_online(&self, endpoint_id: &ClientEndpointId) -> bool {
-        self.endpoint_status(endpoint_id) == Some(ClientEndpointStatus::Online)
-            && self.endpoint_has_snapshot(endpoint_id)
+    pub(crate) fn endpoint_label(&self, _id: &ClientEndpointId) -> &str {
+        &self.endpoint.label
     }
-
-    pub(crate) fn endpoint_boot_id(&self, endpoint_id: &ClientEndpointId) -> Option<&str> {
-        self.endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)?
-            .snapshot
-            .as_deref()
-            .map(|snapshot| snapshot.boot_id.as_str())
-    }
-
-    pub(crate) fn endpoint_snapshot_matches(
-        &self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        boot_id: &str,
-        revision: u64,
-    ) -> bool {
-        self.endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .is_some_and(|endpoint| {
-                endpoint
-                    .snapshot_generation
-                    .is_none_or(|snapshot_generation| snapshot_generation == generation)
-                    && endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                        snapshot.boot_id == boot_id && snapshot.revision == revision
-                    })
-            })
-    }
-
-    pub(crate) fn endpoint_snapshot_identity(
-        &self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-    ) -> Option<(&str, u64)> {
-        let endpoint = self
-            .endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)?;
-        if endpoint
-            .snapshot_generation
-            .is_some_and(|snapshot_generation| snapshot_generation != generation)
-        {
-            return None;
-        }
-        endpoint
-            .snapshot
-            .as_deref()
-            .map(|snapshot| (snapshot.boot_id.as_str(), snapshot.revision))
-    }
-
-    pub(crate) fn set_endpoint_agent_completions(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        projection: crate::protocol::endpoint::EndpointAgentCompletions,
-    ) {
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint
-                .agent_presentation
-                .receive_completions(Some(generation), projection);
-        }
-    }
-
-    /// A terminal normally starts focused. `None` means this host cannot report focus events,
-    /// not that the endpoint has no viewer; activation therefore sends an explicit true baseline.
-    pub(crate) fn host_focus_baseline(&self) -> bool {
-        self.outer_focused.unwrap_or(true)
-    }
-
-    pub(crate) fn endpoint_label(&self, endpoint_id: &ClientEndpointId) -> &str {
-        self.endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .map_or("Unknown endpoint", |endpoint| endpoint.label.as_str())
-    }
-
     pub(crate) fn active_endpoint_label(&self) -> &str {
-        self.endpoint_label(&self.active_endpoint_id)
+        &self.endpoint.label
     }
-
-    pub(crate) fn endpoint_is_active(&self, endpoint_id: &ClientEndpointId) -> bool {
-        &self.active_endpoint_id == endpoint_id
+    pub(crate) fn endpoint_is_active(&self, _id: &ClientEndpointId) -> bool {
+        true
     }
-
-    pub(crate) fn multi_endpoint_active(&self) -> bool {
-        self.endpoints.len() > 1
-    }
-
     #[cfg(test)]
     pub(crate) fn set_snapshot(&mut self, snapshot: Box<ClientShellSnapshot>) {
-        let endpoint_id = self.active_endpoint_id.clone();
-        self.set_endpoint_snapshot(&endpoint_id, snapshot);
+        self.set_endpoint_snapshot(&ClientEndpointId::Local, snapshot);
     }
-
     #[cfg(test)]
     pub(crate) fn set_endpoint_methods(&mut self, methods: Option<Vec<String>>) {
-        let endpoint_id = self.active_endpoint_id.clone();
-        self.set_endpoint_methods_for(&endpoint_id, methods);
+        self.set_endpoint_methods_for(&ClientEndpointId::Local, methods);
     }
-
     pub(super) fn supports_endpoint_method(&self, method: &crate::api::schema::Method) -> bool {
-        self.endpoints
-            .iter()
-            .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
-            .and_then(|endpoint| endpoint.methods.as_ref())
-            .is_none_or(|methods| methods.contains(crate::api::api_method_name(method)))
+        self.endpoint
+            .methods
+            .as_ref()
+            .is_none_or(|m| m.contains(crate::api::api_method_name(method)))
     }
-
     pub(super) fn focused_tab_count(&self) -> usize {
-        let Some(snapshot) = self.snapshot.as_deref() else {
-            return 0;
-        };
-        snapshot
-            .tabs
-            .iter()
-            .filter(|tab| {
-                Some(tab.workspace_id.as_str()) == snapshot.focused_workspace_id.as_deref()
-            })
-            .count()
+        self.snapshot.as_deref().map_or(0, |s| {
+            s.tabs
+                .iter()
+                .filter(|t| Some(t.workspace_id.as_str()) == s.focused_workspace_id.as_deref())
+                .count()
+        })
     }
-
     #[cfg(test)]
     pub(crate) fn cache_endpoint_snapshot(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        id: &ClientEndpointId,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, None, snapshot, true);
+        self.cache_endpoint_snapshot_with_surface(id, None, snapshot, true);
     }
-
     pub(crate) fn cache_endpoint_snapshot_for_generation(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        id: &ClientEndpointId,
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, true);
+        self.cache_endpoint_snapshot_with_surface(id, Some(generation), snapshot, true);
     }
-
-    /// Metadata delivered while an endpoint surface is inactive must never advance this
-    /// aggregate client's viewed watermark, even if the frozen source frame still exists.
+    #[cfg(test)]
     pub(crate) fn cache_endpoint_snapshot_inactive_for_generation(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        id: &ClientEndpointId,
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, false);
+        self.cache_endpoint_snapshot_with_surface(id, Some(generation), snapshot, false);
     }
-
     fn cache_endpoint_snapshot_with_surface(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        id: &ClientEndpointId,
         generation: Option<u64>,
         mut snapshot: Box<ClientShellSnapshot>,
-        acknowledge_surface: bool,
+        acknowledge: bool,
     ) {
         snapshot
             .commands
-            .retain(|command| command.action != crate::protocol::ClientShellCommandAction::Unknown);
-        let Some(index) = self
-            .endpoints
-            .iter()
-            .position(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        else {
-            return;
-        };
-        if self.endpoints[index].snapshot_generation == generation
-            && self.endpoints[index]
+            .retain(|c| c.action != crate::protocol::ClientShellCommandAction::Unknown);
+        if self.endpoint.snapshot_generation == generation
+            && self
+                .endpoint
                 .snapshot
                 .as_deref()
-                .is_some_and(|previous| {
-                    previous.boot_id == snapshot.boot_id && previous.revision > snapshot.revision
-                })
+                .is_some_and(|s| s.boot_id == snapshot.boot_id && s.revision > snapshot.revision)
         {
             return;
         }
-        let boot_changed = self.endpoints[index]
+        if self
+            .endpoint
             .snapshot
             .as_deref()
-            .is_some_and(|previous| previous.boot_id != snapshot.boot_id);
-        if boot_changed {
-            self.retire_endpoint_notifications(endpoint_id);
+            .is_some_and(|s| s.boot_id != snapshot.boot_id)
+        {
+            self.retire_endpoint_notifications(id);
         }
-        self.endpoints[index]
+        self.endpoint
             .agent_presentation
             .project_snapshot_for_generation(&mut snapshot, generation);
-        let presented_surface = if acknowledge_surface && endpoint_id == &self.active_endpoint_id {
-            self.pane_surface.as_ref()
-        } else {
-            None
-        };
-        if let Some(surface) = presented_surface {
-            self.endpoints[index]
-                .agent_presentation
-                .acknowledge_surface(&mut snapshot, surface, self.outer_focused);
+        if let Some(surface) = self.pane_surface.as_ref().filter(|_| acknowledge) {
+            self.endpoint.agent_presentation.acknowledge_surface(
+                &mut snapshot,
+                surface,
+                self.outer_focused,
+            );
         }
-        let previous = self.endpoints[index].snapshot.as_deref();
-        let mut next_recency = self
-            .endpoints
-            .iter()
-            .flat_map(|endpoint| endpoint.agent_recency.values())
-            .copied()
-            .max()
-            .unwrap_or_default();
+        let previous = self.endpoint.snapshot.as_deref();
+        let mut recency = std::mem::take(&mut self.endpoint.agent_recency);
+        let mut next = recency.values().copied().max().unwrap_or_default();
         let mut agents = snapshot.agents.iter().collect::<Vec<_>>();
-        agents.sort_by_key(|agent| agent.state_change_seq);
-        let mut recency = self.endpoints[index].agent_recency.clone();
+        agents.sort_by_key(|a| a.state_change_seq);
         for agent in agents {
-            let changed = previous
-                .and_then(|snapshot| {
-                    snapshot
-                        .agents
-                        .iter()
-                        .find(|previous| previous.pane_id == agent.pane_id)
-                })
-                .is_none_or(|previous| previous.state_change_seq != agent.state_change_seq);
-            if changed {
-                next_recency = next_recency.saturating_add(1);
-                recency.insert(agent.pane_id.clone(), next_recency);
+            if previous
+                .and_then(|s| s.agents.iter().find(|a| a.pane_id == agent.pane_id))
+                .is_none_or(|a| a.state_change_seq != agent.state_change_seq)
+            {
+                next = next.saturating_add(1);
+                recency.insert(agent.pane_id.clone(), next);
             }
         }
-        recency.retain(|pane_id, _| {
-            snapshot
-                .agents
-                .iter()
-                .any(|agent| &agent.pane_id == pane_id)
-        });
-        let endpoint = &mut self.endpoints[index];
-        endpoint.agent_recency = recency;
-        endpoint.snapshot_generation = generation;
-        endpoint.snapshot = Some(snapshot);
+        recency.retain(|id, _| snapshot.agents.iter().any(|a| &a.pane_id == id));
+        self.endpoint.agent_recency = recency;
+        self.endpoint.snapshot_generation = generation;
+        self.endpoint.snapshot = Some(snapshot);
     }
-
     pub(crate) fn acknowledge_active_surface_agents(&mut self, surface: &PaneSurfaceFrame) -> bool {
-        let Some(index) = self
-            .endpoints
-            .iter()
-            .position(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
-        else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref_mut() else {
             return false;
         };
-        let changed = {
-            let endpoint = &mut self.endpoints[index];
-            let Some(snapshot) = endpoint.snapshot.as_deref_mut() else {
-                return false;
-            };
-            endpoint
-                .agent_presentation
-                .acknowledge_surface(snapshot, surface, self.outer_focused)
-        };
+        let changed = self.endpoint.agent_presentation.acknowledge_surface(
+            snapshot,
+            surface,
+            self.outer_focused,
+        );
         if changed {
-            self.snapshot = self.endpoints[index].snapshot.clone();
+            self.snapshot = self.endpoint.snapshot.clone();
         }
         changed
     }
-
     #[cfg(test)]
     pub(crate) fn set_endpoint_snapshot(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        id: &ClientEndpointId,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot(endpoint_id, snapshot);
-        self.apply_cached_endpoint_snapshot(endpoint_id);
+        self.cache_endpoint_snapshot(id, snapshot);
+        self.apply_cached_snapshot();
     }
-
+    /// Return whether the projection scope changed and needs a full host redraw.
     pub(crate) fn set_endpoint_snapshot_for_generation(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        id: &ClientEndpointId,
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
-    ) {
-        self.cache_endpoint_snapshot_for_generation(endpoint_id, generation, snapshot);
-        self.apply_cached_endpoint_snapshot(endpoint_id);
+    ) -> bool {
+        let epoch_changed = self.active_snapshot_generation != Some(generation)
+            || self
+                .snapshot
+                .as_ref()
+                .is_none_or(|old| old.boot_id != snapshot.boot_id);
+        self.cache_endpoint_snapshot_for_generation(id, generation, snapshot);
+        self.apply_cached_snapshot();
+        epoch_changed
     }
-
-    fn apply_cached_endpoint_snapshot(&mut self, endpoint_id: &ClientEndpointId) {
-        let Some((snapshot, generation)) = self
-            .endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .and_then(|endpoint| {
-                endpoint
-                    .snapshot
-                    .clone()
-                    .map(|snapshot| (snapshot, endpoint.snapshot_generation))
-            })
-        else {
-            return;
-        };
-        if endpoint_id == &self.active_endpoint_id {
-            self.apply_active_snapshot(snapshot, generation);
+    fn apply_cached_snapshot(&mut self) {
+        if let Some(snapshot) = self.endpoint.snapshot.clone() {
+            self.apply_active_snapshot(snapshot, self.endpoint.snapshot_generation);
         }
     }
 }
-
 pub(super) fn endpoint_status_presentation(
     status: ClientEndpointStatus,
     palette: &Palette,
@@ -447,12 +230,10 @@ pub(super) fn endpoint_status_presentation(
     match status {
         ClientEndpointStatus::Connecting => ("◐", "connecting", palette.yellow),
         ClientEndpointStatus::Online => ("●", "online", palette.green),
+        #[cfg(test)]
         ClientEndpointStatus::Reconnecting => ("◐", "reconnecting", palette.yellow),
-        ClientEndpointStatus::Attention => ("!", "attention", palette.red),
-        ClientEndpointStatus::Disabled => ("·", "disabled", palette.overlay0),
     }
 }
-
 pub(super) fn local_endpoint() -> ClientShellEndpoint {
     ClientShellEndpoint {
         endpoint_id: ClientEndpointId::Local,

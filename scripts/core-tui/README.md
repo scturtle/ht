@@ -1,7 +1,7 @@
 # Core-backed Herdr TUI
 
 这里只保留**真实现有 Herdr TUI 的默认 Core 后端**，没有独立的替代 TUI。
-旧 Herdr runtime 已物理删除；默认 `herdr` 使用 Core，`--core` 仅为兼容别名，没有旧后端 fallback。
+旧 Herdr runtime 已物理删除；默认 `ht` 使用 Core，`--core` 仅为兼容别名，没有旧后端 fallback。
 公开 generation-1 wire codec 和冻结夹具保持不变。
 这是个人 fork 的进行中迁移，**不是功能完整或稳定版承诺**。
 
@@ -80,6 +80,51 @@ CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
 另已修复把程序鼠标需求误当成整个 TUI 捕获开关的问题；普通 Shell 不请求鼠标，
 也不应关闭 TUI 的鼠标操作。
 此前直接启动二进制的四项 smoke 没有覆盖这一入口缺陷。
+
+## 单连接与事件驱动调度
+
+每个 ht 只有一个 Core 连接和一条带关联身份的命令队列，不再包含单客户端多机器目录、
+SSH endpoint 激活/交接。**这不是单客户端限制**：手机、桌面等多个 ht 仍可同时连接
+同一 Core，保留独立焦点、选择、滚动、Zoom，以及 `latest` 权威网格策略。
+不确定投递不重试；generation / projection boot / request id 的请求围栏仍然有效。
+
+适配器直接发布已有类型化 snapshot，不再在进程内序列化 JSON 再解析。
+Core worker 由命令、帧/断线、异步写完成唤醒，无事时 park；有写入时保留实际超时 deadline，
+有剩余 graphics dirty 时继续发布。UI 只在 dirty/repaint/实际定时器变化时合成，不因每个事件重画。
+relay 重连会创建新的投影 epoch，使重建后从低值开始的 revision 不被旧缓存拒绝，
+同时取消旧 scope 请求并全量重绘；不会因此重启 Core 或程序。
+
+`just core-scheduling-smoke` 在自建私有 Core/PTY 中检查空闲 worker 上下文切换、
+空闲输出字节、20 次按键到完整同步输出帧的延迟，以及高 revision 后仅丢失 relay 的恢复。
+它只终止经过 socket/命令行验证的测试 relay，不以分屏、resize 或 focus 手动恢复程序。
+可以比较预先保存的旧 release binary：
+
+```sh
+CORE_UI_BASELINE=/absolute/path/to/old-ht just core-scheduling-smoke
+```
+
+这些是**本机 PTY 调度/输出测量，不是 WAN RTT，也不是物理终端绘制时间或整机 CPU 指标**。
+测试只运行本地原始终端 fixture，不调用模型；Core、程序及临时文件均属于本次测试。
+
+## Pane 冻结现场诊断
+
+遇到冻结时，先不要分屏、调整尺寸或切换 pane：点击侧栏 `menu` →
+`dump pane diagnostics`；也可在目标 pane 的右键菜单选择 `Dump pane diagnostics`。
+通知会给出 `/var/tmp/ht-pane-dump-<client-pid>-<timestamp>/` 路径。
+目录权限为 `0700`，**文件包含屏幕文字、程序信息，分享前务必检查敏感内容**；不会自动上传。
+
+- `client.json`：UI 焦点/模式、snapshot/surface revision、pane cells、待处理请求、输入/滚动状态、客户端线程状态及 wait channel。
+- `adapter.json`：目标 pane 的 channel、尺寸、credit、解析器模式（含 synchronized output）、viewport 和适配器状态。
+- `core.json` / `core-screen.txt`：独立 existing-only relay 只读查询的 Core 状态、程序事实及当前屏幕。
+- `report.json`：版本、时间、来源 socket、耗时和缺失/超时项。三层数据独立采样，不是原子快照。
+
+抓取不向 pane 发送输入、focus、resize、attach，不消费渲染 dirty 状态，也不操作程序生命周期。
+后台采集预算约 4 秒；Core 或适配器无响应也保留已拿到的部分，不阻塞 UI。
+`just core-diagnostics-smoke` 在私有会话验证两个菜单入口、缺失 socket 不启动 Core、
+暂停测试 Core 时仍能保存部分信息，且抓取不恢复 Core、不改变原程序 PID/网格/attach channel。
+更新客户端只需 detach 后重新运行 `ht`，**不需要重启 Core 或 Pi**。
+
+## 支持范围
 
 目前支持：
 
@@ -176,15 +221,19 @@ Core 使用独立 runtime dir，不自动配置 systemd/linger；不承诺注销
 ```sh
 just core-source-build
 HERDR_CORE_BIN="$PWD/.local/core-runtime/target/release/herdr-core" \
-  target/release/ht --core-home /absolute/path/to/a-private-core-home
+  target/release/ht --core-home /absolute/path/to/a-private-core-home --core-session private-demo
 ```
 
 `HERDR_CORE_BIN` 默认是 PATH 上的 `herdr-core`。Core home 只能由 `--core-home` 指定，
 **不读任何环境变量**，避免被外层进程悄悄改掉。
 
-不带 `--core-home` 时，客户端连 `$XDG_RUNTIME_DIR/herdr-core/default.sock`，也就是 `hc`
-默认那个 Core —— 这样 `ht` 里开的终端，`hc ls` 直接可见。带 `--core-home` 则使用
-`<home>/core.sock` 这个私有 Core，测试与试用脚本正是靠这一点不碰真实会话。
+默认客户端连接 `$XDG_RUNTIME_DIR/herdr-core/default.sock`，也就是 `hc` 默认那个 Core，
+因此 `ht` 里开的终端通过 `hc ls` 直接可见。`--core-home` 只指定客户端状态目录；
+`--core-session <name>` 才选择并隔离私有 Core，会话 socket 仍遵循 hc 的命名规则。
+
+试用脚本根据 home 生成固定的 `trial-…` session，并将 XDG runtime/state/config 目录
+都放在该 home 下。启动和 `--stop` 共用这组标识，socket 位于
+`<home>/run/herdr-core/trial-….sock`，不会使用旧的 `<home>/core.sock` 或外层的 `HC_SOCKET`。
 
 停止试用脚本启动的 Core **及其中全部程序**：
 

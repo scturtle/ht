@@ -33,12 +33,7 @@ pub(super) struct ClientState {
     pub(super) mouse_capture_active: bool,
     pub(super) endpoint_mouse_capture_requested: bool,
     pub(super) endpoint_sgr_pixels_requested: bool,
-    /// Latest physical host theme observations, retained so an endpoint selected after the
-    /// observation receives the same client-owned baseline.
-    pub(super) host_theme_updates: Vec<crate::protocol::ClientHostThemeUpdate>,
-    pub(super) direct_mouse_capture_preference: bool,
     pub(super) shell_mouse_capture_preference: bool,
-    pub(super) direct_keyboard_protocol: crate::terminal_modes::DirectHostKeyboardState,
     pub(super) pane_keyboard_report_all: bool,
     pub(super) keyboard_report_all_active: bool,
     pub(super) reported_size: (u16, u16),
@@ -57,43 +52,17 @@ pub(super) struct ClientState {
         (endpoint::ClientEndpointId, u64, u64, u32),
         crate::protocol::SurfaceGraphicsAssetKey,
     >,
-    pub(super) attach_escape: Option<AttachEscapeState>,
-    pub(super) mouse_scroll_lines: usize,
-    pub(super) remote_image_paste_key:
-        Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
     pub(super) redraw_on_focus_gained: bool,
     pub(super) repaint_pending: bool,
-    /// During a source-off-first handoff the currently blitted frame remains authoritative until
-    /// an acknowledged target snapshot/surface pair commits.
-    pub(super) presentation_frozen: bool,
-    /// Latest explicit Local selection awaiting this client's replacement Local connection.
-    pub(super) deferred_local_activation: Option<endpoint::EndpointActivationIntent>,
     pub(super) draw_host_cursor: bool,
     pub(super) detached_process_children: Vec<std::process::Child>,
-    pub(super) shell: Option<shell::ClientShellState>,
-}
-
-impl Drop for ClientState {
-    fn drop(&mut self) {
-        if self.attach_escape.is_some() {
-            let _ = crate::terminal_modes::set_direct_host_keyboard_protocol(
-                &mut io::stdout(),
-                &mut self.direct_keyboard_protocol,
-                0,
-                0,
-            );
-        }
-    }
+    pub(super) shell: shell::ClientShellState,
 }
 
 impl ClientState {
     pub(super) fn requested_host_mouse_capture(&self) -> bool {
         // TUI chrome needs mouse events even when the focused program does not.
-        let local_preference = if self.shell.is_some() {
-            self.shell_mouse_capture_preference
-        } else {
-            self.direct_mouse_capture_preference
-        };
+        let local_preference = self.shell_mouse_capture_preference;
         super::effective_mouse_capture(self.endpoint_mouse_capture_requested, local_preference)
     }
 
@@ -109,10 +78,7 @@ impl ClientState {
             mouse_capture_active: false,
             endpoint_mouse_capture_requested: false,
             endpoint_sgr_pixels_requested: false,
-            host_theme_updates: Vec::new(),
-            direct_mouse_capture_preference: false,
             shell_mouse_capture_preference: false,
-            direct_keyboard_protocol: Default::default(),
             pane_keyboard_report_all: false,
             keyboard_report_all_active: false,
             reported_size: (100, 30),
@@ -127,17 +93,12 @@ impl ClientState {
             disabled_native_graphics: Default::default(),
             pending_native_cleanup: Vec::new(),
             pending_surface_graphics: HashMap::new(),
-            attach_escape: None,
-            mouse_scroll_lines: 3,
-            remote_image_paste_key: None,
             redraw_on_focus_gained: false,
             repaint_pending: false,
-            presentation_frozen: false,
-            deferred_local_activation: None,
             draw_host_cursor: false,
             detached_process_children: Vec::new(),
-            shell: Some(shell::ClientShellState::new(
-                shell::ClientShellConfig::from_config(&crate::config::Config::default()),
+            shell: shell::ClientShellState::new(shell::ClientShellConfig::from_config(
+                &crate::config::Config::default(),
             )),
         }
     }
@@ -146,85 +107,12 @@ impl ClientState {
         self.repaint_pending = true;
     }
 
-    pub(super) fn freeze_presentation(&mut self) {
-        self.presentation_frozen = true;
-    }
-
-    pub(super) fn record_host_theme_update(
-        &mut self,
-        update: &crate::protocol::ClientHostThemeUpdate,
-    ) {
-        use crate::protocol::ClientHostThemeUpdate;
-
-        match update {
-            ClientHostThemeUpdate::DefaultColor { kind, .. } => {
-                self.host_theme_updates.retain(|current| {
-                    !matches!(
-                        current,
-                        ClientHostThemeUpdate::DefaultColor {
-                            kind: current_kind,
-                            ..
-                        } if current_kind == kind
-                    )
-                });
-            }
-            ClientHostThemeUpdate::PaletteColors(_) => self
-                .host_theme_updates
-                .retain(|current| !matches!(current, ClientHostThemeUpdate::PaletteColors(_))),
-            ClientHostThemeUpdate::Appearance(_) => self
-                .host_theme_updates
-                .retain(|current| !matches!(current, ClientHostThemeUpdate::Appearance(_))),
-        }
-        self.host_theme_updates.push(update.clone());
-    }
-
-    /// Replay the retained physical-host baseline only after an endpoint owns the committed
-    /// presentation. The endpoint transport preserves this order ahead of the resync control.
-    pub(super) fn replay_host_theme(
-        &self,
-        endpoints: &mut endpoint::EndpointRegistry,
-        endpoint_id: &endpoint::ClientEndpointId,
-    ) {
-        for update in &self.host_theme_updates {
-            let _ = endpoints.send_to(
-                endpoint_id,
-                &crate::protocol::ClientMessage::ClientShellHostTheme {
-                    update: update.clone(),
-                },
-            );
-        }
-    }
-
-    pub(super) fn unfreeze_presentation(&mut self) {
-        self.presentation_frozen = false;
-        // A resize or metadata event may have happened while frozen. Force a full frame rather
-        // than attempting to patch the old source frame.
-        self.request_repaint();
-    }
-
-    /// Present a composed error/chrome frame while retaining the handoff input freeze. The pane
-    /// cells are still the last coherent surface; only client chrome (including the error) moves.
-    pub(super) fn present_frozen_chrome(
-        &mut self,
-        frame_data: impl Into<frame_output::ComposedFrame>,
-    ) {
-        let frozen = self.presentation_frozen;
-        // Chrome can repaint the frozen source, but cannot retire its staged images.
-        let deferred_cleanup = frozen.then(|| std::mem::take(&mut self.pending_native_cleanup));
-        self.presentation_frozen = false;
-        self.present_frame(frame_data);
-        self.presentation_frozen = frozen;
-        if let Some(cleanup) = deferred_cleanup {
-            self.pending_native_cleanup = cleanup;
-        }
-    }
-
     pub(super) fn queue_native_image_cleanup(&mut self, image_id: u32) {
         crate::kitty_graphics::encode_delete_image(&mut self.pending_native_cleanup, image_id);
     }
 
     /// Retirement is lifecycle bookkeeping, not a presentation effect. The caller has
-    /// already checked the endpoint generation, even for inactive/frozen owners.
+    /// already checked the connection generation.
     pub(super) fn receive_graphics_retirement(
         &mut self,
         endpoint_id: &endpoint::ClientEndpointId,
@@ -253,12 +141,9 @@ impl ClientState {
             owner_active,
         );
         let frame = if owns_image && owner_active {
-            let frozen = self.presentation_frozen;
             let size = self.reported_size;
-            self.shell.as_mut().and_then(|shell| {
-                shell.retire_direct_graphics_image(image_id);
-                (!frozen).then(|| shell.compose(size.0, size.1)).flatten()
-            })
+            self.shell.retire_direct_graphics_image(image_id);
+            self.shell.compose(size.0, size.1)
         } else {
             None
         };
@@ -296,7 +181,7 @@ impl ClientState {
         &mut self,
         writer: &mut impl std::io::Write,
     ) -> io::Result<()> {
-        if self.presentation_frozen || self.pending_native_cleanup.is_empty() {
+        if self.pending_native_cleanup.is_empty() {
             return Ok(());
         }
         writer.write_all(&self.pending_native_cleanup)?;
@@ -306,7 +191,7 @@ impl ClientState {
     }
 
     pub(super) fn present_graphics(&mut self, graphics: &[u8]) {
-        if self.presentation_frozen || graphics.is_empty() || !self.kitty_graphics_enabled {
+        if graphics.is_empty() || !self.kitty_graphics_enabled {
             return;
         }
         let mut stdout = io::stdout();
@@ -318,8 +203,7 @@ impl ClientState {
         &mut self,
         patch: shell::ClientComposedSurfacePatch,
     ) -> io::Result<bool> {
-        if self.presentation_frozen
-            || self.repaint_pending
+        if self.repaint_pending
             || (self.kitty_graphics_enabled && !self.pending_native_cleanup.is_empty())
         {
             crate::render_prof::event("client_surface_patch.fallback.repaint");
@@ -360,36 +244,6 @@ impl ClientState {
             "client_surface_patch.fallback.commit"
         });
         Ok(committed)
-    }
-
-    fn retire_pending_endpoint_graphics(
-        &mut self,
-        endpoint_id: &endpoint::ClientEndpointId,
-        generation: Option<u64>,
-    ) {
-        let retired = self
-            .pending_surface_graphics
-            .keys()
-            .filter(|(owner, pending_generation, _, _)| {
-                owner == endpoint_id
-                    && generation.is_none_or(|generation| *pending_generation == generation)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut transfer_ids = Vec::with_capacity(retired.len());
-        for key in retired {
-            let (_, _, transfer_id, image_id) = &key;
-            if transfer_id & crate::kitty_graphics::surface::NATIVE_TRANSFER_BIT != 0 {
-                self.queue_native_image_cleanup(*image_id);
-            }
-            transfer_ids.push(*transfer_id);
-            self.pending_surface_graphics.remove(&key);
-        }
-        if let Ok(mut matcher) = self.direct_graphics_response.lock() {
-            for transfer_id in transfer_ids {
-                matcher.retire(transfer_id);
-            }
-        }
     }
 
     pub(super) fn record_retired_direct_graphics(
@@ -449,46 +303,6 @@ impl ClientState {
         }
     }
 
-    /// Forget graphics guards only for the connection generation which actually disconnected.
-    /// A delayed disconnect from an older generation must not clear its replacement's guards.
-    pub(super) fn retire_endpoint_graphics(
-        &mut self,
-        endpoint_id: &endpoint::ClientEndpointId,
-        generation: u64,
-    ) {
-        self.retire_pending_endpoint_graphics(endpoint_id, Some(generation));
-        if self.disabled_native_graphics.get(endpoint_id) == Some(&generation) {
-            self.disabled_native_graphics.remove(endpoint_id);
-        }
-        if self
-            .retired_direct_graphics
-            .get(endpoint_id)
-            .is_some_and(|retired| retired.generation == generation)
-        {
-            self.retired_direct_graphics.remove(endpoint_id);
-        }
-    }
-
-    /// Reset bounded per-endpoint state when a replacement connection becomes authoritative.
-    #[cfg(test)]
-    pub(super) fn start_endpoint_graphics_generation(
-        &mut self,
-        endpoint_id: &endpoint::ClientEndpointId,
-        generation: u64,
-    ) {
-        self.retire_pending_endpoint_graphics(endpoint_id, None);
-        if self.disabled_native_graphics.get(endpoint_id) != Some(&generation) {
-            self.disabled_native_graphics.remove(endpoint_id);
-        }
-        if self
-            .retired_direct_graphics
-            .get(endpoint_id)
-            .is_some_and(|retired| retired.generation != generation)
-        {
-            self.retired_direct_graphics.remove(endpoint_id);
-        }
-    }
-
     pub(super) fn present_frame(&mut self, frame_data: impl Into<frame_output::ComposedFrame>) {
         let _ = self.try_present_frame(frame_data);
     }
@@ -539,9 +353,6 @@ impl ClientState {
         writer: &mut impl io::Write,
         frame_data: impl Into<frame_output::ComposedFrame>,
     ) -> bool {
-        if self.presentation_frozen {
-            return false;
-        }
         let frame_output::ComposedFrame {
             frame: mut frame_data,
             graphics,
@@ -578,7 +389,7 @@ mod native_cleanup_tests {
     use super::*;
 
     #[test]
-    fn retired_graphics_tombstones_survive_handoff_and_only_exact_files_consume_them() {
+    fn retired_graphics_tombstones_ignore_late_files_until_the_exact_tuple_arrives() {
         let mut state = ClientState::test_new();
         let endpoint = endpoint::ClientEndpointId::Local;
         state.record_retired_direct_graphics(endpoint.clone(), 7, 11, 1234);
@@ -619,23 +430,6 @@ mod native_cleanup_tests {
     }
 
     #[test]
-    fn replacement_generation_resets_bounded_graphics_guards() {
-        let mut state = ClientState::test_new();
-        let endpoint = endpoint::ClientEndpointId::Local;
-        let native = crate::kitty_graphics::surface::NATIVE_TRANSFER_BIT | 11;
-        state.record_retired_direct_graphics(endpoint.clone(), 7, native, 1234);
-        state.disabled_native_graphics.insert(endpoint.clone(), 7);
-
-        state.start_endpoint_graphics_generation(&endpoint, 8);
-
-        assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 7, native, 1234),
-            RetiredDirectGraphicsMatch::None
-        );
-        assert!(!state.disabled_native_graphics.contains_key(&endpoint));
-    }
-
-    #[test]
     fn retired_graphics_tombstone_overflow_fails_closed_until_generation_reset() {
         let mut state = ClientState::test_new();
         let endpoint = endpoint::ClientEndpointId::Local;
@@ -666,8 +460,6 @@ mod native_cleanup_tests {
                 .saturated
         );
 
-        state.start_endpoint_graphics_generation(&endpoint, 8);
-        assert!(!state.retired_direct_graphics.contains_key(&endpoint));
         state.record_retired_direct_graphics(endpoint.clone(), 8, 1, 2);
         assert_eq!(
             state.match_retired_direct_graphics(&endpoint, 8, 9, 9),
@@ -687,12 +479,7 @@ mod native_cleanup_tests {
 
         assert!(!state.queue_retired_graphics_cleanup(transfer, 1234, false, true));
         assert_eq!(state.pending_native_cleanup, b"existing");
-        assert!(state
-            .shell
-            .as_mut()
-            .expect("test shell")
-            .take_pending_graphics_cleanup()
-            .is_empty());
+        assert!(state.shell.take_pending_graphics_cleanup().is_empty());
     }
 
     #[test]
@@ -735,13 +522,15 @@ mod native_cleanup_tests {
     }
 
     #[test]
-    fn unacknowledged_native_upload_cleanup_survives_frozen_disconnect() {
+    fn pending_native_retirement_preserves_its_exact_tombstone_and_cleanup() {
         let mut state = ClientState::test_new();
+        state.kitty_graphics_enabled = true;
         let endpoint = endpoint::ClientEndpointId::Local;
+        let transfer = crate::kitty_graphics::surface::NATIVE_TRANSFER_BIT | 1;
         let key = crate::protocol::SurfaceGraphicsAssetKey {
             source: crate::protocol::SurfaceGraphicsSource::Terminal {
                 target: crate::protocol::SurfaceGraphicsTarget::Pane {
-                    pane_id: "p".into(),
+                    pane_id: "pane".into(),
                 },
                 image_id: 1,
             },
@@ -751,91 +540,18 @@ mod native_cleanup_tests {
             data_len: 4,
             data_fingerprint: 1,
         };
-        let transfer = crate::kitty_graphics::surface::NATIVE_TRANSFER_BIT | 2;
         state
             .pending_surface_graphics
             .insert((endpoint.clone(), 9, transfer, 1234), key);
-        state.presentation_frozen = true;
-        state.retire_endpoint_graphics(&endpoint, 9);
-        assert!(state.pending_surface_graphics.is_empty());
-        let mut output = Vec::new();
-        state.flush_native_cleanup(&mut output).unwrap();
-        assert!(output.is_empty());
-        assert!(!state.pending_native_cleanup.is_empty());
-        state.unfreeze_presentation();
-        state.flush_native_cleanup(&mut output).unwrap();
-        assert!(String::from_utf8(output.clone())
-            .unwrap()
-            .contains("a=d,d=I,i=1234"));
-        state.flush_native_cleanup(&mut output).unwrap();
-        assert_eq!(
-            String::from_utf8(output).unwrap().matches("a=d,").count(),
-            1
-        );
-    }
-
-    #[test]
-    fn unacknowledged_native_upload_retirement_survives_frozen_handoff() {
-        let mut state = ClientState::test_new();
-        let endpoint = endpoint::ClientEndpointId::Local;
-        let key = crate::protocol::SurfaceGraphicsAssetKey {
-            source: crate::protocol::SurfaceGraphicsSource::Terminal {
-                target: crate::protocol::SurfaceGraphicsTarget::Pane {
-                    pane_id: "p".into(),
-                },
-                image_id: 1,
-            },
-            image_width: 1,
-            image_height: 1,
-            format: crate::protocol::SurfaceGraphicsFormat::Rgba,
-            data_len: 4,
-            data_fingerprint: 1,
-        };
-        let transfer = crate::kitty_graphics::surface::NATIVE_TRANSFER_BIT | 2;
-        state
-            .pending_surface_graphics
-            .insert((endpoint.clone(), 9, transfer, 1234), key);
-        state.presentation_frozen = true;
-        // The source connection is still live, but no longer owns the active shell.
-        state.receive_graphics_retirement(&endpoint, 8, transfer, 1234, false);
-        assert_eq!(state.pending_surface_graphics.len(), 1);
-        assert!(state.pending_native_cleanup.is_empty());
         state.receive_graphics_retirement(&endpoint, 9, transfer, 1234, false);
+        assert!(state.pending_surface_graphics.is_empty());
         assert_eq!(
             state.match_retired_direct_graphics(&endpoint, 9, transfer, 1234),
             RetiredDirectGraphicsMatch::Exact
         );
-        assert!(state
-            .shell
-            .as_mut()
-            .unwrap()
-            .take_pending_graphics_cleanup()
-            .is_empty());
-        assert!(state.pending_surface_graphics.is_empty());
         let mut output = Vec::new();
         state.flush_native_cleanup(&mut output).unwrap();
-        assert!(output.is_empty());
-        assert!(!state.pending_native_cleanup.is_empty());
-        let cleanup = state.pending_native_cleanup.clone();
-        let frame = crate::protocol::FrameData::from_ratatui_buffer(
-            &ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 1, 1)),
-            None,
-        );
-        state.kitty_graphics_enabled = true;
-        assert!(!state.try_present_frame(frame.clone()));
-        assert_eq!(state.pending_native_cleanup, cleanup);
-        state.present_frozen_chrome(frame);
-        assert!(state.presentation_frozen);
-        assert_eq!(state.pending_native_cleanup, cleanup);
-        state.unfreeze_presentation();
-        state.flush_native_cleanup(&mut output).unwrap();
-        assert!(String::from_utf8(output.clone())
-            .unwrap()
-            .contains("a=d,d=I,i=1234"));
-        state.flush_native_cleanup(&mut output).unwrap();
-        assert_eq!(
-            String::from_utf8(output).unwrap().matches("a=d,").count(),
-            1
-        );
+        assert!(!output.is_empty());
+        assert!(state.pending_native_cleanup.is_empty());
     }
 }

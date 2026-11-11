@@ -197,7 +197,6 @@ fn client_owned_sidebar_dividers_resize_live() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.compose(106, 30).expect("expanded sidebar");
-    assert!(state.hits.machines.is_empty());
     let workspace_body = state.hits.workspace_body;
     let needless_scroll =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
@@ -244,7 +243,6 @@ fn client_owned_sidebar_dividers_resize_live() {
     assert!(state.pane_surface.is_none());
     assert!(state.hits.panes.is_empty());
     assert!(state.hits.pane_splits.is_empty());
-    assert!(state.hits.machines.is_empty());
     assert_eq!(state.hits.sidebar_divider.x, 31);
     assert_eq!(state.hits.workspaces[0].workspace_id, "ws_1");
 
@@ -292,6 +290,51 @@ fn client_owned_sidebar_dividers_resize_live() {
     assert!(state.sidebar_section_split > 0.6);
     assert!(split.repaint);
     assert!(!split.resize);
+}
+
+#[test]
+fn diagnostic_menus_capture_only_local_state_without_focus_or_input_requests() {
+    for global in [false, true] {
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(snapshot()));
+        state.set_pane_surface(surface());
+        state.compose(106, 30).unwrap();
+        let before = state.snapshot.clone();
+        let before_surface = state.pane_surface.clone();
+        let mut outcome = ClientShellInput::default();
+        if global {
+            state.toggle_global_menu();
+            let index = global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
+                .iter()
+                .position(|(_, action)| {
+                    *action == global_menu::ClientGlobalMenuAction::DumpPaneDiagnostics
+                })
+                .unwrap();
+            state.activate_global_menu_item(index, &mut outcome);
+        } else {
+            state.open_pane_context_menu("pane_1".into(), 30, 4);
+            let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
+                panic!("menu")
+            };
+            let index = menu
+                .items()
+                .iter()
+                .position(|item| item.action == ClientContextMenuAction::DumpPaneDiagnostics)
+                .unwrap();
+            state.activate_context_menu_item(index, &mut outcome);
+        }
+        assert!(outcome.requests.is_empty());
+        assert!(!outcome.resize && !outcome.detach);
+        assert_eq!(state.snapshot, before);
+        assert_eq!(state.pane_surface, before_surface);
+        let [ClientShellAction::DumpPaneDiagnostics { pane_id, client }] = &outcome.actions[..]
+        else {
+            panic!("one local diagnostic action")
+        };
+        assert_eq!(pane_id, "pane_1");
+        assert_eq!(client["pane_id"], "pane_1");
+        assert!(client["pane_cells"].is_array());
+    }
 }
 
 #[test]
@@ -407,6 +450,7 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     assert!(text.contains("settings"));
     assert!(text.contains("keybinds"));
     assert!(text.contains("reload config"));
+    assert!(text.contains("dump pane diagnostics"));
     assert!(text.contains("detach"));
 
     let keybinds = state.hits.global_menu_rows[1].0;
@@ -419,8 +463,15 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     assert!(help.actions.is_empty());
     assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(_))));
 
+    let detach_index = global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
+        .iter()
+        .position(|(_, action)| {
+            *action
+                == global_menu::ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach)
+        })
+        .unwrap();
     state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
-        highlighted: 3,
+        highlighted: detach_index,
     }));
     let detach = state.handle_input_bytes(b"\r");
     assert!(detach.detach);
