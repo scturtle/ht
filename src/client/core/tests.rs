@@ -9,6 +9,56 @@ use ratatui::layout::{Direction, Rect};
 use serde_json::json;
 use std::collections::HashMap;
 
+#[test]
+fn hc_socket_selects_an_external_core_without_creating_a_session_socket() {
+    // No directory creation or existence check: `hc connect` handles the target.
+    let socket = PathBuf::from("/external/nonexistent/runtime/other.sock");
+    assert_eq!(
+        selected_socket(Some(socket.clone()), "default", false).unwrap(),
+        socket
+    );
+    // Match hc's support for paths relative to the caller's working directory.
+    let relative = PathBuf::from("other.sock");
+    assert_eq!(
+        selected_socket(Some(relative.clone()), "default", false).unwrap(),
+        relative
+    );
+}
+
+#[test]
+fn hc_socket_rejects_empty_paths_and_private_session_conflicts() {
+    for (socket, isolate) in [
+        (PathBuf::new(), false),
+        (PathBuf::from("/external/core.sock"), true),
+    ] {
+        assert_eq!(
+            selected_socket(Some(socket), "private", isolate)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+}
+
+#[test]
+fn relay_receives_the_selected_socket_without_private_xdg_overrides() {
+    let socket = PathBuf::from("/external/core.sock");
+    let command = transport::command(
+        std::path::Path::new("herdr-core"),
+        std::path::Path::new("/client/state"),
+        &socket,
+        false,
+    );
+    let env = command.get_envs().collect::<HashMap<_, _>>();
+    assert_eq!(
+        env.get(std::ffi::OsStr::new("HC_SOCKET")),
+        Some(&Some(socket.as_os_str()))
+    );
+    for key in ["XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"] {
+        assert!(!env.contains_key(std::ffi::OsStr::new(key)));
+    }
+}
+
 fn endpoint() -> (CoreEndpoint, mpsc::Receiver<Command>) {
     let (sender, receiver) = mpsc::sync_channel(64);
     (

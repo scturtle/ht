@@ -38,9 +38,9 @@ use std::{
 pub(super) struct Options {
     pub binary: PathBuf,
     pub home: PathBuf,
-    /// Socket this client drives: `$XDG_RUNTIME_DIR/herdr-core/<session>.sock`,
-    /// the same convention `hc` uses, so both tools reach one Core. The client
-    /// never keeps a socket of its own.
+    /// Socket this client drives: explicit `HC_SOCKET`, otherwise
+    /// `$XDG_RUNTIME_DIR/herdr-core/<session>.sock`, as with `hc`.
+    /// The client never keeps a socket of its own.
     pub socket: PathBuf,
     /// A private session owns its Core end to end and isolates its state dirs.
     pub isolate: bool,
@@ -84,6 +84,25 @@ fn session_socket(session: &str) -> io::Result<PathBuf> {
     Ok(dir.join(format!("{session}.sock")))
 }
 
+fn selected_socket(explicit: Option<PathBuf>, session: &str, isolate: bool) -> io::Result<PathBuf> {
+    if let Some(socket) = explicit {
+        if isolate {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HC_SOCKET cannot be combined with --core-session; unset HC_SOCKET to select a private session",
+            ));
+        }
+        if socket.as_os_str().is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HC_SOCKET must not be empty",
+            ));
+        }
+        return Ok(socket);
+    }
+    session_socket(session)
+}
+
 impl Options {
     pub fn from_environment() -> io::Result<Self> {
         let binary = std::env::var_os("HERDR_CORE_BIN")
@@ -93,7 +112,11 @@ impl Options {
         // environment never moves it, so no enclosing process can retarget us.
         let home = crate::session::data_dir();
         let isolate = crate::session::core_session_is_private();
-        let socket = session_socket(&crate::session::core_session())?;
+        let socket = selected_socket(
+            std::env::var_os("HC_SOCKET").map(PathBuf::from),
+            &crate::session::core_session(),
+            isolate,
+        )?;
         let explicit = match std::env::var("HERDR_CORE_CLIENT_ID") {
             Ok(id) => Some(id),
             Err(std::env::VarError::NotPresent) => None,
