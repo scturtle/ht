@@ -10,6 +10,16 @@ publish = false
 [build-dependencies]
 bindgen = { version = "0.73", default-features = false, features = ["runtime", "logging"] }
 sha2 = "0.10"
+# Read the existing vendor manifest; do not maintain a second version pin here.
+serde_json = "1"
+
+[[test]]
+name = "build-staging"
+path = "build_support.rs"
+
+[dev-dependencies]
+sha2 = "0.10"
+serde_json = "1"
 
 [dependencies]
 base64 = "0.22.1"

@@ -3,6 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod build_support;
+use build_support::SourcePin;
+
 fn zig_target(target: &str) -> &str {
     match target {
         "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
@@ -31,16 +34,23 @@ fn env_bool(name: &str) -> Option<bool> {
     }
 }
 
-/// Copy the pristine submodule into `OUT_DIR` and apply the local patches there.
+/// Copy the verified archive tree into `OUT_DIR` and apply local patches there.
 ///
 /// The prepared tarball tree is shared with the fetch step and with binding
 /// regeneration, so patching it in place would make a refetch destructive.
 /// Staging also keeps builds of different targets from sharing one patched tree.
-fn stage_patched_source(source_dir: &Path, patch_dir: &Path, out_dir: &Path) -> PathBuf {
+fn stage_patched_source(
+    source_dir: &Path,
+    patch_dir: &Path,
+    out_dir: &Path,
+    pin: &SourcePin,
+) -> PathBuf {
     let stage = out_dir.join("libghostty-vt");
     let patches = list_patches(patch_dir);
     let stamp = stage.join(".staged");
-    let wanted = stage_fingerprint(source_dir, &patches);
+    let wanted = pin
+        .fingerprint(source_dir, &patches)
+        .expect("failed to fingerprint libghostty-vt inputs");
     if stamp.is_file() && fs::read_to_string(&stamp).ok().as_deref() == Some(wanted.as_str()) {
         return stage;
     }
@@ -48,19 +58,8 @@ fn stage_patched_source(source_dir: &Path, patch_dir: &Path, out_dir: &Path) -> 
         fs::remove_dir_all(&stage).expect("failed to clear staged libghostty-vt source");
     }
     fs::create_dir_all(&stage).expect("failed to create staged libghostty-vt source");
-    for entry in [
-        "build.zig",
-        "build.zig.zon",
-        "LICENSE",
-        "include",
-        "src",
-        "pkg",
-        "dist",
-    ] {
+    for entry in &pin.paths {
         let from = source_dir.join(entry);
-        if !from.exists() {
-            continue;
-        }
         let to = stage.join(entry);
         if from.is_dir() {
             copy_tree(&from, &to);
@@ -70,8 +69,9 @@ fn stage_patched_source(source_dir: &Path, patch_dir: &Path, out_dir: &Path) -> 
     }
     // The tag ships neither version file; the dist tarball normally adds them and
     // build.zig reads LIB_VERSION for the library version.
-    fs::write(stage.join("VERSION"), "1.0.0\n").expect("failed to write staged VERSION");
-    fs::write(stage.join("LIB_VERSION"), "1.0.0\n").expect("failed to write staged LIB_VERSION");
+    let version = format!("{}\n", pin.version);
+    fs::write(stage.join("VERSION"), &version).expect("failed to write staged VERSION");
+    fs::write(stage.join("LIB_VERSION"), &version).expect("failed to write staged LIB_VERSION");
 
     for (path, name) in &patches {
         let patch_bytes = fs::read(path).expect("failed to read libghostty-vt patch");
@@ -97,7 +97,7 @@ fn stage_patched_source(source_dir: &Path, patch_dir: &Path, out_dir: &Path) -> 
         assert!(
             status.success(),
             "libghostty-vt patch {name} did not apply cleanly; regenerate it against the \
-             pinned submodule commit"
+             pinned archive"
         );
     }
     fs::write(&stamp, wanted).expect("failed to write staged source fingerprint");
@@ -123,31 +123,6 @@ fn list_patches(patch_dir: &Path) -> Vec<(PathBuf, String)> {
                 .unwrap_or_default();
             (path, name)
         })
-        .collect()
-}
-
-/// Fingerprint the submodule commit plus every patch, so a checkout that moved
-/// either side restages instead of reusing a stale patched tree.
-fn stage_fingerprint(source_dir: &Path, patches: &[(PathBuf, String)]) -> String {
-    use sha2::{Digest as _, Sha256};
-    let mut hasher = Sha256::new();
-    for patch in [
-        source_dir.join("build.zig"),
-        source_dir.join("build.zig.zon"),
-    ] {
-        if let Ok(bytes) = fs::read(&patch) {
-            hasher.update(&bytes);
-        }
-    }
-    for (path, _) in patches {
-        if let Ok(bytes) = fs::read(path) {
-            hasher.update(&bytes);
-        }
-    }
-    hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
         .collect()
 }
 
@@ -212,18 +187,21 @@ fn main() {
         );
     }
 
+    let manifest = repo_dir.join("vendor/libghostty-vt.vendor.json");
+    let pin = SourcePin::read(&manifest, &source_dir).unwrap_or_else(|error| {
+        panic!("invalid libghostty-vt source identity: {error}; run just vendor-libghostty")
+    });
     println!("cargo:rerun-if-changed=build.rs");
-    for path in [
-        repo_dir.join("vendor").join("libghostty-vt.vendor.json"),
-        source_dir.join("build.zig"),
-        source_dir.join("build.zig.zon"),
-        source_dir.join("include"),
-        source_dir.join("pkg"),
-        source_dir.join("src"),
-        source_dir.join("dist").join("cmake"),
-        patch_dir.clone(),
-    ] {
+    println!("cargo:rerun-if-changed=build_support.rs");
+    println!(
+        "cargo:rerun-if-changed={}",
+        source_dir.join(".libghostty-vt-source.json").display()
+    );
+    for path in [&manifest, &patch_dir] {
         println!("cargo:rerun-if-changed={}", path.display());
+    }
+    for path in &pin.paths {
+        println!("cargo:rerun-if-changed={}", source_dir.join(path).display());
     }
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_OPTIMIZE");
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SIMD");
@@ -235,16 +213,14 @@ fn main() {
     let simd = env_bool("LIBGHOSTTY_VT_SIMD").unwrap_or(true);
     let target = env::var("TARGET").expect("TARGET");
     let zig_target = zig_target(&target);
-    // The pinned tag is vt-1.0.0; the staged tree carries the same value in
-    // VERSION and LIB_VERSION, and zig records this one in build_info.
-    let version_string = "1.0.0".to_string();
+    // One verified tag supplies VERSION, LIB_VERSION and Zig's build_info.
+    let version_string = &pin.version;
 
     // Install into this build's OUT_DIR so concurrent builds for different targets
     // from one checkout never link each other's archive.
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    // The upstream submodule stays pristine: every build compiles a staged copy
-    // with the local patches applied.
-    let vendored_dir = stage_patched_source(&source_dir, &patch_dir, &out_dir);
+    // The fetched tree stays pristine; each build owns its patched staging tree.
+    let vendored_dir = stage_patched_source(&source_dir, &patch_dir, &out_dir, &pin);
     generate_bindings(&vendored_dir, &out_dir);
     let zig_prefix = out_dir.join("zig-out");
 

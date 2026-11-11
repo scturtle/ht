@@ -1,13 +1,32 @@
 from __future__ import annotations
 
+import importlib.util
+import json
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
 class VendorLibghosttyVtTests(unittest.TestCase):
+    def test_prepared_source_stamp_matches_tag_digest_and_paths(self) -> None:
+        script = Path(__file__).with_name("fetch_libghostty_vt.py")
+        spec = importlib.util.spec_from_file_location("fetch_libghostty_vt", script)
+        fetch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fetch)
+        entry = {"tag": "vt-1.0.0", "sha256": "archive", "paths": ["src"]}
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            record = target / ".libghostty-vt-source.json"
+            with mock.patch.object(fetch, "TARGET", target):
+                record.write_text(json.dumps(entry))
+                self.assertTrue(fetch.is_current(entry))
+                for key, value in [("tag", "vt-1.0.1"), ("sha256", "other"), ("paths", ["include"])]:
+                    record.write_text(json.dumps(dict(entry, **{key: value})))
+                    self.assertFalse(fetch.is_current(entry), key)
+
     def test_vendored_tree_contains_required_upstream_files(self) -> None:
         root = Path(__file__).resolve().parent.parent / ".local" / "libghostty-vt"
         if not (root / "build.zig").is_file():

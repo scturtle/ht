@@ -121,7 +121,7 @@ def is_current(entry: dict) -> bool:
         saved = json.loads(record.read_text())
     except json.JSONDecodeError:
         return False
-    return saved.get("sha256") == entry["sha256"] and saved.get("paths") == entry["paths"]
+    return all(saved.get(key) == entry[key] for key in ("tag", "sha256", "paths"))
 
 
 def main() -> int:

@@ -716,6 +716,7 @@ dependencies = [
  "bindgen",
  "libc",
  "png",
+ "serde_json",
  "sha2",
  "tracing",
 ]
