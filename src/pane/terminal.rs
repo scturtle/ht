@@ -2050,6 +2050,15 @@ impl GhosttyPaneTerminal {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, show_cursor: bool) {
+        self.render_cells::<true>(frame, area, show_cursor);
+    }
+
+    fn render_cells<const FAST_BLANKS: bool>(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        show_cursor: bool,
+    ) {
         let Ok(mut core) = self.core.lock() else {
             return;
         };
@@ -2100,14 +2109,52 @@ impl GhosttyPaneTerminal {
             };
             let mut grapheme_bytes = Vec::new();
             let mut symbol_scratch = String::new();
+            let mut blank_style = None;
             let mut y = 0u16;
             while y < area.height && rows.next() {
+                // Dense application rows should not pay another FFI lookup for
+                // every cell. A scalar tail probe enables the optimization only
+                // where a row has unused trailing space; repopulation resets the
+                // iterator before the actual paint, including column zero.
+                let fast_blank_row = if FAST_BLANKS && area.width > 0 {
+                    rows.populate_cells(&mut row_cells)
+                        .ok()
+                        .is_some_and(|mut probe| {
+                            probe.select(area.width - 1).is_ok()
+                                && probe.is_default_blank().unwrap_or(false)
+                        })
+                } else {
+                    false
+                };
                 let mut cells = match rows.populate_cells(&mut row_cells) {
                     Ok(cells) => cells,
                     Err(_) => break,
                 };
                 let mut x = 0u16;
                 while x < area.width && cells.next() {
+                    // Per visible cell: one packed presentation fact replaces
+                    // style/grapheme FFI calls for never-written default blanks.
+                    // Cache only within this locked render, resolving colors via
+                    // the exact full path once (including live default colors).
+                    if fast_blank_row && cells.is_default_blank().unwrap_or(false) {
+                        let style = *blank_style.get_or_insert_with(|| {
+                            ghostty_cell_style(
+                                &cells,
+                                &crate::ghostty::CellBasicData::default(),
+                                default_fg,
+                                default_bg,
+                                resolved_fg,
+                                resolved_bg,
+                                palette_overrides.as_ref(),
+                            )
+                        });
+                        let cell = &mut buf[(area.x + x, area.y + y)];
+                        cell.reset();
+                        cell.set_symbol(" ");
+                        cell.set_style(style);
+                        x += 1;
+                        continue;
+                    }
                     let basic = cells.basic_data().unwrap_or_default();
                     let style = ghostty_cell_style(
                         &cells,
@@ -3758,6 +3805,77 @@ mod tests {
                 col: 0,
             })
         );
+    }
+
+    #[test]
+    #[ignore = "explicit sparse/dense render comparison against the full-cell reference"]
+    fn render_scale_profile_blank_density() {
+        fn measure<const FAST: bool>(pane: &GhosttyPaneTerminal) -> f64 {
+            let mut target =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+            for _ in 0..20 {
+                pane.render_cells::<FAST>(&mut target.get_frame(), Rect::new(0, 0, 80, 24), false);
+            }
+            let start = std::time::Instant::now();
+            for _ in 0..500 {
+                pane.render_cells::<FAST>(&mut target.get_frame(), Rect::new(0, 0, 80, 24), false);
+            }
+            start.elapsed().as_secs_f64() * 1e6 / 500.0
+        }
+        for percent in [0, 50, 100] {
+            let pane =
+                GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(80, 24, 100).unwrap())
+                    .unwrap();
+            let text = "X".repeat(80 * percent / 100);
+            for row in 1..=24 {
+                pane.process_pty_bytes(
+                    PaneId::from_raw(1),
+                    format!("\x1b[{row};1H{text}").as_bytes(),
+                );
+            }
+            let mut full = Vec::new();
+            let mut fast = Vec::new();
+            for _ in 0..3 {
+                full.push(measure::<false>(&pane));
+                fast.push(measure::<true>(&pane));
+                fast.push(measure::<true>(&pane));
+                full.push(measure::<false>(&pane));
+            }
+            full.sort_by(f64::total_cmp);
+            fast.sort_by(f64::total_cmp);
+            let full = (full[2] + full[3]) / 2.0;
+            let fast = (fast[2] + fast[3]) / 2.0;
+            eprintln!("blank_density percent={percent} reference_us={full:.2} fast_us={fast:.2} change_percent={:.2}",(fast/full-1.0)*100.0);
+        }
+    }
+
+    #[test]
+    fn default_blank_fast_render_matches_full_cells_with_live_colors_and_styles() {
+        fn draw<const FAST: bool>(pane: &GhosttyPaneTerminal) -> ratatui::buffer::Buffer {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(48, 8)).unwrap();
+            let mut frame = terminal.get_frame();
+            pane.render_cells::<FAST>(&mut frame, Rect::new(0, 0, 48, 8), false);
+            frame.buffer_mut().clone()
+        }
+        for data in [
+            "",
+            "plain 中文\r\ntext",
+            "\x1b[1;48H界\x1b[2;1Hwide-wrap",
+            "\x1b[8minvisible\x1b[0m",
+            "\x1b[?5hglobal inverse",
+            "\x1b[1;3;4;7mstyled\x1b[0m\r\nnormal",
+            "\x1b]10;#112233\x07\x1b]11;#445566\x07live defaults",
+            "\x1b[44m\x1b[2K\r\nbg erase\x1b[0m",
+            "\x1b]4;1;#aabbcc\x07\x1b[31mpalette\x1b[0m",
+            "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\",
+            "\x1b[?1049h\x1b[2Jalternate",
+        ] {
+            let pane = GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(48, 8, 100).unwrap())
+                .unwrap();
+            pane.process_pty_bytes(PaneId::from_raw(1), data.as_bytes());
+            assert_eq!(draw::<true>(&pane), draw::<false>(&pane), "stream {data:?}");
+        }
     }
 
     fn current_palette_color(pane: &GhosttyPaneTerminal, index: u8) -> crate::ghostty::RgbColor {

@@ -690,9 +690,18 @@ fn render_stage_profile() {
             std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
         }
         renderer.profile_ns = [0; 5];
+        let mut drop_ns = 0;
         for _ in 0..1000 {
-            std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+            let frame =
+                std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+            let start = std::time::Instant::now();
+            drop(frame);
+            drop_ns += start.elapsed().as_nanos();
         }
+        eprintln!(
+            "render_frame_drop panes={count} mean_us={}",
+            drop_ns as f64 / 1_000_000.0
+        );
         eprintln!(
             "render_stages panes={count} geometry/links/paint/frame/metadata_graphics mean_us={:?}",
             renderer.profile_ns.map(|n| n as f64 / 1_000_000.0)
