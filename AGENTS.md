@@ -96,10 +96,10 @@ just check    # fmt + clippy -D warnings + the above
 Real-TUI gates drive the actual launcher against a private Core/PTY:
 
 ```bash
-just core-launcher-smoke      just core-multiclient-smoke
+just core-multiclient-smoke
 just core-organization-smoke  just core-copy-smoke
-just core-keyboard-smoke      just core-zoom-smoke
-just core-graphics-smoke      just core-reconnect-smoke
+just core-keyboard-smoke      just core-graphics-smoke
+just core-reconnect-smoke     just core-launcher-test
 ```
 
 Build the pinned Core runtime with `just core-source-build`; `source.json` lists

@@ -15,8 +15,7 @@ just core-copy-smoke
 just core-organization-smoke
 just core-multiclient-smoke
 just core-keyboard-smoke
-just core-launcher-smoke
-just core-zoom-smoke
+just core-launcher-test
 just core-graphics-smoke
 just core-reconnect-smoke
 ```

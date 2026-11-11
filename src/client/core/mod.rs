@@ -26,7 +26,7 @@ use crate::protocol::{ClientMessage, ServerMessage};
 pub(super) use session::Session;
 use std::{
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc, Arc, Mutex,
@@ -38,6 +38,10 @@ use std::{
 pub(super) struct Options {
     pub binary: PathBuf,
     pub home: PathBuf,
+    /// Socket the spawned Core connects to. Defaults to `<home>/core.sock`;
+    /// `HERDR_CORE_SOCKET` lets one client join a Core another tool started
+    /// (for example the default `hc` session) so both see the same terminals.
+    pub socket: PathBuf,
     pub client_id: Option<String>,
 }
 fn presentation_identity(
@@ -61,19 +65,34 @@ fn presentation_identity(
     }
     Ok(terminal.map(|name| format!("tty-{:x}", sha2::Sha256::digest(name.as_bytes()))))
 }
+/// Resolve a possibly relative override against the working directory, so a
+/// caller can pass a repo-relative path and still reach the same Core.
+fn absolute(path: PathBuf, cwd: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        cwd.join(path)
+    }
+}
+
 impl Options {
     pub fn from_environment() -> io::Result<Self> {
         let binary = std::env::var_os("HERDR_CORE_BIN")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("herdr-core"));
-        let home = std::env::var_os("HERDR_CORE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| crate::config::state_dir().join("core-client-v1"));
-        let home = if home.is_absolute() {
-            home
-        } else {
-            std::env::current_dir()?.join(home)
-        };
+        let cwd = std::env::current_dir()?;
+        let home = absolute(
+            std::env::var_os("HERDR_CORE_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| crate::config::state_dir().join("core-client-v1")),
+            &cwd,
+        );
+        let socket = absolute(
+            std::env::var_os("HERDR_CORE_SOCKET")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("core.sock")),
+            &cwd,
+        );
         let explicit = match std::env::var("HERDR_CORE_CLIENT_ID") {
             Ok(id) => Some(id),
             Err(std::env::VarError::NotPresent) => None,
@@ -84,6 +103,7 @@ impl Options {
         Ok(Self {
             binary,
             home,
+            socket,
             client_id,
         })
     }

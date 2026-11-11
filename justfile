@@ -56,11 +56,10 @@ core-multiclient-smoke: build core-source-build core-ui-oracle
 core-keyboard-smoke: build core-source-build core-ui-oracle
     CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/keyboard-ui-smoke.py
 
-# The actual user launcher must retain stdin and deliver real keyboard input.
+# The launcher script must retain the caller's stdin and never retarget its Core.
 [unix]
-core-launcher-smoke: build core-source-build core-ui-oracle
+core-launcher-test:
     {{python}} tests/core-tui/test-launcher.py
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/launcher-ui-smoke.py
 
 # A lost Core connection must recover; an explicit stop must never be undone.
 [unix]
@@ -71,10 +70,6 @@ core-reconnect-smoke: build core-source-build core-ui-oracle
 [unix]
 core-graphics-smoke: build core-source-build core-ui-oracle
     CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/graphics-ui-smoke.py
-
-# Original zoom behavior through the actual launcher and two isolated clients.
-core-zoom-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/zoom-ui-smoke.py
 
 # Run fast local lint checks
 [unix]

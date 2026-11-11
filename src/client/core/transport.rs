@@ -51,7 +51,7 @@ pub struct Core {
     pub hello: Value,
 }
 
-pub fn command(binary: &Path, home: &Path) -> Command {
+pub fn command(binary: &Path, home: &Path, socket: &Path) -> Command {
     let mut cmd = Command::new(binary);
     // Never inherit identity/socket overrides from the enclosing Herdr or Core.
     for (key, _) in std::env::vars_os() {
@@ -61,7 +61,7 @@ pub fn command(binary: &Path, home: &Path) -> Command {
         }
     }
     cmd.env("HC_SESSION", "herdr-tui")
-        .env("HC_SOCKET", home.join("core.sock"))
+        .env("HC_SOCKET", socket)
         // A custom runtime dir bypasses Core's systemd/linger auto-setup.
         .env("XDG_RUNTIME_DIR", home.join("run"))
         .env("XDG_STATE_HOME", home.join("state"))
@@ -144,19 +144,19 @@ fn negotiate(input: &mut impl Write, output: &mut impl Read, existing: bool) -> 
 
 impl Core {
     /// Explicit launch: may start a Core that is not running yet.
-    pub fn connect(binary: &Path, home: &Path) -> io::Result<Self> {
-        Self::open(binary, home, false)
+    pub fn connect(binary: &Path, home: &Path, socket: &Path) -> io::Result<Self> {
+        Self::open(binary, home, socket, false)
     }
 
     /// Recovery probe: reaches only a running Core. A probe must never undo an
     /// explicit `server stop` by auto-starting a replacement runtime.
-    pub fn connect_existing(binary: &Path, home: &Path) -> io::Result<Self> {
-        Self::open(binary, home, true)
+    pub fn connect_existing(binary: &Path, home: &Path, socket: &Path) -> io::Result<Self> {
+        Self::open(binary, home, socket, true)
     }
 
-    fn open(binary: &Path, home: &Path, existing: bool) -> io::Result<Self> {
+    fn open(binary: &Path, home: &Path, socket: &Path, existing: bool) -> io::Result<Self> {
         std::fs::create_dir_all(home.join("run"))?;
-        let mut command = command(binary, home);
+        let mut command = command(binary, home, socket);
         command.arg("connect");
         if existing {
             command.arg("--existing");
@@ -411,6 +411,29 @@ fn rpc_result(reply: &Value) -> io::Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_spawned_core_connects_to_the_configured_socket() {
+        let home = Path::new("/home/state/core-client-v1");
+        let socket = Path::new("/run/user/1000/herdr-core/default.sock");
+        let command = command(Path::new("herdr-core"), home, socket);
+        let envs = command
+            .get_envs()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("HC_SOCKET"))
+                .and_then(|value| value.map(std::path::PathBuf::from)),
+            Some(socket.to_path_buf()),
+            "the child must join the configured Core instead of <home>/core.sock"
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("XDG_RUNTIME_DIR"))
+                .and_then(|value| value.map(std::path::PathBuf::from)),
+            Some(home.join("run")),
+            "client-local runtime state still follows the home directory"
+        );
+    }
     fn check_with(result: Value, existing: bool) -> io::Result<Value> {
         let mut bytes =
             serde_json::to_vec(&json!({"jsonrpc":"2.0","id":0,"result":result})).unwrap();

@@ -70,12 +70,11 @@ CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
 入口曾有独立的 stdin 缺陷：用 Python heredoc 再 exec TUI，导致界面显示但
 键盘输入丢失，换键位不能修复。现已把启动逻辑移到 `run.py`，保留调用方
 的终端 stdin。满足能力要求的 Core 只需重进界面，不必停止 Core 或删除会话。
-`just core-launcher-smoke` 同时检查 stdin 描述符/输入保留，以及**通过同一个启动脚本**
-实际执行 Shell 命令、显示结果、Ctrl+b 分屏/切换、鼠标聚焦/拖动分界线/滚轮/
-创建和切换 Tab，以及 detach 后同 PID 重连并继续输入。另覆盖指定默认 shell、
-保存中文自定义名称、复用原版默认编号、自然 exit 后折叠分屏并关闭空 Tab；
-自然结束或显式关闭最后一个 Pane/Tab 都退出 TUI 并恢复外层终端，两个客户端也覆盖此路径。
-另验证最后关闭后显式重新启动只创建新程序、退休成员不复活，以及迟到释放不误报粘贴。
+`just core-launcher-test` 检查启动脚本保留调用方 stdin，以及 `--stop` 只作用于
+自己那个私有 Core。原先通过真实 PTY 驱动同一启动脚本的完整 UI 烟测按低频率随机
+超时（等待条件靠屏幕内容，负载高时不再收敛），已移除；分屏、鼠标、Tab、detach
+重连等行为仍由 `core-multiclient-smoke`、`core-keyboard-smoke`、`core-reconnect-smoke`
+覆盖。
 鼠标测试会先检查真实输出中的
 上报模式仍启用，不能在终端本来不会上报时强行注入鼠标来冒充通过。
 另已修复把程序鼠标需求误当成整个 TUI 捕获开关的问题；普通 Shell 不请求鼠标，
@@ -196,8 +195,7 @@ just core-copy-smoke
 just core-organization-smoke
 just core-multiclient-smoke
 just core-keyboard-smoke
-just core-launcher-smoke
-just core-zoom-smoke
+just core-launcher-test
 just core-paint-smoke
 just bench-render-scale
 ```

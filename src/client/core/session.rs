@@ -146,9 +146,9 @@ impl Session {
     /// so a failed attempt leaves this session exactly as it was.
     fn open_core(options: &super::Options, existing: bool) -> io::Result<(Core, Value)> {
         let mut core = if existing {
-            Core::connect_existing(&options.binary, &options.home)?
+            Core::connect_existing(&options.binary, &options.home, &options.socket)?
         } else {
-            Core::connect(&options.binary, &options.home)?
+            Core::connect(&options.binary, &options.home, &options.socket)?
         };
         let subscription = core.subscribe()?;
         Ok((core, subscription))
@@ -212,7 +212,7 @@ impl Session {
     pub fn socket_path(&self) -> PathBuf {
         self.options
             .as_ref()
-            .map(|options| options.home.join("core.sock"))
+            .map(|options| options.socket.clone())
             .unwrap_or_default()
     }
 

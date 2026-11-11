@@ -543,3 +543,16 @@ fn render_scale_profile_core() {
         eprintln!("core_retained_projection panes={count} hidden_tabs={hidden_tabs} named={named} zoom_requested={zoom_requested} zoomed={zoomed} geometry=120x40 mean_us={:.2}", start.elapsed().as_secs_f64() * 1e6 / 200.0);
     }
 }
+
+#[test]
+fn socket_override_is_resolved_against_the_working_directory() {
+    let base = PathBuf::from("/work");
+    assert_eq!(
+        absolute(PathBuf::from("/run/hc/default.sock"), &base),
+        PathBuf::from("/run/hc/default.sock")
+    );
+    assert_eq!(
+        absolute(PathBuf::from("state/core.sock"), &base),
+        PathBuf::from("/work/state/core.sock")
+    );
+}
