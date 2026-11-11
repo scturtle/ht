@@ -26,7 +26,7 @@ import termios
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-HERDR = Path(os.environ.get("CORE_UI_HERDR", ROOT / "target/release/herdr")).resolve()
+HERDR = Path(os.environ.get("CORE_UI_HERDR", ROOT / "target/release/ht")).resolve()
 HC = Path(
     os.environ.get("CORE_TUI_HC", ROOT / ".local/core-runtime/target/release/herdr-core")
 ).resolve()

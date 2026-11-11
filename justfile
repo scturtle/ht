@@ -100,29 +100,35 @@ install-hooks:
 build: vendor-libghostty
     cargo build --release --locked
 
+# Symlink the release binaries into ~/.local/bin so `ht` and `hc` run them from anywhere.
+# `hc` is the existing alias for `herdr-core`, so replacing that link is enough.
+install: build core-source-build
+    @mkdir -p ~/.local/bin
+    @ln -sf "{{justfile_directory()}}/target/release/ht" ~/.local/bin/ht
+    @ln -sf "{{justfile_directory()}}/.local/core-runtime/target/release/herdr-core" ~/.local/bin/herdr-core
+    @echo "ht         -> {{justfile_directory()}}/target/release/ht"
+    @echo "herdr-core -> {{justfile_directory()}}/.local/core-runtime/target/release/herdr-core"
+    @echo "hc         -> herdr-core (existing alias)"
+
 # Non-gating full-render scaling profile for background workspaces and active panes
 bench-render-scale:
-    cargo test --release --locked --bin herdr render_scale_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin ht render_scale_profile -- --ignored --nocapture --test-threads=1
 
 # Profile terminal target name resolution at increasing pane counts.
 bench-terminal-targets:
-    cargo test --release --locked --bin herdr terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin ht terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
 
 # Profile BSP split collection and construction with balanced and skewed trees.
 bench-bsp-layout:
-    cargo test --release --locked --bin herdr bsp_layout_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin ht bsp_layout_profile -- --ignored --nocapture --test-threads=1
 
 # Profile full and retained text, static-image, and unchanged-image updates.
 bench-retained-graphics:
-    cargo test --release --locked --bin herdr render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin ht render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
 
 # Profile first-batch latency and aggregate drain cost for external API bursts.
 bench-api-fairness:
-    cargo test --release --locked --bin herdr external_api_burst_profile -- --ignored --nocapture --test-threads=1
-
-# Build the vendored libghostty-vt source dist
-build-libghostty-vt:
-    scripts/build_vendored_libghostty_vt.sh
+    cargo test --release --locked --bin ht external_api_burst_profile -- --ignored --nocapture --test-threads=1
 
 # Print default config
 default-config:

@@ -178,7 +178,7 @@ Core 使用独立 runtime dir，不自动配置 systemd/linger；不承诺注销
 just core-source-build
 HERDR_CORE_BIN="$PWD/.local/core-runtime/target/release/herdr-core" \
 HERDR_CORE_HOME=/absolute/path/to/a-private-core-home \
-  target/release/herdr
+  target/release/ht
 ```
 
 `HERDR_CORE_BIN` 默认是 PATH 上的 `herdr-core`；`HERDR_CORE_HOME` 默认是 Herdr state dir 下的

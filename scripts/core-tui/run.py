@@ -32,4 +32,4 @@ if config and Path(config).resolve() == (root / 'scripts/core-tui/try-config.tom
     print('Trial keys: Ctrl+b or F12 prefix; F2/F3 split; F6 next pane; F10 detach.', flush=True)
 else:
     print('An outer Herdr/tmux may capture the same prefix. Optional trial config: scripts/core-tui/try-config.toml', flush=True)
-os.execve(root / 'target/release/herdr', ['herdr'], env)
+os.execve(root / 'target/release/ht', ['ht'], env)
