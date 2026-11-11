@@ -328,7 +328,7 @@ fn compute_prof_blit_stats(
             } else {
                 in_run = false;
             }
-            to_skip = cell_width(cell).saturating_sub(1);
+            to_skip = next_wide_skip(to_skip, cell);
             let affected_width = cmp::max(cell_width(cell), cell_width(prev_cell));
             invalidated = cmp::max(affected_width, invalidated).saturating_sub(1);
         }
@@ -640,7 +640,7 @@ fn blit_patch_to(
                 next_inline_col = (cell.symbol.is_ascii() && cell_width(cell) == 1)
                     .then_some(col.saturating_add(1));
             }
-            to_skip = cell_width(cell).saturating_sub(1);
+            to_skip = next_wide_skip(to_skip, cell);
             let affected_width = cmp::max(cell_width(cell), cell_width(prev_cell));
             invalidated = cmp::max(affected_width, invalidated).saturating_sub(1);
         }
@@ -740,7 +740,17 @@ fn repeat_ime_anchor_after_sync() -> bool {
     true
 }
 
-/// Writes all cells in the frame (full redraw).
+/// Advance coverage without interpreting symbols hidden under a wide glyph.
+fn next_wide_skip(to_skip: usize, cell: &CellData) -> usize {
+    // A covered cell may retain an old wide symbol in TestBackend. Its hidden
+    // width must not restart the skip and suppress subsequent visible glyphs.
+    if to_skip > 0 {
+        to_skip - 1
+    } else {
+        cell_width(cell).saturating_sub(1)
+    }
+}
+
 fn cell_width(cell: &CellData) -> usize {
     if is_halfwidth_katakana_voiced_grapheme(&cell.symbol) {
         return 2;
@@ -1040,7 +1050,7 @@ fn write_changed_cells(writer: &mut impl Write, frame: &FrameData, prev: &FrameD
                     .then_some(col.saturating_add(1));
             }
 
-            to_skip = cell_width(cell).saturating_sub(1);
+            to_skip = next_wide_skip(to_skip, cell);
             let affected_width = cmp::max(cell_width(cell), cell_width(prev_cell));
             invalidated = cmp::max(affected_width, invalidated).saturating_sub(1);
         }
@@ -1162,6 +1172,57 @@ mod tests {
     #[test]
     fn build_sgr_resets_previous_modifiers_when_cell_is_plain() {
         assert_eq!(build_sgr(0x00_00_00_00, 0x00_00_00_00, 0), "\x1b[0;39;49m");
+    }
+
+    #[test]
+    fn wide_spacer_contents_cannot_hide_following_changed_cells() {
+        // TestBackend retains old symbols underneath the trailing half of a
+        // newly drawn wide glyph. Those hidden symbols have no display width.
+        let previous = make_frame(
+            6,
+            1,
+            ["a", "b", "c", "d", "e", "f"]
+                .map(|s| make_cell(s, 0, 0, 0))
+                .to_vec(),
+        );
+        let next = make_frame(
+            6,
+            1,
+            ["中", "旧", "文", "字", "Z", " "]
+                .map(|s| make_cell(s, 0, 0, 0))
+                .to_vec(),
+        );
+        for patch in [false, true] {
+            let mut host = crate::ghostty::Terminal::new(6, 1, 0).unwrap();
+            host.write(b"\x1b[?7l");
+            let mut encoder = BlitEncoder::new();
+            let initial = encoder.encode(&previous, false);
+            host.write(&initial.bytes);
+            encoder.commit(previous.clone(), initial);
+            let changed = if patch {
+                encoder
+                    .encode_patch(
+                        &[PaneSurfacePatchRow {
+                            x: 0,
+                            y: 0,
+                            cells: next.cells.clone(),
+                        }],
+                        None,
+                        false,
+                    )
+                    .unwrap()
+            } else {
+                encoder.encode(&next, false)
+            };
+            host.write(&changed.bytes);
+            assert_eq!(
+                host.read_text_viewport((0, 0), (5, 0), true)
+                    .unwrap()
+                    .trim_end(),
+                "中文Z",
+                "patch={patch}"
+            );
+        }
     }
 
     #[test]
