@@ -434,7 +434,9 @@ impl Session {
                 view.terminal.set_scroll_offset_from_bottom(
                     usize::try_from(p.offset_from_bottom).unwrap_or(usize::MAX),
                 );
-                Ok(R::Ok {})
+                Ok(R::PaneInfo {
+                    pane: self.pane_info(id)?,
+                })
             }
             M::PaneCopyMotion(p) => {
                 let id = self.target(Some(&p.pane_id))?;
