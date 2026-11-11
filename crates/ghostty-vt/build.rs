@@ -33,9 +33,9 @@ fn env_bool(name: &str) -> Option<bool> {
 
 /// Copy the pristine submodule into `OUT_DIR` and apply the local patches there.
 ///
-/// The submodule is a plain upstream checkout, so patching in place would dirty
-/// it and make `git submodule update` destructive. Staging also keeps builds of
-/// different targets from sharing one patched tree.
+/// The prepared tarball tree is shared with the fetch step and with binding
+/// regeneration, so patching it in place would make a refetch destructive.
+/// Staging also keeps builds of different targets from sharing one patched tree.
 fn stage_patched_source(source_dir: &Path, patch_dir: &Path, out_dir: &Path) -> PathBuf {
     let stage = out_dir.join("libghostty-vt");
     let patches = list_patches(patch_dir);
@@ -168,11 +168,19 @@ fn main() {
     // The vendored source stays at the repository root, shared with its maintenance scripts.
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_dir = manifest_dir.join("../..");
-    let source_dir = repo_dir.join("3rdparty").join("libghostty-vt");
+    let source_dir = repo_dir.join(".local").join("libghostty-vt");
     let patch_dir = repo_dir
         .join("vendor")
         .join("patches")
         .join("libghostty-vt");
+
+    if !source_dir.join("build.zig").is_file() {
+        panic!(
+            "libghostty-vt source is missing at {}. Run `python3 scripts/fetch_libghostty_vt.py` \
+             (or `just vendor-libghostty`) to download and verify the pinned archive",
+            source_dir.display()
+        );
+    }
 
     println!("cargo:rerun-if-changed=build.rs");
     for path in [

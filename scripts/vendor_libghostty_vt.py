@@ -95,7 +95,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--destination",
-        default="3rdparty/libghostty-vt",
+        default=".local/libghostty-vt",
         help="Destination directory for the extracted libghostty-vt source dist",
     )
     parser.add_argument(

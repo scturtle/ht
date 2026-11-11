@@ -1,7 +1,21 @@
 {
   "source_commit": "0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec",
-  "dist_archive": "third-party submodule at 3rdparty/libghostty-vt (tag vt-1.0.0), sparse checkout of include/ src/ pkg/ dist/cmake/ plus the root build files",
-  "extracted_dir": "3rdparty/libghostty-vt",
-  "tag": "vt-1.0.0",
-  "build_staging": "crates/ghostty-vt/build.rs copies the submodule into OUT_DIR, writes VERSION and LIB_VERSION (the tag ships neither), then applies vendor/patches/libghostty-vt/*.patch before zig build"
+  "dist_archive": "ghostty-vt-1.0.0.tar.gz (tag archive, trimmed to the paths below)",
+  "extracted_dir": "ghostty-vt-1.0.0",
+  "libghostty_vt": {
+    "tag": "vt-1.0.0",
+    "url": "https://github.com/ghostty-org/ghostty/archive/refs/tags/vt-1.0.0.tar.gz",
+    "sha256": "b297150915524b979039dbd16f003da665c1628d3eec5f1fd547c419eaef81b0",
+    "paths": [
+      "build.zig",
+      "build.zig.zon",
+      "LICENSE",
+      "include",
+      "src",
+      "pkg",
+      "dist/cmake"
+    ],
+    "prepare": "python3 scripts/fetch_libghostty_vt.py  (extracts to .local/libghostty-vt)"
+  },
+  "build_staging": "crates/ghostty-vt/build.rs copies .local/libghostty-vt into OUT_DIR, writes VERSION and LIB_VERSION (the tag ships neither), then applies vendor/patches/libghostty-vt/*.patch before zig build"
 }

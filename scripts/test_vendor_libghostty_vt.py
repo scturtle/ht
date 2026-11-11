@@ -74,11 +74,11 @@ class VendorLibghosttyVtTests(unittest.TestCase):
                     ensure_dist_archive(repo)
 
     def test_vendored_tree_contains_required_upstream_files(self) -> None:
-        root = Path(__file__).resolve().parent.parent / "3rdparty" / "libghostty-vt"
+        root = Path(__file__).resolve().parent.parent / ".local" / "libghostty-vt"
         if not (root / "build.zig").is_file():
-            self.skipTest("libghostty-vt submodule is not checked out")
-        # The submodule is the pristine upstream checkout. VERSION and LIB_VERSION
-        # are written into the staged copy by the build script, not here.
+            self.skipTest("libghostty-vt source is not fetched; run scripts/fetch_libghostty_vt.py")
+        # The prepared tree is the pristine upstream archive. VERSION and
+        # LIB_VERSION are written into the staged copy by the build script.
         required = [
             root / "build.zig",
             root / "build.zig.zon",
@@ -118,19 +118,19 @@ class VendorLibghosttyVtTests(unittest.TestCase):
         ]
         self.assertEqual(missing, [])
 
-    def test_local_vendor_patches_apply_to_the_pinned_submodule(self) -> None:
-        # The submodule stays pristine, so patches are applied to a staged copy
-        # during the build. Verify each one still applies to a clean export of
-        # the pinned commit instead of reverse-applying against a patched tree.
+    def test_local_vendor_patches_apply_to_the_pinned_archive(self) -> None:
+        # The fetched tree stays pristine, so patches are applied to a staged copy
+        # during the build. Verify each one still applies to a clean export of the
+        # pinned archive instead of reverse-applying against a patched tree.
         project_root = Path(__file__).resolve().parent.parent
         patch_dir = project_root / "vendor" / "patches" / "libghostty-vt"
-        source = project_root / "3rdparty" / "libghostty-vt"
+        source = project_root / ".local" / "libghostty-vt"
 
         patches = sorted(patch_dir.glob("*.patch"))
         if not patches:
             return
         if not (source / "build.zig").is_file():
-            self.skipTest("libghostty-vt submodule is not checked out")
+            self.skipTest("libghostty-vt source is not fetched")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             staged = Path(temp_dir) / "staged"
@@ -155,13 +155,13 @@ class VendorLibghosttyVtTests(unittest.TestCase):
                     result.returncode,
                     0,
                     f"{patch.relative_to(project_root)} no longer applies to the pinned "
-                    f"submodule commit:\n{result.stdout.decode(errors='replace')}",
+                    f"archive tree:\n{result.stdout.decode(errors='replace')}",
                 )
 
     def test_embedded_libghostty_logging_is_silenced(self) -> None:
-        root = Path(__file__).resolve().parent.parent / "3rdparty" / "libghostty-vt"
+        root = Path(__file__).resolve().parent.parent / ".local" / "libghostty-vt"
         if not (root / "src" / "lib_vt.zig").is_file():
-            self.skipTest("libghostty-vt submodule is not checked out")
+            self.skipTest("libghostty-vt source is not fetched")
         lib_vt = root / "src" / "lib_vt.zig"
         sys_zig = root / "src" / "terminal" / "c" / "sys.zig"
         lib_text = lib_vt.read_text()

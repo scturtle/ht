@@ -1,8 +1,8 @@
 /target
 /tests/core-tui/target/
 node_modules/
-/3rdparty/libghostty-vt/zig-pkg/
-/3rdparty/libghostty-vt/.zig-cache/
+/.local/libghostty-vt/zig-pkg/
+/.local/libghostty-vt/.zig-cache/
 __pycache__/
 *.pyc
 *.swp

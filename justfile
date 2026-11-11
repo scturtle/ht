@@ -2,8 +2,12 @@
 
 python := "python3"
 
+# Fetch and verify the pinned libghostty-vt source archive (~64 MB extracted)
+vendor-libghostty:
+    {{python}} scripts/fetch_libghostty_vt.py
+
 # Run tests
-test:
+test: vendor-libghostty
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
     just ui-hot-path-architecture-test
     just vendor-patches-test
@@ -12,7 +16,7 @@ test:
 ui-hot-path-architecture-test:
     {{python}} -m unittest scripts.test_ui_hot_path_architecture
 
-# Vendored patch index must stay accurate and reverse-apply cleanly
+# Vendored patch index must stay accurate and still apply to the pinned tree
 vendor-patches-test:
     {{python}} -m unittest scripts.test_vendor_libghostty_vt
 
@@ -74,15 +78,15 @@ core-zoom-smoke: build core-source-build core-ui-oracle
 
 # Run fast local lint checks
 [unix]
-lint:
+lint: vendor-libghostty
     cargo fmt --check
     cargo clippy --all-targets --locked -- -D warnings
 
 # Run local checks: lint + unit tests + maintenance contract tests
-ci: lint
+ci: vendor-libghostty lint
     just test
 
-check: ci
+check: vendor-libghostty ci
 
 # Install repo-local git hooks
 install-hooks:
@@ -93,7 +97,7 @@ install-hooks:
 
 # Build release binary
 [unix]
-build:
+build: vendor-libghostty
     cargo build --release --locked
 
 # Non-gating full-render scaling profile for background workspaces and active panes

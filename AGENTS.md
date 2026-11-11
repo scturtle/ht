@@ -49,23 +49,31 @@ change widens work in one of these loops.
 
 ## Vendored libghostty-vt
 
-`libghostty-vt` lives in the `3rdparty/libghostty-vt` submodule, pinned to the
-`vt-1.0.0` tag with a sparse checkout of the paths the build needs. The submodule
-stays pristine: `crates/ghostty-vt/build.rs` stages a copy under `OUT_DIR`, writes
-the `VERSION`/`LIB_VERSION` files the tag does not ship, and applies the local
-patches there before `zig build`.
+`libghostty-vt` is not committed. `vendor/libghostty-vt.vendor.json` pins the
+`vt-1.0.0` tag archive URL and its SHA-256, plus the paths the build extracts so
+macOS assets, docs and tests never enter the tree. Fetch it once per checkout:
+
+```bash
+just vendor-libghostty      # = python3 scripts/fetch_libghostty_vt.py
+```
+
+That verifies the digest and extracts to `.local/libghostty-vt` (~64 MB). The
+build fails with that instruction when the tree is missing.
+
+`crates/ghostty-vt/build.rs` stages a copy under `OUT_DIR`, writes the
+`VERSION`/`LIB_VERSION` files the tag does not ship, and applies the local
+patches there before `zig build`, so the fetched tree stays pristine.
+
+The pinned URL uses the tag form (`/archive/refs/tags/<tag>.tar.gz`). The
+commit form (`codeload.../tar.gz/<commit>`) is not byte-reproducible: two
+downloads of one commit returned identical content but different bytes, which
+would make a digest pin useless.
 
 Local patches live under `vendor/patches/libghostty-vt/` and must be indexed in
 `vendor/libghostty-vt.patches.md` with the reason, base commit, touched files,
 verification and removal condition. `just vendor-patches-test` enforces that every
-patch file is indexed and still applies to the pinned submodule commit. Never
-leave an untracked patch or an indexed patch that no longer applies.
-
-Check out the submodule after cloning:
-
-```bash
-git submodule update --init --depth 1
-```
+patch file is indexed and still applies to the pinned tree. Never leave an
+untracked patch or an indexed patch that no longer applies.
 
 Building requires Zig 0.17.0. The pinned Core source bundle under
 `scripts/core-runtime/` still vendors a pre-1.0 libghostty snapshot and needs Zig

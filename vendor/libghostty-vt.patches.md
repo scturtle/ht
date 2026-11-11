@@ -29,8 +29,8 @@ vendored base: `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec`
 
 local files:
 
-- `3rdparty/libghostty-vt/include/ghostty/vt/terminal.h`
-- `3rdparty/libghostty-vt/src/terminal/c/terminal.zig`
+- `.local/libghostty-vt/include/ghostty/vt/terminal.h`
+- `.local/libghostty-vt/src/terminal/c/terminal.zig`
 
 reason: Herdr must know whether xterm modifyOtherKeys mode 2 is active to
 request printable key releases from the outer terminal. The formatter API can
@@ -72,8 +72,8 @@ vendored base: `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec`
 
 local files:
 
-- `3rdparty/libghostty-vt/pkg/wuffs/build.zig`
-- `3rdparty/libghostty-vt/pkg/wuffs/src/main.zig`
+- `.local/libghostty-vt/pkg/wuffs/build.zig`
+- `.local/libghostty-vt/pkg/wuffs/src/main.zig`
 
 reason: Wuffs now needs MSVC libc headers when targeting Windows. Zig's
 `--libc` configuration reaches C compilation, but the translate-c dependency
@@ -115,11 +115,11 @@ vendored base: `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec`
 
 local files:
 
-- `3rdparty/libghostty-vt/include/ghostty/vt/selection.h`
-- `3rdparty/libghostty-vt/src/lib_vt.zig`
-- `3rdparty/libghostty-vt/src/terminal/Screen.zig`
-- `3rdparty/libghostty-vt/src/terminal/c/main.zig`
-- `3rdparty/libghostty-vt/src/terminal/c/selection.zig`
+- `.local/libghostty-vt/include/ghostty/vt/selection.h`
+- `.local/libghostty-vt/src/lib_vt.zig`
+- `.local/libghostty-vt/src/terminal/Screen.zig`
+- `.local/libghostty-vt/src/terminal/c/main.zig`
+- `.local/libghostty-vt/src/terminal/c/selection.zig`
 
 reason: Ctrl+click must resolve a wrapped token beyond the visible viewport
 without scanning an arbitrarily long logical line. The new, opt-in API shares
@@ -157,10 +157,10 @@ vendored base: `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec`
 
 local files:
 
-- `3rdparty/libghostty-vt/include/ghostty/vt/terminal.h`
-- `3rdparty/libghostty-vt/src/lib_vt.zig`
-- `3rdparty/libghostty-vt/src/terminal/c/main.zig`
-- `3rdparty/libghostty-vt/src/terminal/c/terminal.zig`
+- `.local/libghostty-vt/include/ghostty/vt/terminal.h`
+- `.local/libghostty-vt/src/lib_vt.zig`
+- `.local/libghostty-vt/src/terminal/c/main.zig`
+- `.local/libghostty-vt/src/terminal/c/terminal.zig`
 
 reason: Herdr needs an explicit screen/history clear that preserves the cursor's
 visible soft-wrapped line without writing to the child or interrupting a partial
@@ -195,13 +195,13 @@ vendored base: `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec`
 
 local files:
 
-- `3rdparty/libghostty-vt/include/ghostty/vt/terminal.h`
-- `3rdparty/libghostty-vt/include/ghostty/vt/kitty_graphics.h`
-- `3rdparty/libghostty-vt/src/terminal/c/terminal.zig`
-- `3rdparty/libghostty-vt/src/terminal/c/kitty_graphics.zig`
-- `3rdparty/libghostty-vt/src/terminal/kitty/graphics_image.zig`
-- `3rdparty/libghostty-vt/src/terminal/kitty/graphics_exec.zig`
-- `3rdparty/libghostty-vt/src/terminal/kitty/graphics_storage.zig`
+- `.local/libghostty-vt/include/ghostty/vt/terminal.h`
+- `.local/libghostty-vt/include/ghostty/vt/kitty_graphics.h`
+- `.local/libghostty-vt/src/terminal/c/terminal.zig`
+- `.local/libghostty-vt/src/terminal/c/kitty_graphics.zig`
+- `.local/libghostty-vt/src/terminal/kitty/graphics_image.zig`
+- `.local/libghostty-vt/src/terminal/kitty/graphics_exec.zig`
+- `.local/libghostty-vt/src/terminal/kitty/graphics_storage.zig`
 
 reason: An explicitly enabled embedding mode retains structurally validated,
 quiet PNG uploads as encoded bytes, avoiding pixel decoding before forwarding
@@ -264,7 +264,7 @@ vendored base: `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec`
 
 local files:
 
-- `3rdparty/libghostty-vt/src/terminal/Screen.zig`
+- `.local/libghostty-vt/src/terminal/Screen.zig`
 
 reason: Moving the cursor onto another page while a hyperlink and a
 non-default style are active can grow that page. Growth replaces the page,
