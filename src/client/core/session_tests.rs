@@ -46,6 +46,7 @@ fn graphics_over_budget_finish_without_another_input_or_core_event() {
         options: None,
         model,
         shell: Vec::new(),
+        scrollback: config.advanced.clone(),
         views: HashMap::from([(id, view)]),
         channels: HashMap::new(),
         document_version: 1,

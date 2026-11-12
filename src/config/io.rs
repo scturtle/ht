@@ -936,7 +936,7 @@ claude = [["terminal_title"]]
             ]
         );
         assert!(loaded.invalid_sections.is_empty());
-        assert_eq!(loaded.config.advanced.scrollback_limit_bytes, 42);
+        assert_eq!(loaded.config.advanced.scrollback_limit_bytes, Some(42));
         assert!(!loaded.config.ui.mouse_capture);
         assert_eq!(
             loaded.config.ui.toast.delivery,

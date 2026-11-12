@@ -42,6 +42,11 @@ core-ui-oracle:
 core-copy-smoke: build core-source-build core-ui-oracle
     CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/copy-ui-smoke.py
 
+# Configured retained client history through fresh attach and relay recovery.
+[unix]
+core-scrollback-smoke: build core-source-build core-ui-oracle
+    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/scrollback-ui-smoke.py
+
 # On-demand private pane snapshots, including a deliberately paused test Core.
 [unix]
 core-diagnostics-smoke: build core-source-build core-ui-oracle

@@ -100,9 +100,29 @@ impl View {
         result
     }
 
+    #[cfg(test)]
     pub fn new(cols: u16, rows: u16, channel: u32) -> io::Result<Self> {
-        let terminal =
-            crate::ghostty::Terminal::new(cols, rows, 10_000).map_err(io::Error::other)?;
+        Self::with_scrollback(cols, rows, channel, &Default::default())
+    }
+
+    pub fn with_scrollback(
+        cols: u16,
+        rows: u16,
+        channel: u32,
+        scrollback: &crate::config::AdvancedConfig,
+    ) -> io::Result<Self> {
+        // A byte-only default can discard the requested history before the row
+        // target is reached. Rows bound retention; bytes are an optional extra cap.
+        let bytes = if scrollback.scrollback_limit_lines == 0 {
+            0
+        } else {
+            scrollback.scrollback_limit_bytes.unwrap_or(usize::MAX)
+        };
+        let mut terminal =
+            crate::ghostty::Terminal::new(cols, rows, bytes).map_err(io::Error::other)?;
+        terminal
+            .set_scrollback_limit_lines(scrollback.scrollback_limit_lines as usize)
+            .map_err(io::Error::other)?;
         Ok(Self {
             terminal: PaneTerminal::new(GhosttyPaneTerminal::new(terminal)?),
             channel,

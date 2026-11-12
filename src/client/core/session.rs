@@ -61,6 +61,7 @@ pub(in crate::client) struct Session {
     options: Option<super::Options>,
     pub(super) model: Model,
     pub(super) shell: Vec<String>,
+    scrollback: crate::config::AdvancedConfig,
     pub(super) views: HashMap<PaneId, View>,
     channels: HashMap<u32, PaneId>,
     pub(super) document_version: u64,
@@ -135,6 +136,7 @@ impl Session {
             options: Some(options),
             model,
             shell,
+            scrollback: config.advanced.clone(),
             views: HashMap::new(),
             channels: HashMap::new(),
             document_version,
@@ -249,6 +251,8 @@ impl Session {
         json!({
             "boot_id":self.model.boot,"revision":self.model.revision,
             "document_version":self.document_version,"event_sequence":self.seq,
+            "scrollback_limit_lines":self.scrollback.scrollback_limit_lines,
+            "scrollback_limit_bytes":self.scrollback.scrollback_limit_bytes,
             "active_workspace":self.model.active_workspace,"active_tab":self.model.active_tab(),
             "organization_tab":id.and_then(|id| self.model.context(id)).map(|(_,tab)| tab),
             "dirty":self.dirty,"snapshot_dirty":self.snapshot_dirty,
@@ -378,13 +382,14 @@ impl Session {
         if self.model.records[&id].facts["state"] != "live"
             || self.model.records[&id].facts["pid"].as_u64().is_none()
         {
-            let mut view = View::new(cols, rows, 0)?;
+            let mut view = View::with_scrollback(cols, rows, 0, &self.scrollback)?;
             view.closed = true;
             view.visible = visible;
             view.terminal.apply_host_terminal_theme(self.theme);
-            let result = self
-                .core
-                .request("terminal.read", json!({"terminal":address,"lines":1000}));
+            let result = self.core.request(
+                "terminal.read",
+                json!({"terminal":address,"lines":self.scrollback.scrollback_limit_lines}),
+            );
             if let Ok(result) = result {
                 if let Some(text) = result["text"].as_str() {
                     view.process_output(id, &replay_lines(text));
@@ -393,7 +398,7 @@ impl Session {
             self.views.insert(id, view);
             return Ok(());
         }
-        let result=self.core.request("terminal.attach_ordered",json!({"terminal":address,"cols":cols,"rows":rows,"history":1000,"resize_notifications":true,"resumed":!visible,"display":self.display}))?;
+        let result=self.core.request("terminal.attach_ordered",json!({"terminal":address,"cols":cols,"rows":rows,"history":self.scrollback.scrollback_limit_lines,"resize_notifications":true,"resumed":!visible,"display":self.display}))?;
         let channel = result["channel"]
             .as_u64()
             .and_then(|v| u32::try_from(v).ok())
@@ -409,7 +414,7 @@ impl Session {
         {
             return Err(invalid("Core reused an active/reserved attach channel"));
         }
-        let mut view = View::new(cols, rows, channel)?;
+        let mut view = View::with_scrollback(cols, rows, channel, &self.scrollback)?;
         view.visible = visible;
         if let Some(old) = self.views.get(&id) {
             view.revision = old.revision.saturating_add(2);

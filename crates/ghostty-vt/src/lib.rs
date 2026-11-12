@@ -1256,6 +1256,21 @@ impl Terminal {
         self.get_usize(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS)
     }
 
+    /// Set the physical history-row target. Minimum page allocation and
+    /// whole-page pruning can retain more rows than requested. Zero-byte storage
+    /// is also required by callers that need to disable history completely.
+    pub fn set_scrollback_limit_lines(&mut self, lines: usize) -> Result<(), Error> {
+        // SAFETY: valid terminal and pointer to the size_t expected by this option.
+        unsafe {
+            ffi::ghostty_terminal_set(
+                self.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
+                (&lines as *const usize).cast(),
+            )
+            .into_result()
+        }
+    }
+
     pub fn max_scrollback(&self) -> usize {
         self.max_scrollback
     }

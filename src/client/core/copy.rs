@@ -283,7 +283,12 @@ mod tests {
 
     #[test]
     fn search_response_is_bounded_but_total_is_exact_in_scrollback() {
-        let view = view(20, 4, &"needle\r\n".repeat(2500));
+        let config = crate::config::AdvancedConfig {
+            scrollback_limit_lines: 3000,
+            ..Default::default()
+        };
+        let mut view = View::with_scrollback(20, 4, 17, &config).unwrap();
+        view.process_output(PaneId::from_raw(1), "needle\r\n".repeat(2500).as_bytes());
         let before = query(&view, "needle", D::Backward, None);
         view.terminal.scroll_up(100);
         let after = query(&view, "needle", D::Backward, None);

@@ -291,3 +291,49 @@ verification:
 (cd vendor/libghostty-vt && zig build test-lib-vt -Dtest-filter='cursorAbsolute keeps the hyperlink when style migration splits the page')
 just maintenance-test
 ```
+
+## 0009 retain the configured scrollback row target across whole-page pruning
+
+status: active
+
+patch: `vendor/patches/libghostty-vt/0009-retain-scrollback-line-target.patch`
+
+herdr issue: none; personal-fork configurable client scrollback
+
+upstream discussion: not opened
+
+upstream pr: not opened
+
+vendored base: `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec`
+
+local files:
+
+- `.local/libghostty-vt/src/terminal/PageList.zig`
+
+reason: The native row limit could remove a whole oldest page as soon as
+history crossed the target, leaving only 487 rows for a 1000-row target at
+80 columns in the client regression. Remove a page only if the remaining
+history still meets the effective, minimum-page-adjusted target. Excess over
+that effective target is bounded by the oldest page; there is no partial-page
+copy or aggregate history scan on the output path.
+Unlimited row limits retain a fast exit; explicit zero and byte-limit
+semantics are unchanged. Update the integrity check and native row-limit
+regressions to match crossing-page retention, including pins, resize and clone.
+The fetched tree remains pristine; staging applies this patch. No C ABI change
+and no change to Core's separately pinned Ghostty.
+
+remove when: upstream whole-page row pruning preserves the requested history
+target and the native and client regressions pass without this patch.
+
+verification:
+
+```sh
+# Copy the build-staged, patched tree to a disposable test directory.
+# Restore nix/libghostty-vt.nix from the digest-verified pinned archive there:
+# the production extraction deliberately omits this version-test-only input.
+# Run in that copy, never mutate the pristine fetched tree or Core sources.
+zig build test-lib-vt -Doptimize=ReleaseSafe -Dtest-filter=PageList -Dtest-filter=setScrollback -Dtest-filter=snapshot
+just test-one scrollback
+just vendor-patches-test
+just check
+```

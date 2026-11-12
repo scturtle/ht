@@ -6,7 +6,7 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 use super::{
     ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SidebarConfig,
     SoundConfig, TabBarRightEntryConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD,
-    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_BYTES,
+    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_LINES,
 };
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
@@ -972,12 +972,17 @@ pub struct ServerConfig {
     pub headless_rows: u16,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct AdvancedConfig {
-    /// Maximum scrollback buffer size in bytes retained per pane terminal. Default: 10000000.
+    /// Physical history rows retained per client pane, approximately (whole-page pruning).
+    /// Default: 1000. Zero disables history. Applied when the client starts.
+    pub scrollback_limit_lines: u32,
+    /// Optional additional byte budget. The first-reached limit wins.
+    /// Unset by default so it cannot silently truncate the configured row count.
+    /// The legacy `scrollback_lines` alias still means bytes, not rows.
     #[serde(alias = "scrollback_lines")]
-    pub scrollback_limit_bytes: usize,
+    pub scrollback_limit_bytes: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1226,7 +1231,8 @@ impl Default for ServerConfig {
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            scrollback_limit_bytes: DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            scrollback_limit_lines: DEFAULT_SCROLLBACK_LIMIT_LINES,
+            scrollback_limit_bytes: None,
         }
     }
 }
@@ -1840,12 +1846,10 @@ headless_rows = 50
     }
 
     #[test]
-    fn advanced_defaults_include_scrollback_limit_bytes() {
+    fn advanced_defaults_keep_one_thousand_rows_without_a_smaller_byte_limit() {
         let config = Config::default();
-        assert_eq!(
-            config.advanced.scrollback_limit_bytes,
-            DEFAULT_SCROLLBACK_LIMIT_BYTES
-        );
+        assert_eq!(config.advanced.scrollback_limit_lines, 1000);
+        assert_eq!(config.advanced.scrollback_limit_bytes, None);
     }
 
     #[test]
@@ -1918,10 +1922,12 @@ pane_history = true
     fn advanced_config_parses() {
         let toml = r#"
 [advanced]
+scrollback_limit_lines = 10000
 scrollback_limit_bytes = 12345
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.advanced.scrollback_limit_bytes, 12345);
+        assert_eq!(config.advanced.scrollback_limit_lines, 10000);
+        assert_eq!(config.advanced.scrollback_limit_bytes, Some(12345));
     }
 
     #[test]
@@ -1931,6 +1937,19 @@ scrollback_limit_bytes = 12345
 scrollback_lines = 12345
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.advanced.scrollback_limit_bytes, 12345);
+        assert_eq!(config.advanced.scrollback_limit_bytes, Some(12345));
+        assert_eq!(config.advanced.scrollback_limit_lines, 1000);
+    }
+
+    #[test]
+    fn scrollback_line_limit_accepts_zero_but_rejects_negative_or_overflowing_counts() {
+        let config: Config = toml::from_str("[advanced]\nscrollback_limit_lines = 0").unwrap();
+        assert_eq!(config.advanced.scrollback_limit_lines, 0);
+        for count in ["-1", "4294967296", "\"1000\""] {
+            assert!(toml::from_str::<Config>(&format!(
+                "[advanced]\nscrollback_limit_lines = {count}"
+            ))
+            .is_err());
+        }
     }
 }

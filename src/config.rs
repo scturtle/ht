@@ -22,7 +22,7 @@ pub use self::{
         IndexedKeybind, KeyCombo, Keybinds, LiveKeybindConfig,
     },
     model::{
-        validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadStatus,
+        validated_sidebar_bounds, AdvancedConfig, AgentPanelSortConfig, Config, ConfigReloadStatus,
         HostCursorModeConfig, PaneBordersConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle,
         TabBarPositionConfig, ToastClipboardPosition, ToastDelivery, ToastHerdrPosition,
     },
@@ -64,7 +64,7 @@ pub(crate) fn config_diagnostic_summary_without_keybindings(
         .collect::<Vec<_>>();
     config_diagnostic_summary(&diagnostics)
 }
-pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
+pub const DEFAULT_SCROLLBACK_LIMIT_LINES: u32 = 1000;
 pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 pub const DEFAULT_MOBILE_WIDTH_THRESHOLD: u16 = 64;
 pub const DEFAULT_HEADLESS_COLS: u16 = 120;

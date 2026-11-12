@@ -1,0 +1,147 @@
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -877,7 +877,7 @@
+     // active rows. Complete historical pages are always eligible for pruning.
+     if (self.total_rows > self.rows) {
+         const history_rows = self.total_rows - self.rows;
+-        if (history_rows > self.limits.max(.lines) and
++        if (self.limits.exceeded(self, .lines) and
+             self.pages.first.? != self.getTopLeft(.active).node)
+         {
+             log.warn(
+@@ -7606,8 +7606,17 @@
+     ) bool {
+         return switch (limit) {
+             .bytes => pagelist.page_size > self.max(.bytes),
+-            .lines => pagelist.total_rows > pagelist.rows and
+-                pagelist.total_rows - pagelist.rows > self.max(.lines),
++            .lines => lines: {
++                const max_lines = self.max(.lines);
++                if (max_lines == std.math.maxInt(usize)) break :lines false;
++                const history = pagelist.total_rows -| pagelist.rows;
++                // Preserve zero's existing minimum-page/disable semantics.
++                if (self.lines.explicit == 0) break :lines history > max_lines;
++                // Reclaim only when the remaining history still meets the
++                // requested target. No partial-page copies on the output path.
++                const first = pagelist.pages.first orelse break :lines false;
++                break :lines history -| first.rows() >= max_lines;
++            },
+         };
+     }
+ 
+@@ -11889,18 +11898,19 @@
+     s.scroll(.{ .pin = retained_pin.* });
+     try testing.expectEqual(3 * page_rows, s.scrollbar().offset);
+ 
+-    // Whole-page enforcement undershoots a non-page-aligned line limit.
++    // Keep the crossing page rather than undershooting a non-aligned target.
++    const retained_first = retained.prev.?;
+     s.setMaxLines(lowered_lines);
+     try testing.expectEqual(lowered_lines, s.limits.lines.explicit);
+     try testing.expectEqual(lowered_lines, s.limits.max(.lines));
+-    try testing.expectEqual(page_rows, s.total_rows - s.rows);
+-    try testing.expectEqual(@as(usize, 2), s.totalPages());
+-    try testing.expectEqual(retained, s.pages.first.?);
+-    try testing.expectEqual(retained, removed_pin.node);
++    try testing.expectEqual(2 * page_rows, s.total_rows - s.rows);
++    try testing.expectEqual(@as(usize, 3), s.totalPages());
++    try testing.expectEqual(retained_first, s.pages.first.?);
++    try testing.expectEqual(retained_first, removed_pin.node);
+     try testing.expect(removed_pin.garbage);
+     try testing.expectEqual(retained, retained_pin.node);
+     try testing.expect(!retained_pin.garbage);
+-    try testing.expectEqual(@as(usize, 0), s.scrollbar().offset);
++    try testing.expectEqual(page_rows, s.scrollbar().offset);
+ 
+     const limited_size = s.page_size;
+     const limited_rows = s.total_rows;
+@@ -11991,16 +12001,16 @@
+     const first = s.pages.first.?;
+     const old_page_size = s.page_size;
+ 
+-    // One more row puts us over the effective limit. The now-complete
+-    // historical page is removed rather than partially trimmed.
++    // One more row must not discard the requested full page of history.
+     _ = try s.grow();
+-    try testing.expectEqual(@as(usize, 1), s.total_rows - s.rows);
+-    try testing.expectEqual(@as(usize, 1), s.totalPages());
++    try testing.expectEqual(page_rows + 1, s.total_rows - s.rows);
++    try testing.expectEqual(old_page_size, s.page_size);
++    // Once another full page exists, the oldest page can be reclaimed.
++    try s.growRows(page_rows - 1);
++    try testing.expectEqual(page_rows, s.total_rows - s.rows);
++    try testing.expectEqual(@as(usize, 2), s.totalPages());
+     try testing.expect(s.pages.first.? != first);
+-    try testing.expectEqual(
+-        old_page_size - PagePool.item_size,
+-        s.page_size,
+-    );
++    try testing.expectEqual(old_page_size, s.page_size);
+ }
+ 
+ test "PageList max lines does not round larger limits" {
+@@ -12032,10 +12042,15 @@
+ 
+     const old_page_size = s.page_size;
+     _ = try s.grow();
+-
+-    // Whole-page pruning undershoots the requested limit without rounding it.
++    try testing.expectEqual(max_lines + 1, s.total_rows - s.rows);
++    try testing.expectEqual(first, s.pages.first.?);
++    try testing.expect(!removed_pin.garbage);
++    try testing.expectEqual(old_page_size, s.page_size);
++    try s.growRows(page_rows - 1);
++
++    // Reclaim a complete page without falling below the configured target.
+     try testing.expectEqual(
+-        max_lines + 1 - page_rows,
++        max_lines,
+         s.total_rows - s.rows,
+     );
+     try testing.expectEqual(retained, s.pages.first.?);
+@@ -12045,7 +12060,7 @@
+     try testing.expect(!retained_pin.garbage);
+     try testing.expectEqual(@as(usize, 0), s.scrollbar().offset);
+     try testing.expectEqual(
+-        old_page_size - PagePool.item_size,
++        old_page_size,
+         s.page_size,
+     );
+ }
+@@ -12068,7 +12083,7 @@
+ 
+         try s.growRows(4 * page_rows);
+         try testing.expect(
+-            s.total_rows - s.rows <= s.limits.max(.lines),
++            !s.limits.exceeded(&s, .lines),
+         );
+         try testing.expect(s.totalPages() <= 2);
+         try testing.expect(s.page_size < s.limits.max(.bytes));
+@@ -12116,7 +12131,7 @@
+     };
+ 
+     try s.resize(.{ .rows = 1, .reflow = false });
+-    try testing.expectEqual(@as(usize, 1), s.total_rows - s.rows);
++    try testing.expectEqual(page_rows + 1, s.total_rows - s.rows);
+ 
+     const new_cols: size.CellCountInt = cols + 1;
+     try s.resize(.{ .cols = new_cols, .reflow = true });
+@@ -12152,8 +12167,7 @@
+             reflowed.limits.lines.min,
+         );
+         try testing.expect(
+-            reflowed.total_rows - reflowed.rows <=
+-                reflowed.limits.max(.lines) or
++            !reflowed.limits.exceeded(&reflowed, .lines) or
+                 reflowed.pages.first.? ==
+                     reflowed.getTopLeft(.active).node,
+         );
+@@ -12168,7 +12182,7 @@
+ 
+     try cloned.growRows(2 * cloned.limits.max(.lines));
+     try testing.expect(
+-        cloned.total_rows - cloned.rows <= cloned.limits.max(.lines) or
++        !cloned.limits.exceeded(&cloned, .lines) or
+             cloned.pages.first.? == cloned.getTopLeft(.active).node,
+     );
+ }

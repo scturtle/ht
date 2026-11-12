@@ -399,8 +399,11 @@ pane_history = false
 # cjk_ime_cursor_shape = "steady_block"
 
 [advanced]
-# Maximum scrollback buffer size in bytes retained per pane terminal.
-# Matches Ghostty's default scrollback-limit behavior.
+# Physical scrollback rows retained per client pane (default: 1000; 0 disables).
+# Applied on client startup; Ghostty prunes whole pages, so counts are approximate.
+# Attach/reconnect requests this many rows; Core may retain less.
+# scrollback_limit_lines = 1000
+# Optional additional memory cap in bytes; unset by default. First limit wins.
 # scrollback_limit_bytes = 10000000
 "##;
 

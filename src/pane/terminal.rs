@@ -5346,9 +5346,7 @@ mod tests {
     #[test]
     fn recent_reads_include_viewport_before_scrollback_exists() {
         let (_tx, _rx) = mpsc::channel::<bytes::Bytes>(4);
-        let mut terminal =
-            crate::ghostty::Terminal::new(20, 20, crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES)
-                .unwrap();
+        let mut terminal = crate::ghostty::Terminal::new(20, 20, 10_000_000).unwrap();
         terminal.write(b"hello123");
         let pane = GhosttyPaneTerminal::new(terminal).unwrap();
 

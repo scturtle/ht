@@ -8,6 +8,8 @@ mod model;
 mod organization;
 mod organization_actions;
 mod projection;
+#[cfg(test)]
+mod scrollback_tests;
 mod session;
 mod shared;
 mod swap;

@@ -106,6 +106,19 @@ CORE_UI_BASELINE=/absolute/path/to/old-ht just core-scheduling-smoke
 这些是**本机 PTY 调度/输出测量，不是 WAN RTT，也不是物理终端绘制时间或整机 CPU 指标**。
 测试只运行本地原始终端 fixture，不调用模型；Core、程序及临时文件均属于本次测试。
 
+## 客户端 scrollback
+
+`[advanced] scrollback_limit_lines` 默认 `1000`，按物理历史行计数；例如设为
+`10000` 可保留更多。配置在客户端启动时读取，并用于后续 attach/relay 重连的历史请求。
+`0` 禁用客户端历史。默认没有额外字节上限；可用 `scrollback_limit_bytes` 叠加内存预算，
+先到者生效。旧 `scrollback_lines` 仍只是字节键的兼容别名，不是新行数配置。
+
+Ghostty 仍按整页回收：仅在回收最旧页后还能保留有效目标行数时按行数回收；有效目标也
+受最小页分配约束，因此实际行数可能更多。显式字节上限可使保留量更少。Core 已丢弃的历史不能由客户端配置恢复。
+`just core-scrollback-smoke` 在唯一私有 Core/PTY 验证默认历史、5000 行新 attach、
+仅杀死本测试 relay 后重连仍请求 5000 行，以及零历史和输入可用性；通过诊断菜单读取
+真实客户端 scroll counter，不操作用户会话。
+
 ## 能力与测试边界
 
 - reload config 重新加载客户端配置；Core 未实现 `server.reload_config` 时不发送该请求。
