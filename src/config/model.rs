@@ -4,9 +4,9 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::{
-    ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SidebarConfig,
-    SoundConfig, TabBarRightEntryConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD,
-    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_LINES,
+    BindingConfig, CommandKeybindConfig, SidebarConfig, SoundConfig, TabBarRightEntryConfig,
+    ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
+    DEFAULT_SCROLLBACK_LIMIT_LINES,
 };
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
@@ -349,142 +349,71 @@ pub struct KeysConfig {
     pub(crate) user_fields: BTreeSet<&'static str>,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default)]
-pub(crate) struct KeysConfigOverlay {
-    #[serde(skip_serializing_if = "Option::is_none")]
+struct KeysConfigOverlay {
     prefix: Option<BindingConfig>,
-    /// Additional prefix keys published for cross-version compatibility.
-    /// Older clients parse `prefix` as a single string and ignore this field;
-    /// new clients merge it into the effective prefix list.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Legacy additional prefixes, merged with the main prefix setting.
     extra_prefixes: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     help: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     settings: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     new_workspace: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     rename_workspace: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     close_workspace: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     workspace_picker: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     goto: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     navigate_workspace_up: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     navigate_workspace_down: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     navigate_pane_left: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     navigate_pane_down: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     navigate_pane_up: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     navigate_pane_right: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     detach: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     reload_config: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     open_notification_target: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     previous_workspace: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     next_workspace: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     previous_agent: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     next_agent: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     focus_agent: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     remote_image_paste: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     new_tab: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     rename_tab: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     previous_tab: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     next_tab: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     move_tab_previous: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     move_tab_next: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     switch_tab: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     switch_workspace: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     close_tab: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     rename_pane: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     edit_scrollback: Option<BindingConfig>,
     clear_pane: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     copy_mode: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_left: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_down: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_up: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_right: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     swap_pane_left: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     swap_pane_down: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     swap_pane_up: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     swap_pane_right: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     cycle_pane_next: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     cycle_pane_previous: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     last_pane: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     split_vertical: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     split_horizontal: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     close_pane: Option<BindingConfig>,
-    #[serde(alias = "fullscreen", skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "fullscreen")]
     zoom: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     resize_mode: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     resize_pane_left: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     resize_pane_down: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     resize_pane_up: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     resize_pane_right: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     toggle_sidebar: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     indexed: Option<IndexedKeysConfig>,
-    #[serde(skip_serializing)]
     command: Option<Vec<CommandKeybindConfig>>,
-}
-
-impl KeysConfigOverlay {
-    pub(crate) fn set_prefixes(&mut self, prefixes: &[super::keybinds::KeyCombo]) {
-        let mut labels = prefixes
-            .iter()
-            .map(|combo| super::keybinds::format_key_combo(*combo));
-        self.prefix = Some(BindingConfig::One(labels.next().unwrap_or_default()));
-        let extra: Vec<String> = labels.collect();
-        self.extra_prefixes = (!extra.is_empty()).then_some(BindingConfig::Many(extra));
-    }
 }
 
 impl<'de> Deserialize<'de> for KeysConfig {
@@ -589,141 +518,6 @@ impl<'de> Deserialize<'de> for KeysConfig {
 impl KeysConfig {
     pub(crate) fn key_field_is_user_configured(&self, field: &str) -> bool {
         self.user_fields.contains(field)
-    }
-
-    pub(crate) fn local_profile(&self, keybinds: &Keybinds) -> KeysConfigOverlay {
-        let mut profile = KeysConfigOverlay::default();
-
-        macro_rules! copy_user_field {
-            ($field:ident) => {
-                if self.user_fields.contains(stringify!($field)) {
-                    profile.$field = Some(self.$field.clone());
-                }
-            };
-        }
-        macro_rules! copy_effective_action_field {
-            ($field:ident, $target:expr) => {
-                if self.user_fields.contains(stringify!($field)) {
-                    profile.$field = Some(self.$field.clone());
-                } else if binding_config_is_effective(&self.$field, &$target) {
-                    profile.$field = Some(self.$field.clone());
-                } else if binding_config_has_values(&self.$field) {
-                    profile.$field = Some(BindingConfig::empty());
-                }
-            };
-        }
-        macro_rules! copy_effective_indexed_field {
-            ($field:ident, $target:expr) => {
-                if self.user_fields.contains(stringify!($field)) {
-                    profile.$field = Some(self.$field.clone());
-                } else if let Some(effective) = effective_indexed_config(&self.$field, &$target) {
-                    profile.$field = Some(effective);
-                } else if binding_config_has_values(&self.$field) {
-                    profile.$field = Some(BindingConfig::empty());
-                }
-            };
-        }
-
-        profile.prefix = Some(self.prefix.clone());
-        copy_effective_action_field!(help, keybinds.help);
-        copy_effective_action_field!(settings, keybinds.settings);
-        copy_effective_action_field!(new_workspace, keybinds.new_workspace);
-        copy_effective_action_field!(rename_workspace, keybinds.rename_workspace);
-        copy_effective_action_field!(close_workspace, keybinds.close_workspace);
-        copy_effective_action_field!(workspace_picker, keybinds.workspace_picker);
-        copy_effective_action_field!(goto, keybinds.goto);
-        copy_effective_action_field!(navigate_workspace_up, keybinds.navigate.workspace_up);
-        copy_effective_action_field!(navigate_workspace_down, keybinds.navigate.workspace_down);
-        copy_effective_action_field!(navigate_pane_left, keybinds.navigate.pane_left);
-        copy_effective_action_field!(navigate_pane_down, keybinds.navigate.pane_down);
-        copy_effective_action_field!(navigate_pane_up, keybinds.navigate.pane_up);
-        copy_effective_action_field!(navigate_pane_right, keybinds.navigate.pane_right);
-        copy_effective_action_field!(detach, keybinds.detach);
-        copy_effective_action_field!(reload_config, keybinds.reload_config);
-        copy_effective_action_field!(open_notification_target, keybinds.open_notification_target);
-        copy_effective_action_field!(previous_workspace, keybinds.previous_workspace);
-        copy_effective_action_field!(next_workspace, keybinds.next_workspace);
-        copy_effective_action_field!(previous_agent, keybinds.previous_agent);
-        copy_effective_action_field!(next_agent, keybinds.next_agent);
-        copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
-        copy_user_field!(remote_image_paste);
-        copy_effective_action_field!(new_tab, keybinds.new_tab);
-        copy_effective_action_field!(rename_tab, keybinds.rename_tab);
-        copy_effective_action_field!(previous_tab, keybinds.previous_tab);
-        copy_effective_action_field!(next_tab, keybinds.next_tab);
-        copy_effective_action_field!(move_tab_previous, keybinds.move_tab_previous);
-        copy_effective_action_field!(move_tab_next, keybinds.move_tab_next);
-        copy_effective_indexed_field!(switch_tab, keybinds.switch_tab);
-        copy_effective_indexed_field!(switch_workspace, keybinds.switch_workspace);
-        copy_effective_action_field!(close_tab, keybinds.close_tab);
-        copy_effective_action_field!(rename_pane, keybinds.rename_pane);
-        copy_effective_action_field!(edit_scrollback, keybinds.edit_scrollback);
-        copy_effective_action_field!(clear_pane, keybinds.clear_pane);
-        copy_effective_action_field!(copy_mode, keybinds.copy_mode);
-        copy_effective_action_field!(focus_pane_left, keybinds.focus_pane_left);
-        copy_effective_action_field!(focus_pane_down, keybinds.focus_pane_down);
-        copy_effective_action_field!(focus_pane_up, keybinds.focus_pane_up);
-        copy_effective_action_field!(focus_pane_right, keybinds.focus_pane_right);
-        copy_effective_action_field!(swap_pane_left, keybinds.swap_pane_left);
-        copy_effective_action_field!(swap_pane_down, keybinds.swap_pane_down);
-        copy_effective_action_field!(swap_pane_up, keybinds.swap_pane_up);
-        copy_effective_action_field!(swap_pane_right, keybinds.swap_pane_right);
-        copy_effective_action_field!(cycle_pane_next, keybinds.cycle_pane_next);
-        copy_effective_action_field!(cycle_pane_previous, keybinds.cycle_pane_previous);
-        copy_effective_action_field!(last_pane, keybinds.last_pane);
-        copy_effective_action_field!(split_vertical, keybinds.split_vertical);
-        copy_effective_action_field!(split_horizontal, keybinds.split_horizontal);
-        copy_effective_action_field!(close_pane, keybinds.close_pane);
-        copy_effective_action_field!(zoom, keybinds.zoom);
-        copy_effective_action_field!(resize_mode, keybinds.resize_mode);
-        copy_effective_action_field!(resize_pane_left, keybinds.resize_pane_left);
-        copy_effective_action_field!(resize_pane_down, keybinds.resize_pane_down);
-        copy_effective_action_field!(resize_pane_up, keybinds.resize_pane_up);
-        copy_effective_action_field!(resize_pane_right, keybinds.resize_pane_right);
-        copy_effective_action_field!(toggle_sidebar, keybinds.toggle_sidebar);
-        copy_user_field!(indexed);
-
-        profile
-    }
-}
-
-fn binding_config_has_values(config: &BindingConfig) -> bool {
-    config.has_values()
-}
-
-fn binding_config_is_effective(config: &BindingConfig, keybinds: &ActionKeybinds) -> bool {
-    !binding_config_has_values(config) || !keybinds.bindings.is_empty()
-}
-
-fn effective_indexed_config(
-    config: &BindingConfig,
-    keybinds: &[IndexedKeybind],
-) -> Option<BindingConfig> {
-    if !binding_config_has_values(config) {
-        return Some(config.clone());
-    }
-
-    let expected_labels = config.indexed_labels();
-    if expected_labels.is_empty() {
-        return None;
-    }
-
-    let effective_labels: Vec<String> = expected_labels
-        .iter()
-        .filter(|expected| {
-            keybinds
-                .iter()
-                .any(|binding| binding.label.as_str() == expected.as_str())
-        })
-        .cloned()
-        .collect();
-
-    if effective_labels.is_empty() {
-        None
-    } else if effective_labels.len() == expected_labels.len() {
-        Some(config.clone())
-    } else {
-        Some(BindingConfig::Many(effective_labels))
     }
 }
 

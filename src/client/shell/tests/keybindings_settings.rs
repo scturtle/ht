@@ -2,68 +2,60 @@ use super::*;
 use crate::input::TerminalKey;
 
 #[test]
-fn plus_commands_survive_snapshots_and_reload_for_both_keybinding_sources() {
-    for source in [
-        ClientShellKeybindingSource::Local,
-        ClientShellKeybindingSource::Endpoint,
+fn published_plus_commands_survive_local_keymap_snapshots_and_reload() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    for (revision, key, modifiers) in [
+        (1, "prefix+plus", KeyModifiers::empty()),
+        (2, "prefix+ctrl+plus", KeyModifiers::CONTROL),
     ] {
-        let mut state = ClientShellState::new(
-            ClientShellConfig::from_config(&Config::default()).with_keybinding_source(source),
-        );
-        for (revision, key, modifiers) in [
-            (1, "prefix+plus", KeyModifiers::empty()),
-            (2, "prefix+ctrl+plus", KeyModifiers::CONTROL),
-        ] {
-            let config: Config = toml::from_str(&format!(
-                "[[keys.command]]\nkey = {key:?}\ntype = \"shell\"\ncommand = \"echo plus\"\n"
-            ))
-            .unwrap();
-            assert!(config.collect_diagnostics().is_empty());
-            // Exercise client manifest projection without constructing a server/PTY owner.
-            let commands = config
-                .keybinds()
-                .custom_commands
-                .iter()
-                .enumerate()
-                .map(|(index, binding)| crate::protocol::ClientShellCommand {
-                    command_id: format!("test-command-{index}"),
-                    binding_label: binding.label.clone(),
-                    binding_labels: binding.bindings.labels(),
-                    action: binding.action.into(),
-                    description: binding.description.clone(),
-                })
-                .collect();
-            let mut projection = snapshot();
-            projection.revision = revision;
-            projection.server_keybindings_toml = config.local_keybindings_profile_toml().ok();
-            projection.commands = commands;
-            assert_eq!(projection.commands.len(), 1);
-            let command_id = projection.commands[0].command_id.clone();
-            state.set_snapshot(Box::new(projection));
-            state.set_pane_surface(surface());
-            assert_eq!(state.config.keybinds.keybinds.custom_commands.len(), 1);
+        let config: Config = toml::from_str(&format!(
+            "[[keys.command]]\nkey = {key:?}\ntype = \"shell\"\ncommand = \"echo plus\"\n"
+        ))
+        .unwrap();
+        assert!(config.collect_diagnostics().is_empty());
+        // Exercise client manifest projection without constructing a server/PTY owner.
+        let commands = config
+            .keybinds()
+            .custom_commands
+            .iter()
+            .enumerate()
+            .map(|(index, binding)| crate::protocol::ClientShellCommand {
+                command_id: format!("test-command-{index}"),
+                binding_label: binding.label.clone(),
+                binding_labels: binding.bindings.labels(),
+                action: binding.action.into(),
+                description: binding.description.clone(),
+            })
+            .collect();
+        let mut projection = snapshot();
+        projection.revision = revision;
+        projection.commands = commands;
+        assert_eq!(projection.commands.len(), 1);
+        let command_id = projection.commands[0].command_id.clone();
+        state.set_snapshot(Box::new(projection));
+        state.set_pane_surface(surface());
+        assert_eq!(state.config.keybinds.keybinds.custom_commands.len(), 1);
 
-            for plus in [
-                TerminalKey::new(KeyCode::Char('+'), modifiers),
-                TerminalKey::new(KeyCode::Char('+'), modifiers | KeyModifiers::SHIFT),
-                TerminalKey::new(KeyCode::Char('='), modifiers | KeyModifiers::SHIFT)
-                    .with_shifted_codepoint('+' as u32),
-            ] {
-                let outcome = state.handle_raw_events(vec![
-                    RawInputEvent::Key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
-                    RawInputEvent::Key(plus),
-                ]);
-                let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
-                    panic!(
-                        "expected endpoint command invocation: {:?}",
-                        outcome.actions
-                    );
-                };
-                let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
-                    panic!("expected command.invoke");
-                };
-                assert_eq!(params.command_id, command_id);
-            }
+        for plus in [
+            TerminalKey::new(KeyCode::Char('+'), modifiers),
+            TerminalKey::new(KeyCode::Char('+'), modifiers | KeyModifiers::SHIFT),
+            TerminalKey::new(KeyCode::Char('='), modifiers | KeyModifiers::SHIFT)
+                .with_shifted_codepoint('+' as u32),
+        ] {
+            let outcome = state.handle_raw_events(vec![
+                RawInputEvent::Key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+                RawInputEvent::Key(plus),
+            ]);
+            let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+                panic!(
+                    "expected endpoint command invocation: {:?}",
+                    outcome.actions
+                );
+            };
+            let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
+                panic!("expected command.invoke");
+            };
+            assert_eq!(params.command_id, command_id);
         }
     }
 }
@@ -302,7 +294,7 @@ fn prefix_endpoint_action_uses_public_api_with_stable_ids() {
 }
 
 #[test]
-fn remote_keybinding_sources_keep_local_commands_off_endpoints_and_apply_server_profiles() {
+fn published_commands_resolve_against_local_keys_and_refresh_ids_without_resetting_prefix() {
     let local: Config = toml::from_str(
         r#"
 [keys]
@@ -315,19 +307,7 @@ command = "local-only"
 "#,
     )
     .unwrap();
-    let remote_local = ClientShellConfig::from_config(&local)
-        .with_keybinding_source(ClientShellKeybindingSource::RemoteLocal);
-    assert_eq!(remote_local.keybinds.prefix[0].0, KeyCode::Char('a'));
-    assert!(remote_local.keybinds.keybinds.custom_commands.is_empty());
-    assert_eq!(
-        remote_local.keybinds.keybinds.new_tab.label().as_deref(),
-        Some("prefix+c")
-    );
-
-    let mut local_state = ClientShellState::new(
-        ClientShellConfig::from_config(&local)
-            .with_keybinding_source(ClientShellKeybindingSource::Local),
-    );
+    let mut local_state = ClientShellState::new(ClientShellConfig::from_config(&local));
     let mut local_projection = snapshot();
     local_projection
         .commands
@@ -385,51 +365,6 @@ command = "local-only"
     assert_eq!(
         local_state.config.keybinds.keybinds.custom_commands[0].command,
         "cmd_reloaded_endpoint"
-    );
-
-    let endpoint: Config = toml::from_str(
-        r#"
-[keys]
-prefix = "ctrl+x"
-new_tab = "prefix+n"
-"#,
-    )
-    .unwrap();
-    let mut state = ClientShellState::new(
-        ClientShellConfig::from_config(&local)
-            .with_keybinding_source(ClientShellKeybindingSource::Endpoint),
-    );
-    let mut projection = snapshot();
-    projection.server_keybindings_toml = endpoint.local_keybindings_profile_toml().ok();
-    projection
-        .commands
-        .push(crate::protocol::ClientShellCommand {
-            command_id: "cmd_remote".into(),
-            binding_label: "prefix+z".into(),
-            binding_labels: vec!["prefix+z".into()],
-            action: crate::protocol::ClientShellCommandAction::Shell,
-            description: Some("remote command".into()),
-        });
-    state.set_snapshot(Box::new(projection));
-
-    assert_eq!(state.config.keybinds.prefix[0].0, KeyCode::Char('x'));
-    assert_eq!(
-        state.config.keybinds.keybinds.new_tab.label().as_deref(),
-        Some("prefix+n")
-    );
-    assert_eq!(
-        state.config.keybinds.keybinds.custom_commands[0].label,
-        "prefix+z"
-    );
-    assert_eq!(
-        state.config.keybinds.keybinds.custom_commands[0]
-            .description
-            .as_deref(),
-        Some("remote command")
-    );
-    assert_eq!(
-        state.config.keybinds.keybinds.custom_commands[0].command,
-        "cmd_remote"
     );
 }
 

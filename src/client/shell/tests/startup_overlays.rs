@@ -227,16 +227,70 @@ fn endpoint_reload_result_does_not_override_snapshot_diagnostic_authority() {
 }
 
 #[test]
-fn endpoint_keybindings_hide_only_local_keybinding_diagnostics() {
-    let config = ClientShellConfig::from_config(&Config::default())
-        .with_keybinding_source(ClientShellKeybindingSource::Endpoint);
-    let diagnostics = vec![
-        "unsafe direct keybinding: keys.close_pane would intercept typing".into(),
-        "theme warning".into(),
-    ];
+fn local_reload_keeps_key_diagnostics_and_never_activates_unpublished_commands() {
+    let initial: Config = toml::from_str(
+        "[keys]\nprefix = 'ctrl+a'\n[[keys.command]]\nkey = 'f8'\ncommand = 'local-only'",
+    )
+    .unwrap();
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&initial));
+    assert!(state.config.keybinds.keybinds.custom_commands.is_empty());
+    let mut projection = snapshot();
+    projection.server_keybindings_toml = Some("not a keybinding profile".into());
+    state.set_snapshot(Box::new(projection.clone()));
+    assert_eq!(state.config.keybinds.prefix, initial.prefix_keys());
+    assert!(state.config.keybinds.keybinds.custom_commands.is_empty());
+    assert!(state.endpoint_error.is_none());
 
-    assert!(config.local_config_diagnostic(&diagnostics[..1]).is_none());
-    assert!(config.local_config_diagnostic(&diagnostics).is_some());
+    // Legacy profile metadata has no authority over the local keymap or an
+    // in-progress prefix. Manifest binding/identity changes are tested separately.
+    state.mode = ClientShellMode::Prefix;
+    projection.revision += 1;
+    projection.server_keybindings_toml = Some("another ignored profile".into());
+    state.set_snapshot(Box::new(projection));
+    assert_eq!(state.mode, ClientShellMode::Prefix);
+    assert_eq!(state.config.keybinds.prefix, initial.prefix_keys());
+
+    let _guard = crate::config::test_config_env_lock().lock().unwrap();
+    let path = std::env::temp_dir().join(format!(
+        "ht-local-keymap-reload-{}-{}.toml",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let content = "[keys]\nprefix = 'ctrl+x'\nclose_pane = 'x'\n\
+                   [[keys.command]]\nkey = 'f8'\ncommand = 'still-local-only'\n";
+    std::fs::write(&path, content).unwrap();
+    let previous = std::env::var_os(crate::config::CONFIG_PATH_ENV_VAR);
+    std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+    // Exercise the actual shell reload method, not just the config parser.
+    state.reload_client_config();
+    match previous {
+        Some(value) => std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, value),
+        None => std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR),
+    }
+    let unchanged = std::fs::read_to_string(&path).unwrap();
+    std::fs::remove_file(path).unwrap();
+
+    assert_eq!(unchanged, content);
+    assert_eq!(
+        state.config.keybinds.prefix,
+        vec![(KeyCode::Char('x'), KeyModifiers::CONTROL)]
+    );
+    assert!(state.config.keybinds.keybinds.custom_commands.is_empty());
+    assert!(state
+        .config
+        .keybinds
+        .keybinds
+        .close_pane
+        .bindings
+        .is_empty());
+    assert!(
+        state.local_config_diagnostic.is_some(),
+        "local key diagnostics must stay visible"
+    );
+    assert!(state.endpoint_error.is_none());
 }
 
 #[test]
