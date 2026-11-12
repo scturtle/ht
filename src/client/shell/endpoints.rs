@@ -72,11 +72,11 @@ impl ClientShellState {
     pub(crate) fn endpoint_label(&self) -> &str {
         &self.endpoint.label
     }
-    pub(super) fn supports_endpoint_method(&self, method: &crate::api::schema::Method) -> bool {
+    pub(super) fn supports_endpoint_method(&self, method: &crate::actions::Action) -> bool {
         self.endpoint
             .methods
             .as_ref()
-            .is_none_or(|m| m.contains(crate::api::api_method_name(method)))
+            .is_none_or(|m| m.contains(method.name()))
     }
     pub(super) fn focused_tab_count(&self) -> usize {
         self.snapshot.as_deref().map_or(0, |s| {
@@ -116,9 +116,6 @@ impl ClientShellState {
         if acknowledge && self.endpoint.status != ClientEndpointStatus::Online {
             self.set_endpoint_status(ClientEndpointStatus::Online);
         }
-        snapshot
-            .commands
-            .retain(|c| c.action != crate::protocol::ClientShellCommandAction::Unknown);
         if self.endpoint.snapshot_generation == generation
             && self
                 .endpoint

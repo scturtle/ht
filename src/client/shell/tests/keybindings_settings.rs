@@ -1,64 +1,4 @@
 use super::*;
-use crate::input::TerminalKey;
-
-#[test]
-fn published_plus_commands_survive_local_keymap_snapshots_and_reload() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    for (revision, key, modifiers) in [
-        (1, "prefix+plus", KeyModifiers::empty()),
-        (2, "prefix+ctrl+plus", KeyModifiers::CONTROL),
-    ] {
-        let config: Config = toml::from_str(&format!(
-            "[[keys.command]]\nkey = {key:?}\ntype = \"shell\"\ncommand = \"echo plus\"\n"
-        ))
-        .unwrap();
-        assert!(config.collect_diagnostics().is_empty());
-        // Exercise client manifest projection without constructing a server/PTY owner.
-        let commands = config
-            .keybinds()
-            .custom_commands
-            .iter()
-            .enumerate()
-            .map(|(index, binding)| crate::protocol::ClientShellCommand {
-                command_id: format!("test-command-{index}"),
-                binding_label: binding.label.clone(),
-                binding_labels: binding.bindings.labels(),
-                action: binding.action.into(),
-                description: binding.description.clone(),
-            })
-            .collect();
-        let mut projection = snapshot();
-        projection.revision = revision;
-        projection.commands = commands;
-        assert_eq!(projection.commands.len(), 1);
-        let command_id = projection.commands[0].command_id.clone();
-        state.set_snapshot(Box::new(projection));
-        state.set_pane_surface(surface());
-        assert_eq!(state.config.keybinds.keybinds.custom_commands.len(), 1);
-
-        for plus in [
-            TerminalKey::new(KeyCode::Char('+'), modifiers),
-            TerminalKey::new(KeyCode::Char('+'), modifiers | KeyModifiers::SHIFT),
-            TerminalKey::new(KeyCode::Char('='), modifiers | KeyModifiers::SHIFT)
-                .with_shifted_codepoint('+' as u32),
-        ] {
-            let outcome = state.handle_raw_events(vec![
-                RawInputEvent::Key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
-                RawInputEvent::Key(plus),
-            ]);
-            let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
-                panic!(
-                    "expected endpoint command invocation: {:?}",
-                    outcome.actions
-                );
-            };
-            let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
-                panic!("expected command.invoke");
-            };
-            assert_eq!(params.command_id, command_id);
-        }
-    }
-}
 
 #[test]
 fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
@@ -82,8 +22,8 @@ fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
         panic!("new workspace click should use the endpoint API");
     };
     assert!(matches!(
-        request.method,
-        crate::api::schema::Method::WorkspaceCreate(_)
+        request.action,
+        crate::actions::Action::WorkspaceCreate(_)
     ));
 
     let new_tab = state.hits.new_tab;
@@ -268,7 +208,7 @@ detach = "prefix+x"
 }
 
 #[test]
-fn prefix_endpoint_action_uses_public_api_with_stable_ids() {
+fn prefix_core_action_uses_typed_request_with_stable_ids() {
     let mut config = Config::default();
     config.ui.prompt_new_tab_name = false;
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
@@ -283,179 +223,14 @@ fn prefix_endpoint_action_uses_public_api_with_stable_ids() {
         panic!("expected one endpoint action: {:?}", create.actions);
     };
     assert_eq!(boot_id, "boot-1");
-    match &request.method {
-        crate::api::schema::Method::TabCreate(params) => {
+    match &request.action {
+        crate::actions::Action::TabCreate(params) => {
             assert_eq!(params.workspace_id.as_deref(), Some("ws_1"));
             assert!(params.focus);
         }
         other => panic!("expected tab.create, got {other:?}"),
     }
     assert!(state.pending_requests.contains_key(&request.id));
-}
-
-#[test]
-fn published_commands_resolve_against_local_keys_and_refresh_ids_without_resetting_prefix() {
-    let local: Config = toml::from_str(
-        r#"
-[keys]
-prefix = "ctrl+a"
-new_tab = "prefix+c"
-
-[[keys.command]]
-key = "prefix+c"
-command = "local-only"
-"#,
-    )
-    .unwrap();
-    let mut local_state = ClientShellState::new(ClientShellConfig::from_config(&local));
-    let mut local_projection = snapshot();
-    local_projection
-        .commands
-        .push(crate::protocol::ClientShellCommand {
-            command_id: "cmd_loaded_endpoint".into(),
-            binding_label: "prefix+c / prefix+y".into(),
-            binding_labels: vec!["prefix+c".into(), "prefix+y".into()],
-            action: crate::protocol::ClientShellCommandAction::Shell,
-            description: Some("loaded endpoint command".into()),
-        });
-    local_state.set_snapshot(Box::new(local_projection));
-    assert_eq!(
-        local_state.config.keybinds.keybinds.custom_commands[0].label,
-        "prefix+y"
-    );
-    assert_eq!(
-        local_state
-            .config
-            .keybinds
-            .keybinds
-            .new_tab
-            .label()
-            .as_deref(),
-        Some("prefix+c")
-    );
-    let mut command_outcome = ClientShellInput::default();
-    local_state.record_binding(
-        crate::input::KeybindMatch::Command(
-            local_state.config.keybinds.keybinds.custom_commands[0].clone(),
-        ),
-        &mut command_outcome,
-    );
-    let [ClientShellAction::Endpoint { request, .. }] = &command_outcome.actions[..] else {
-        panic!("expected surviving endpoint command binding");
-    };
-    let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
-        panic!("expected command invocation");
-    };
-    assert_eq!(params.command_id, "cmd_loaded_endpoint");
-
-    let mut id_only_projection = snapshot();
-    id_only_projection.revision = 2;
-    id_only_projection
-        .commands
-        .push(crate::protocol::ClientShellCommand {
-            command_id: "cmd_reloaded_endpoint".into(),
-            binding_label: "prefix+c / prefix+y".into(),
-            binding_labels: vec!["prefix+c".into(), "prefix+y".into()],
-            action: crate::protocol::ClientShellCommandAction::Shell,
-            description: Some("loaded endpoint command".into()),
-        });
-    local_state.mode = ClientShellMode::Prefix;
-    local_state.set_snapshot(Box::new(id_only_projection));
-    assert_eq!(local_state.mode, ClientShellMode::Prefix);
-    assert_eq!(
-        local_state.config.keybinds.keybinds.custom_commands[0].command,
-        "cmd_reloaded_endpoint"
-    );
-}
-
-#[test]
-fn custom_binding_invokes_only_the_endpoint_manifest_id() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("z"),
-        label: "prefix+z".into(),
-        command: "secret-command --token hidden".into(),
-        action: crate::config::CustomCommandAction::Shell,
-        description: None,
-    };
-    let mut projection = snapshot();
-    projection
-        .commands
-        .push(crate::protocol::ClientShellCommand {
-            command_id: "cmd_0123456789abcdef0123456789abcdef".into(),
-            binding_label: binding.label.clone(),
-            binding_labels: binding.bindings.labels(),
-            action: crate::protocol::ClientShellCommandAction::Shell,
-            description: None,
-        });
-    state.set_snapshot(Box::new(projection));
-
-    let mut outcome = ClientShellInput::default();
-    state.record_binding(crate::input::KeybindMatch::Command(binding), &mut outcome);
-
-    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
-        panic!("expected endpoint command invocation");
-    };
-    let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
-        panic!("expected command.invoke");
-    };
-    assert_eq!(params.command_id, "cmd_0123456789abcdef0123456789abcdef");
-    assert_eq!(params.workspace_id.as_deref(), Some("ws_1"));
-    assert_eq!(params.tab_id.as_deref(), Some("tab_1"));
-    assert_eq!(params.pane_id.as_deref(), Some("pane_1"));
-    assert_eq!(params.selection, None);
-    assert!(!serde_json::to_string(request)
-        .unwrap()
-        .contains("secret-command"));
-}
-
-#[test]
-fn plugin_command_carries_client_owned_selection_coordinates() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("p"),
-        label: "prefix+p".into(),
-        command: "plugin.action".into(),
-        action: crate::config::CustomCommandAction::PluginAction,
-        description: None,
-    };
-    let mut projection = snapshot();
-    projection
-        .commands
-        .push(crate::protocol::ClientShellCommand {
-            command_id: "cmd_plugin".into(),
-            binding_label: binding.label.clone(),
-            binding_labels: binding.bindings.labels(),
-            action: crate::protocol::ClientShellCommandAction::PluginAction,
-            description: None,
-        });
-    state.set_snapshot(Box::new(projection));
-    let mut pane_surface = surface();
-    pane_surface.panes[0].content_revision = 42;
-    state.set_pane_surface(pane_surface);
-    let mut selection =
-        crate::selection::Selection::absolute_range("pane_1".to_owned(), (2, 3), (4, 5));
-    assert!(selection.finish());
-    state.selection = Some(selection);
-
-    let mut outcome = ClientShellInput::default();
-    state.record_binding(crate::input::KeybindMatch::Command(binding), &mut outcome);
-
-    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
-        panic!("expected endpoint command invocation");
-    };
-    let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
-        panic!("expected command.invoke");
-    };
-    assert_eq!(
-        params.selection,
-        Some(crate::api::schema::PaneSelectionReadParams {
-            pane_id: "pane_1".into(),
-            anchor: crate::api::schema::PaneTextPoint { row: 2, col: 3 },
-            cursor: crate::api::schema::PaneTextPoint { row: 4, col: 5 },
-            content_revision: Some(42),
-        })
-    );
 }
 
 #[test]
@@ -467,7 +242,7 @@ fn unavailable_endpoint_method_is_disabled_without_disconnect() {
     let mut outcome = ClientShellInput::default();
 
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
             workspace_id: "missing".into(),
         }),
         &mut outcome,
@@ -486,7 +261,7 @@ fn unavailable_endpoint_method_is_disabled_without_disconnect() {
 
     let mut repeated = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
             workspace_id: "missing".into(),
         }),
         &mut repeated,
@@ -518,7 +293,7 @@ fn generic_endpoint_failures_and_control_errors_are_visible() {
     state.set_snapshot(Box::new(snapshot()));
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
             workspace_id: "missing".into(),
         }),
         &mut outcome,
@@ -590,7 +365,7 @@ fn endpoint_timeout_is_a_deduplicated_server_notice() {
     state.set_snapshot(Box::new(snapshot()));
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
             workspace_id: "work".into(),
         }),
         &mut outcome,
@@ -627,7 +402,7 @@ fn endpoint_notice_dedupe_resets_for_a_new_server_boot() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_endpoint_methods(Some(Vec::new()));
     let method = || {
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
             workspace_id: "work".into(),
         })
     };
@@ -652,42 +427,9 @@ fn endpoint_notice_dedupe_resets_for_a_new_server_boot() {
 }
 
 #[test]
-fn custom_binding_missing_from_endpoint_manifest_is_not_forwarded() {
+fn help_overlay_preserves_builtin_search_and_scroll_behavior() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
-    let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("z"),
-        label: "prefix+z".into(),
-        command: "secret-command".into(),
-        action: crate::config::CustomCommandAction::Shell,
-        description: None,
-    };
-
-    let mut outcome = ClientShellInput::default();
-    state.record_binding(crate::input::KeybindMatch::Command(binding), &mut outcome);
-
-    assert!(outcome.actions.is_empty());
-    assert!(outcome.repaint);
-    assert!(state
-        .endpoint_error
-        .as_deref()
-        .is_some_and(|error| error.contains("not available")));
-}
-
-#[test]
-fn help_overlay_restores_released_search_scroll_and_custom_binding_behavior() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut projection = snapshot();
-    projection
-        .commands
-        .push(crate::protocol::ClientShellCommand {
-            command_id: "plugin-action".into(),
-            binding_label: "prefix+z".into(),
-            binding_labels: vec!["prefix+z".into()],
-            action: crate::protocol::ClientShellCommandAction::PluginAction,
-            description: Some("run plugin action".into()),
-        });
-    state.set_snapshot(Box::new(projection));
     state.set_pane_surface(surface());
     let mut open = ClientShellInput::default();
     state.record_binding(
@@ -710,11 +452,11 @@ fn help_overlay_restores_released_search_scroll_and_custom_binding_behavior() {
     assert_ne!(state.hits.help_scrollbar, Rect::default());
 
     state.handle_input_bytes(b"/");
-    state.handle_input_bytes(b"plugin");
-    let custom = state.compose(106, 30).expect("custom help search");
-    let text = custom
+    state.handle_input_bytes(b"reload");
+    let filtered = state.compose(106, 30).expect("built-in help search");
+    let text = filtered
         .cells
-        .chunks(custom.width as usize)
+        .chunks(filtered.width as usize)
         .map(|row| {
             row.iter()
                 .map(|cell| cell.symbol.as_str())
@@ -722,8 +464,7 @@ fn help_overlay_restores_released_search_scroll_and_custom_binding_behavior() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("custom"));
-    assert!(text.contains("run plugin action"));
+    assert!(text.contains("reload config"));
     state.handle_input_bytes(b"\x1b");
 
     state.handle_input_bytes(b"/");
@@ -784,9 +525,9 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
         &modified.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneResize(params)
-                    if params.direction == crate::api::schema::PaneDirection::Left
+                &request.action,
+                crate::actions::Action::PaneResize(params)
+                    if params.direction == crate::actions::PaneDirection::Left
             )
     ));
     assert_eq!(state.mode, ClientShellMode::Resize);
@@ -796,10 +537,10 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
         panic!("resize should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneResize(params)
+        &request.action,
+        crate::actions::Action::PaneResize(params)
             if params.pane_id.as_deref() == Some("pane_1")
-                && params.direction == crate::api::schema::PaneDirection::Left
+                && params.direction == crate::actions::PaneDirection::Left
     ));
     assert_eq!(state.mode, ClientShellMode::Resize);
 

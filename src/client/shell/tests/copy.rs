@@ -23,13 +23,13 @@ fn pasted_help_and_copy_queries_normalize_single_line_text() {
         content_revision: 0,
         geometry: (80, 24),
         alternate_screen_active: false,
-        cursor: crate::api::schema::PaneTextPoint { row: 0, col: 0 },
+        cursor: crate::actions::PaneTextPoint { row: 0, col: 0 },
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         entry_offset_from_bottom: 0,
         selection: None,
         search_prompt: Some(ClientCopySearchPrompt {
-            direction: crate::api::schema::PaneCopySearchDirection::Forward,
+            direction: crate::actions::PaneCopySearchDirection::Forward,
             query: TextEditor::default(),
         }),
         search_query: String::new(),
@@ -149,8 +149,8 @@ fn client_mouse_selection_highlights_and_copies_through_endpoint_extraction() {
         &down.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+                &request.action,
+                crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_1"
             )
     ));
     assert!(state
@@ -190,18 +190,18 @@ fn client_mouse_selection_highlights_and_copies_through_endpoint_extraction() {
     };
     let request_id = request.id.clone();
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneSelectionRead(params)
+        &request.action,
+        crate::actions::Action::PaneSelectionRead(params)
             if params.pane_id == "pane_1"
-                && params.anchor == crate::api::schema::PaneTextPoint { row: 0, col: 0 }
-                && params.cursor == crate::api::schema::PaneTextPoint { row: 0, col: 2 }
+                && params.anchor == crate::actions::PaneTextPoint { row: 0, col: 0 }
+                && params.cursor == crate::actions::PaneTextPoint { row: 0, col: 2 }
                 && params.content_revision.is_none()
     ));
 
     let (repaint, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::actions::ActionResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "LIV".into(),
         }),
@@ -324,8 +324,8 @@ fn retained_mouse_selection_survives_output_and_copies_without_terminal_input() 
     assert!(matches!(
         &copy.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::PaneSelectionRead(
-                crate::api::schema::PaneSelectionReadParams { content_revision: None, .. }
+            if matches!(request.action, crate::actions::Action::PaneSelectionRead(
+                crate::actions::PaneSelectionReadParams { content_revision: None, .. }
             ))
     ));
     assert!(copy.requests.is_empty());
@@ -336,7 +336,7 @@ fn retained_mouse_selection_survives_output_and_copies_without_terminal_input() 
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::actions::ActionResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "yIV".into(),
         }),
@@ -373,8 +373,8 @@ fn selection_edge_drag_requests_scroll_and_timer_continues_it() {
         &drag.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                &request.action,
+                crate::actions::Action::PaneScroll(params)
                     if params.offset_from_bottom == 3
             )
     ));
@@ -392,8 +392,8 @@ fn selection_edge_drag_requests_scroll_and_timer_continues_it() {
         &next_scroll[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                &request.action,
+                crate::actions::Action::PaneScroll(params)
                     if params.offset_from_bottom == 4
             )
     ));
@@ -448,8 +448,8 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
         &page.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                &request.action,
+                crate::actions::Action::PaneScroll(params)
                     if params.offset_from_bottom == 1
             )
     ));
@@ -473,8 +473,8 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
         panic!("latest queued scroll should follow the completed request");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneScroll(params)
+        &request.action,
+        crate::actions::Action::PaneScroll(params)
             if params.pane_id == "pane_1" && params.offset_from_bottom == 20
     ));
     let top_request_id = request.id.clone();
@@ -504,15 +504,15 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
     assert!(copy.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
                 if params.content_revision.is_none())
     )));
     assert!(copy.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                &request.action,
+                crate::actions::Action::PaneScroll(params)
                     if params.offset_from_bottom == 0
             )
     )));
@@ -560,7 +560,7 @@ fn keyboard_selections_survive_output_and_copy_live_ranges() {
         assert!(copied.actions.iter().any(|action| matches!(
             action,
             ClientShellAction::Endpoint { request, .. }
-                if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+                if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
                     if params.content_revision.is_none()
                         && (params.anchor.row, params.anchor.col) == range.0
                         && (params.cursor.row, params.cursor.col) == range.1)
@@ -588,9 +588,9 @@ fn empty_keyboard_anchor_keeps_search_fallback_revision_guard() {
     let [ClientShellAction::Endpoint { request, .. }] = &search.actions[..] else {
         panic!("search request");
     };
-    let found = crate::api::schema::PaneTextRange {
-        start: crate::api::schema::PaneTextPoint { row: 0, col: 0 },
-        end: crate::api::schema::PaneTextPoint { row: 0, col: 3 },
+    let found = crate::actions::PaneTextRange {
+        start: crate::actions::PaneTextPoint { row: 0, col: 0 },
+        end: crate::actions::PaneTextPoint { row: 0, col: 3 },
     };
     state.handle_endpoint_result(
         "boot-1",
@@ -603,7 +603,7 @@ fn empty_keyboard_anchor_keeps_search_fallback_revision_guard() {
     assert!(copy.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
                 if params.anchor == found.start
                     && params.cursor == found.end
                     && params.content_revision == Some(0))
@@ -673,17 +673,17 @@ fn keyboard_copy_mode_content_motion_is_endpoint_backed_and_stale_safe() {
     };
     let request_id = request.id.clone();
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneCopyMotion(params)
+        &request.action,
+        crate::actions::Action::PaneCopyMotion(params)
             if params.cursor == origin
-                && params.motion == crate::api::schema::PaneCopyMotion::NextWordStart
+                && params.motion == crate::actions::PaneCopyMotion::NextWordStart
     ));
     let (repaint, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::actions::ActionResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
-            cursor: crate::api::schema::PaneTextPoint {
+            cursor: crate::actions::PaneTextPoint {
                 row: origin.row,
                 col: 3,
             },
@@ -723,7 +723,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     ))]);
     assert!(state.copy_mode.as_ref().is_some_and(|mode| {
         mode.search_prompt.as_ref().is_some_and(|prompt| {
-            prompt.direction == crate::api::schema::PaneCopySearchDirection::Backward
+            prompt.direction == crate::actions::PaneCopySearchDirection::Backward
         })
     }));
     state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
@@ -772,22 +772,22 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     };
     let request_id = request.id.clone();
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneCopySearch(params)
+        &request.action,
+        crate::actions::Action::PaneCopySearch(params)
             if params.pane_id == "pane_1"
                 && params.query == "needle"
-                && params.direction == crate::api::schema::PaneCopySearchDirection::Forward
+                && params.direction == crate::actions::PaneCopySearchDirection::Forward
                 && params.cursor == origin
                 && params.previous.is_none()
     ));
     let matches = vec![
-        crate::api::schema::PaneTextRange {
-            start: crate::api::schema::PaneTextPoint { row: 5, col: 2 },
-            end: crate::api::schema::PaneTextPoint { row: 5, col: 7 },
+        crate::actions::PaneTextRange {
+            start: crate::actions::PaneTextPoint { row: 5, col: 2 },
+            end: crate::actions::PaneTextPoint { row: 5, col: 7 },
         },
-        crate::api::schema::PaneTextRange {
-            start: crate::api::schema::PaneTextPoint { row: 15, col: 1 },
-            end: crate::api::schema::PaneTextPoint { row: 15, col: 6 },
+        crate::actions::PaneTextRange {
+            start: crate::actions::PaneTextPoint { row: 15, col: 1 },
+            end: crate::actions::PaneTextPoint { row: 15, col: 6 },
         },
     ];
     let (repaint, actions) = state.handle_endpoint_result(
@@ -804,8 +804,8 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
         action,
         ClientShellAction::Endpoint { request, .. }
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                &request.action,
+                crate::actions::Action::PaneScroll(params)
                     if params.offset_from_bottom == 15
             )
     )));
@@ -813,7 +813,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
         .iter()
         .find_map(|action| match action {
             ClientShellAction::Endpoint { request, .. }
-                if matches!(request.method, crate::api::schema::Method::PaneScroll(_)) =>
+                if matches!(request.action, crate::actions::Action::PaneScroll(_)) =>
             {
                 Some(request.id.clone())
             }
@@ -854,9 +854,9 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     };
     let repeat_id = request.id.clone();
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneCopySearch(params)
-            if params.direction == crate::api::schema::PaneCopySearchDirection::Forward
+        &request.action,
+        crate::actions::Action::PaneCopySearch(params)
+            if params.direction == crate::actions::PaneCopySearchDirection::Forward
                 && params.previous == Some(matches[0])
     ));
     let (_, repeat_actions) = state.handle_endpoint_result(
@@ -866,7 +866,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     );
     if let Some(scroll_id) = repeat_actions.iter().find_map(|action| match action {
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneScroll(_)) =>
+            if matches!(request.action, crate::actions::Action::PaneScroll(_)) =>
         {
             Some(request.id.clone())
         }
@@ -890,9 +890,9 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
         panic!("reverse search should use endpoint search");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneCopySearch(params)
-            if params.direction == crate::api::schema::PaneCopySearchDirection::Backward
+        &request.action,
+        crate::actions::Action::PaneCopySearch(params)
+            if params.direction == crate::actions::PaneCopySearchDirection::Backward
                 && params.previous == Some(matches[1])
     ));
     let (_, reverse_actions) = state.handle_endpoint_result(
@@ -902,7 +902,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     );
     if let Some(scroll_id) = reverse_actions.iter().find_map(|action| match action {
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneScroll(_)) =>
+            if matches!(request.action, crate::actions::Action::PaneScroll(_)) =>
         {
             Some(request.id.clone())
         }
@@ -929,8 +929,8 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
         action,
         ClientShellAction::Endpoint { request, .. }
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                &request.action,
+                crate::actions::Action::PaneScroll(params)
                     if params.offset_from_bottom == 0
             )
     )));
@@ -1227,7 +1227,7 @@ fn navigator_searches_ancestor_context_and_keeps_split_agents_individually_actio
     })]);
     assert!(
         matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }]
-        if matches!(&request.method, crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"))
+        if matches!(&request.action, crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_2"))
     );
 }
 
@@ -1722,8 +1722,8 @@ fn navigator_owns_search_mouse_selection_and_stable_target_focus() {
         panic!("navigator pane click should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+        &request.action,
+        crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_1"
     ));
     assert!(state.overlay.is_none());
 }
@@ -1819,7 +1819,7 @@ fn copy_mode_survives_mouse_motion_and_parks_across_focus_changes() {
     assert!(copy.requests.is_empty());
     assert!(
         matches!(&copy.actions[..], [ClientShellAction::Endpoint { request, .. }]
-        if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+        if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
             if params.pane_id == "pane_2" && params.content_revision.is_none()))
     );
 
@@ -1878,7 +1878,7 @@ fn retained_selection_copy_suppresses_key_repeats() {
     assert!(press.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneSelectionRead(_))
+            if matches!(request.action, crate::actions::Action::PaneSelectionRead(_))
     )));
     let repeat = state.handle_raw_events(vec![RawInputEvent::Key(
         key.clone()
@@ -1920,14 +1920,14 @@ fn rapid_copy_motions_are_chained_from_the_previous_result() {
         ClientShellAction::Endpoint { request, .. } => request.id.clone(),
         _ => unreachable!(),
     };
-    let intermediate = crate::api::schema::PaneTextPoint {
+    let intermediate = crate::actions::PaneTextPoint {
         row: origin.row,
         col: 2,
     };
     let (_, follow_up) = state.handle_endpoint_result(
         "boot-1",
         &first_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::actions::ActionResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
             cursor: intermediate,
             content_revision: 0,
@@ -1937,8 +1937,8 @@ fn rapid_copy_motions_are_chained_from_the_previous_result() {
         &follow_up[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneCopyMotion(params)
+                &request.action,
+                crate::actions::Action::PaneCopyMotion(params)
                     if params.cursor == intermediate
             )
     ));
@@ -1976,7 +1976,7 @@ fn queued_copy_keys_preserve_prefix_order() {
     state.handle_endpoint_result(
         "boot-1",
         &motion_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::actions::ActionResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
             cursor: origin,
             content_revision: 0,
@@ -2049,14 +2049,14 @@ fn copy_waits_for_endpoint_motion_before_copying_selection() {
         ClientShellAction::Endpoint { request, .. } => request.id.clone(),
         _ => unreachable!(),
     };
-    let target = crate::api::schema::PaneTextPoint {
+    let target = crate::actions::PaneTextPoint {
         row: origin.row,
         col: 2,
     };
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &motion_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::actions::ActionResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
             cursor: target,
             content_revision: 0,
@@ -2067,8 +2067,8 @@ fn copy_waits_for_endpoint_motion_before_copying_selection() {
         action,
         ClientShellAction::Endpoint { request, .. }
             if matches!(
-                &request.method,
-                crate::api::schema::Method::PaneSelectionRead(params)
+                &request.action,
+                crate::actions::Action::PaneSelectionRead(params)
                     if params.anchor == origin && params.cursor == target
             )
     )));
@@ -2095,9 +2095,9 @@ fn new_content_revision_invalidates_copy_search_coordinates() {
     copy_mode.search_query = "needle".into();
     copy_mode
         .search_matches
-        .push(crate::api::schema::PaneTextRange {
-            start: crate::api::schema::PaneTextPoint { row: 0, col: 0 },
-            end: crate::api::schema::PaneTextPoint { row: 0, col: 1 },
+        .push(crate::actions::PaneTextRange {
+            start: crate::actions::PaneTextPoint { row: 0, col: 0 },
+            end: crate::actions::PaneTextPoint { row: 0, col: 1 },
         });
     copy_mode.search_total = 1;
     copy_mode.search_current = Some(0);
@@ -2131,7 +2131,7 @@ fn word_selection_result_survives_focus_snapshot_lag() {
     let (repaint, _) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::actions::ActionResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "hello world".into(),
         }),
@@ -2199,7 +2199,7 @@ fn copy_mode_repeat_during_projection_gap_stays_active() {
         assert!(moved.actions.iter().any(|action| matches!(
             action,
             ClientShellAction::Endpoint { request, .. }
-                if matches!(&request.method, crate::api::schema::Method::PaneScroll(params)
+                if matches!(&request.action, crate::actions::Action::PaneScroll(params)
                     if params.pane_id == "pane_1" && params.offset_from_bottom == 1)
         )));
         if selection_before_gap.is_some() {

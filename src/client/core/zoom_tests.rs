@@ -18,7 +18,7 @@ fn split_model() -> (Model, PaneId, PaneId) {
 
 #[test]
 fn original_zoom_transition_preserves_single_pane_and_idempotence_reasons() {
-    use api::{PaneZoomMode as Mode, PaneZoomReason as Reason};
+    use actions::{PaneZoomMode as Mode, PaneZoomReason as Reason};
     for current in [false, true] {
         for mode in [Mode::Toggle, Mode::On, Mode::Off] {
             for focus_changed in [false, true] {
@@ -53,13 +53,13 @@ fn original_zoom_transition_preserves_single_pane_and_idempotence_reasons() {
 fn original_zoom_focuses_even_when_on_is_idempotent_but_noop_does_not_dirty_revision() {
     let (mut model, first, second) = split_model();
     let shared = model.shared().unwrap();
-    let outcome = model.zoom_pane(first, api::PaneZoomMode::On).unwrap();
+    let outcome = model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     assert!(outcome.changed && !outcome.focus_changed && outcome.zoomed);
     let before = model.revision;
-    let outcome = model.zoom_pane(first, api::PaneZoomMode::On).unwrap();
+    let outcome = model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     assert!(!outcome.changed && !outcome.focus_changed);
     assert_eq!(model.revision, before);
-    let outcome = model.zoom_pane(second, api::PaneZoomMode::On).unwrap();
+    let outcome = model.zoom_pane(second, actions::PaneZoomMode::On).unwrap();
     assert!(!outcome.changed && outcome.focus_changed && outcome.zoomed);
     assert_eq!(model.focused(), Some(second));
     assert_eq!(model.shared().unwrap(), shared);
@@ -75,13 +75,13 @@ fn original_zoom_focuses_even_when_on_is_idempotent_but_noop_does_not_dirty_revi
     assert_eq!(layout.splits.len(), 1);
     assert!(
         !model
-            .zoom_pane(first, api::PaneZoomMode::Off)
+            .zoom_pane(first, actions::PaneZoomMode::Off)
             .unwrap()
             .zoomed
     );
     let before = model.description();
     assert!(model
-        .zoom_pane(PaneId::from_raw(u32::MAX), api::PaneZoomMode::Toggle)
+        .zoom_pane(PaneId::from_raw(u32::MAX), actions::PaneZoomMode::Toggle)
         .is_err());
     assert_eq!(model.description(), before);
 }
@@ -97,10 +97,10 @@ fn original_zoom_single_pane_in_other_tab_still_focuses_without_zooming() {
             false,
         )
         .unwrap();
-    model.zoom_pane(first, api::PaneZoomMode::On).unwrap();
-    let result = model.zoom_pane(third, api::PaneZoomMode::Off).unwrap();
+    model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
+    let result = model.zoom_pane(third, actions::PaneZoomMode::Off).unwrap();
     assert!(!result.changed && result.focus_changed && !result.zoomed);
-    assert_eq!(result.reason, Some(api::PaneZoomReason::SinglePane));
+    assert_eq!(result.reason, Some(actions::PaneZoomReason::SinglePane));
     assert_eq!(model.focused(), Some(third));
     model.focus(first).unwrap();
     assert!(
@@ -121,7 +121,7 @@ fn zoom_only_paints_focused_pane_hides_dividers_and_reuses_original_outer_border
     views.insert(first, first_view);
     // Deliberately omit the hidden terminal: zoom geometry must not touch it.
     let mut renderer = view::Renderer::new().unwrap();
-    model.zoom_pane(first, api::PaneZoomMode::On).unwrap();
+    model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     let surface = renderer
         .compose(
             &model,
@@ -167,7 +167,7 @@ fn zoom_only_paints_focused_pane_hides_dividers_and_reuses_original_outer_border
             assert_eq!(pane.inner_rect, crate::ui::pane_inner_rect(area, expected));
         }
     }
-    model.zoom_pane(second, api::PaneZoomMode::Off).unwrap();
+    model.zoom_pane(second, actions::PaneZoomMode::Off).unwrap();
     let surface = renderer
         .compose(
             &model,
@@ -194,7 +194,7 @@ fn zoom_only_paints_focused_pane_hides_dividers_and_reuses_original_outer_border
 #[test]
 fn original_public_layout_geometry_applies_chrome_to_hidden_bsp_even_when_zoomed() {
     let (mut model, first, _) = split_model();
-    model.zoom_pane(first, api::PaneZoomMode::On).unwrap();
+    model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     let tab = model.active_tab().unwrap();
     let area = Rect::new(3, 2, 100, 28);
     let mut config = view::ChromeConfig::from_config(&Config::default());
@@ -229,7 +229,7 @@ fn zoom_is_client_local_and_survives_metadata_ratio_swap_but_not_membership_chan
         .collect();
     let mut b = Model::new("other-client".into());
     b.install(a.shared().unwrap(), &facts).unwrap();
-    a.zoom_pane(first, api::PaneZoomMode::On).unwrap();
+    a.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     assert_eq!(a.shared().unwrap(), b.shared().unwrap());
     assert!(!b.snapshot().tabs[0].zoomed);
     // Shared ratio changes and pane swaps keep each client's original zoom.
@@ -255,18 +255,18 @@ fn zoom_is_client_local_and_survives_metadata_ratio_swap_but_not_membership_chan
         !a.active_zoomed(),
         "native split resets zoom, including remote insertions"
     );
-    a.zoom_pane(second, api::PaneZoomMode::On).unwrap();
+    a.zoom_pane(second, actions::PaneZoomMode::On).unwrap();
     b.retire(third).unwrap();
     a.install(b.shared().unwrap(), &facts).unwrap();
     assert!(
         !a.active_zoomed(),
         "native close resets zoom, including remote removals"
     );
-    a.zoom_pane(second, api::PaneZoomMode::On).unwrap();
+    a.zoom_pane(second, actions::PaneZoomMode::On).unwrap();
     a.retire(first).unwrap();
     assert!(a.zoomed_tabs.is_empty());
     assert!(
-        !a.zoom_pane(second, api::PaneZoomMode::Toggle)
+        !a.zoom_pane(second, actions::PaneZoomMode::Toggle)
             .unwrap()
             .zoomed
     );
@@ -306,7 +306,7 @@ fn revealing_a_passive_pane_announces_its_grid_without_resizing_hidden_programs(
 #[test]
 fn local_split_clears_zoom_but_refreshing_core_facts_does_not() {
     let (mut model, first, _) = split_model();
-    model.zoom_pane(first, api::PaneZoomMode::On).unwrap();
+    model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     model
         .insert(json!({"address":"opaque/root","status":{"state":"working"}}))
         .unwrap();

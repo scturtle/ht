@@ -2,13 +2,9 @@ use ghostty_vt as ghostty;
 use ghostty_vt::pane_graphics_files;
 use std::io;
 use std::path::PathBuf;
-mod agent_resume;
-mod api;
+mod actions;
 mod app;
 mod build_info;
-// API argument projections stay available for shared UI/schema tests,
-// including methods that the Core endpoint deliberately does not advertise.
-#[allow(dead_code)]
 mod cli;
 mod client;
 // Historical configuration keys and projections remain parseable even when Core
@@ -21,12 +17,11 @@ mod input;
 mod kitty_graphics;
 mod layout;
 mod logging;
+#[cfg(test)]
+mod noninteractive_process;
 mod pane;
 mod platform;
 // Shared semantic messages and presentation data, not a legacy socket codec.
-mod endpoint_paths;
-#[cfg(test)]
-mod noninteractive_process;
 #[allow(dead_code)]
 mod protocol;
 mod raw_input;
@@ -161,14 +156,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # navigate_pane_down = "j"
 # navigate_pane_up = "k"
 # navigate_pane_right = "l"     # right arrow always focuses the pane to the right
-
-# Custom commands use the same binding syntax.
-# type = "shell" runs detached in the background.
-# type = "pane" opens a temporary pane and closes it when the command exits.
-# [[keys.command]]
-# key = "prefix+alt+g"
-# type = "pane"
-# command = "lazygit"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, and focus_agent for new configs.

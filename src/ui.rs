@@ -1,6 +1,5 @@
 //! Pure client-side drawing and geometry.
 mod panes;
-mod release_notes;
 mod scrollbar;
 mod sidebar;
 mod status;
@@ -9,13 +8,9 @@ mod widgets;
 pub(crate) use panes::{
     apply_pane_chrome, pane_inner_rect, render_selection_highlight, zoomed_pane_info,
 };
-pub(crate) use release_notes::{
-    release_notes_close_button_rect, release_notes_display_lines, release_notes_scroll_metrics,
-    RELEASE_NOTES_MODAL_SIZE,
-};
 pub(crate) use scrollbar::{
-    release_notes_scrollbar_rect, render_scrollbar_buffer, scrollbar_offset_from_drag_row,
-    scrollbar_offset_from_row, scrollbar_thumb, scrollbar_thumb_grab_offset,
+    render_scrollbar_buffer, scrollbar_offset_from_drag_row, scrollbar_offset_from_row,
+    scrollbar_thumb, scrollbar_thumb_grab_offset,
 };
 pub(crate) use sidebar::{
     expanded_sidebar_sections, resolved_token_spans, sidebar_agent_rows,
@@ -24,7 +19,6 @@ pub(crate) use sidebar::{
 };
 pub(crate) use status::{render_config_diagnostic_buffer, render_copy_feedback_buffer};
 pub(crate) use text::truncate_end;
-pub(crate) use widgets::{centered_popup_rect, modal_stack_areas};
 
 use ratatui::layout::Rect;
 use status::copy_feedback_rect;

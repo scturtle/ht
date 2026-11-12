@@ -1,14 +1,14 @@
 //! Shared workspace/tab lifecycle. Program creation and document CAS are separate.
 use super::{model::invalid, session::Session};
-use crate::api::schema as api;
+use crate::actions;
 use std::{collections::HashSet, io};
 
 impl Session {
     pub(super) fn organization_action(
         &mut self,
-        method: api::Method,
-    ) -> io::Result<api::ResponseResult> {
-        use api::{Method as M, ResponseResult as R};
+        method: actions::Action,
+    ) -> io::Result<actions::ActionResult> {
+        use actions::{Action as M, ActionResult as R};
         match method {
             M::WorkspaceCreate(p) => {
                 super::organization::validate_label(p.label.as_deref())?;
@@ -43,18 +43,6 @@ impl Session {
                     workspace: self.model.workspace_info(&p.workspace_id)?,
                 })
             }
-            M::WorkspaceGet(p) => Ok(R::WorkspaceInfo {
-                workspace: self.model.workspace_info(&p.workspace_id)?,
-            }),
-            M::WorkspaceList(_) => Ok(R::WorkspaceList {
-                workspaces: self
-                    .model
-                    .organization
-                    .workspaces
-                    .iter()
-                    .map(|w| self.model.workspace_info(&w.id))
-                    .collect::<io::Result<_>>()?,
-            }),
             M::WorkspaceRename(p) => {
                 self.change(|model| {
                     let w = model
@@ -152,25 +140,6 @@ impl Session {
                 Ok(R::TabInfo {
                     tab: self.model.tab_info(&p.tab_id)?,
                 })
-            }
-            M::TabGet(p) => Ok(R::TabInfo {
-                tab: self.model.tab_info(&p.tab_id)?,
-            }),
-            M::TabList(p) => {
-                let workspace = p
-                    .workspace_id
-                    .unwrap_or_else(|| self.model.active_workspace.clone());
-                self.model.workspace_info(&workspace)?;
-                let tabs = self
-                    .model
-                    .organization
-                    .workspaces
-                    .iter()
-                    .filter(|w| w.id == workspace)
-                    .flat_map(|w| &w.tabs)
-                    .map(|t| self.model.tab_info(&t.id))
-                    .collect::<io::Result<_>>()?;
-                Ok(R::TabList { tabs })
             }
             M::TabRename(p) => {
                 self.change(|model| {

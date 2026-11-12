@@ -16,7 +16,6 @@ fn notification_duration(kind: SemanticNotificationKind) -> std::time::Duration 
     std::time::Duration::from_secs(match kind {
         SemanticNotificationKind::NeedsAttention => 8,
         SemanticNotificationKind::Finished => 5,
-        SemanticNotificationKind::UpdateInstalled => 3,
         SemanticNotificationKind::Custom => 5,
     })
 }
@@ -75,7 +74,7 @@ impl ClientShellState {
             return;
         };
         self.push_endpoint_method(
-            crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
+            crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id }),
             outcome,
         );
     }
@@ -247,23 +246,21 @@ impl ClientShellState {
         };
         match event.kind {
             SemanticNotificationKind::NeedsAttention
-                if agent.agent_status == crate::api::schema::AgentStatus::Blocked =>
+                if agent.agent_status == crate::actions::AgentStatus::Blocked =>
             {
                 NotificationValidation::Current
             }
             SemanticNotificationKind::Finished
-                if agent.agent_status == crate::api::schema::AgentStatus::Done =>
+                if agent.agent_status == crate::actions::AgentStatus::Done =>
             {
                 NotificationValidation::Current
             }
             SemanticNotificationKind::Finished
-                if agent.agent_status == crate::api::schema::AgentStatus::Working =>
+                if agent.agent_status == crate::actions::AgentStatus::Working =>
             {
                 NotificationValidation::AwaitingSnapshot
             }
-            SemanticNotificationKind::UpdateInstalled | SemanticNotificationKind::Custom => {
-                NotificationValidation::Current
-            }
+            SemanticNotificationKind::Custom => NotificationValidation::Current,
             SemanticNotificationKind::NeedsAttention | SemanticNotificationKind::Finished => {
                 NotificationValidation::Stale
             }

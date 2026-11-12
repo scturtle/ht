@@ -3,17 +3,17 @@
 pub(crate) struct PaneZoomOutcome {
     pub changed: bool,
     pub focus_changed: bool,
-    pub reason: Option<crate::api::schema::PaneZoomReason>,
+    pub reason: Option<crate::actions::PaneZoomReason>,
     pub zoomed: bool,
 }
 
 pub(crate) fn pane_zoom(
     zoomed: bool,
     pane_count: usize,
-    command: crate::api::schema::PaneZoomMode,
+    command: crate::actions::PaneZoomMode,
     focus_changed: bool,
 ) -> PaneZoomOutcome {
-    use crate::api::schema::{PaneZoomMode as Command, PaneZoomReason as Reason};
+    use crate::actions::{PaneZoomMode as Command, PaneZoomReason as Reason};
     if pane_count <= 1 {
         return PaneZoomOutcome {
             changed: false,

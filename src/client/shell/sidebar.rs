@@ -185,13 +185,7 @@ pub(crate) fn render_collapsed_sidebar(
         hits.sidebar_toggle.y,
         hits.sidebar_toggle.width,
         "»",
-        if super::super::global_menu::global_menu_attention(snapshot) {
-            Style::default()
-                .fg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette.overlay0)
-        },
+        Style::default().fg(palette.overlay0),
     );
 }
 
@@ -396,43 +390,20 @@ pub(crate) fn render_sidebar(
             " new",
             Style::default().fg(palette.overlay0),
         );
-        let attention = super::super::global_menu::global_menu_attention(snapshot);
-        let launcher_width = if attention { 8 } else { 6 }.min(workspace_area.width);
+        let launcher_width = 6.min(workspace_area.width);
         hits.global_launcher = Rect::new(
             workspace_area.right().saturating_sub(launcher_width),
             footer_y,
             launcher_width,
             1,
         );
-        if attention {
-            let start_x = workspace_area.right().saturating_sub(6);
-            put_text(
-                buffer,
-                start_x,
-                footer_y,
-                2,
-                "● ",
-                Style::default()
-                    .fg(palette.accent)
-                    .add_modifier(Modifier::BOLD),
-            );
-            put_text(
-                buffer,
-                start_x.saturating_add(2),
-                footer_y,
-                4,
-                "menu",
-                Style::default().fg(palette.overlay0),
-            );
-        } else {
-            put_right_text(
-                buffer,
-                workspace_area,
-                footer_y,
-                "menu",
-                Style::default().fg(palette.overlay0),
-            );
-        }
+        put_right_text(
+            buffer,
+            workspace_area,
+            footer_y,
+            "menu",
+            Style::default().fg(palette.overlay0),
+        );
     }
 
     super::render_agent_panel(
@@ -639,7 +610,7 @@ pub(in crate::client::shell) fn displayed_workspace_status(
     snapshot: &ClientShellSnapshot,
     workspace: &ClientShellWorkspace,
     collapsed_groups: &HashSet<String>,
-) -> crate::api::schema::AgentStatus {
+) -> crate::actions::AgentStatus {
     let Some(worktree) = workspace
         .worktree
         .as_ref()
@@ -667,7 +638,7 @@ pub(in crate::client::shell) fn displayed_workspace_status(
 
 pub(in crate::client::shell) fn workspace_rows(
     workspace: &ClientShellWorkspace,
-    status: crate::api::schema::AgentStatus,
+    status: crate::actions::AgentStatus,
     indented: bool,
     config: &SpacesSidebarConfig,
 ) -> Vec<Vec<crate::ui::ResolvedToken>> {
@@ -697,7 +668,7 @@ pub(in crate::client::shell) fn workspace_rows(
 pub(in crate::client::shell) fn render_workspace_rows(
     buffer: &mut Buffer,
     area: Rect,
-    status: crate::api::schema::AgentStatus,
+    status: crate::actions::AgentStatus,
     indicators: crate::config::StatusIndicatorStyle,
     entry: &WorkspaceEntry,
     rows: Vec<Vec<crate::ui::ResolvedToken>>,

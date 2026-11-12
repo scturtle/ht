@@ -34,7 +34,6 @@ pub(super) fn render_mode_bar(
     mode: ClientShellMode,
     copy_mode: Option<&ClientCopyModeState>,
     endpoint_error: Option<&str>,
-    update_available: bool,
     keybinds: &LiveKeybindConfig,
     palette: &Palette,
 ) -> Option<Rect> {
@@ -125,8 +124,8 @@ pub(super) fn render_mode_bar(
                 let copy_mode = copy_mode?;
                 if let Some(prompt) = copy_mode.search_prompt.as_ref() {
                     let marker = match prompt.direction {
-                        crate::api::schema::PaneCopySearchDirection::Forward => "/",
-                        crate::api::schema::PaneCopySearchDirection::Backward => "?",
+                        crate::actions::PaneCopySearchDirection::Forward => "/",
+                        crate::actions::PaneCopySearchDirection::Backward => "?",
                     };
                     buffer.set_stringn(bar.x, bar.y, " COPY ", usize::from(bar.width), mode_style);
                     let prefix = 8.min(bar.width);
@@ -209,21 +208,6 @@ pub(super) fn render_mode_bar(
             u16::try_from(UnicodeWidthStr::width(text.as_str()))
                 .unwrap_or(u16::MAX)
                 .min(remaining),
-        );
-    }
-    if update_available && mode == ClientShellMode::Navigate {
-        let width = 13.min(bar.width);
-        let area = Rect::new(bar.right().saturating_sub(width), bar.y, width, 1);
-        buffer.set_style(area, Style::default().bg(palette.panel_bg));
-        put_right_text(
-            buffer,
-            area,
-            area.y,
-            " update ready",
-            Style::default()
-                .fg(palette.accent)
-                .bg(palette.panel_bg)
-                .add_modifier(Modifier::BOLD),
         );
     }
     Some(bar)

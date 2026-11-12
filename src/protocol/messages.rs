@@ -510,7 +510,7 @@ pub enum ClientMessage {
     /// serialized API envelope between the shell and the Core adapter.
     ClientShellEndpointRequest {
         boot_id: String,
-        request: Box<crate::api::schema::Request>,
+        request: Box<crate::actions::ActionRequest>,
     },
 
     /// Deliver one structured mouse event to a directly attached terminal.
@@ -809,20 +809,20 @@ impl FrameData {
 
 fn deserialize_client_shell_agent_status<'de, D>(
     deserializer: D,
-) -> Result<crate::api::schema::AgentStatus, D::Error>
+) -> Result<crate::actions::AgentStatus, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     if !deserializer.is_human_readable() {
-        return crate::api::schema::AgentStatus::deserialize(deserializer);
+        return crate::actions::AgentStatus::deserialize(deserializer);
     }
     let value = String::deserialize(deserializer)?;
     Ok(match value.as_str() {
-        "idle" => crate::api::schema::AgentStatus::Idle,
-        "working" => crate::api::schema::AgentStatus::Working,
-        "blocked" => crate::api::schema::AgentStatus::Blocked,
-        "done" => crate::api::schema::AgentStatus::Done,
-        _ => crate::api::schema::AgentStatus::Unknown,
+        "idle" => crate::actions::AgentStatus::Idle,
+        "working" => crate::actions::AgentStatus::Working,
+        "blocked" => crate::actions::AgentStatus::Blocked,
+        "done" => crate::actions::AgentStatus::Done,
+        _ => crate::actions::AgentStatus::Unknown,
     })
 }
 
@@ -837,16 +837,6 @@ pub struct ClientShellSnapshot {
     pub config_diagnostic: Option<String>,
     /// Unseen announcement owned and persisted by this endpoint.
     pub product_announcement: Option<ClientShellProductAnnouncement>,
-    /// Future-version update advertised by the endpoint.
-    pub update_available: Option<String>,
-    /// Endpoint-specific command shown in update instructions.
-    pub update_install_command: String,
-    /// Endpoint's normalized built-in keybindings, used only when a remote client selects server bindings.
-    pub server_keybindings_toml: Option<String>,
-    /// Whether the endpoint has a What's New entry, even if its body is unavailable.
-    pub latest_release_notes_available: bool,
-    /// Cached endpoint-owned notes used by the client-rendered overlay.
-    pub release_notes: Option<ClientShellReleaseNotes>,
     pub focused_workspace_id: Option<String>,
     pub focused_tab_id: Option<String>,
     pub focused_pane_id: Option<String>,
@@ -858,7 +848,6 @@ pub struct ClientShellSnapshot {
     pub tabs: Vec<ClientShellTab>,
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
-    pub commands: Vec<ClientShellCommand>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -868,55 +857,6 @@ pub struct ClientShellProductAnnouncement {
     pub title: String,
     pub body: String,
     pub preview: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientShellReleaseNotes {
-    pub version: String,
-    pub body: String,
-    pub preview: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientShellCommandAction {
-    Shell,
-    Pane,
-    PluginAction,
-    /// A future endpoint action kind that this client cannot execute.
-    #[serde(other)]
-    Unknown,
-}
-
-impl From<crate::config::CustomCommandAction> for ClientShellCommandAction {
-    fn from(action: crate::config::CustomCommandAction) -> Self {
-        match action {
-            crate::config::CustomCommandAction::Shell => Self::Shell,
-            crate::config::CustomCommandAction::Pane => Self::Pane,
-            crate::config::CustomCommandAction::PluginAction => Self::PluginAction,
-        }
-    }
-}
-
-impl TryFrom<ClientShellCommandAction> for crate::config::CustomCommandAction {
-    type Error = ();
-
-    fn try_from(action: ClientShellCommandAction) -> Result<Self, Self::Error> {
-        match action {
-            ClientShellCommandAction::Shell => Ok(Self::Shell),
-            ClientShellCommandAction::Pane => Ok(Self::Pane),
-            ClientShellCommandAction::PluginAction => Ok(Self::PluginAction),
-            ClientShellCommandAction::Unknown => Err(()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientShellCommand {
-    pub command_id: String,
-    pub binding_label: String,
-    pub binding_labels: Vec<String>,
-    pub action: ClientShellCommandAction,
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -939,7 +879,7 @@ pub struct ClientShellWorkspace {
     pub worktree: Option<ClientShellWorktree>,
     pub focused: bool,
     #[serde(deserialize_with = "deserialize_client_shell_agent_status")]
-    pub agent_status: crate::api::schema::AgentStatus,
+    pub agent_status: crate::actions::AgentStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -959,7 +899,7 @@ pub struct ClientShellTab {
     pub zoomed: bool,
     pub focused: bool,
     #[serde(deserialize_with = "deserialize_client_shell_agent_status")]
-    pub agent_status: crate::api::schema::AgentStatus,
+    pub agent_status: crate::actions::AgentStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -986,7 +926,7 @@ pub struct ClientShellAgent {
     pub terminal_title: Option<String>,
     pub terminal_title_stripped: Option<String>,
     #[serde(deserialize_with = "deserialize_client_shell_agent_status")]
-    pub agent_status: crate::api::schema::AgentStatus,
+    pub agent_status: crate::actions::AgentStatus,
     pub state_change_seq: u64,
     pub state_labels: Vec<(String, String)>,
     pub tokens: Vec<(String, String)>,
@@ -1240,7 +1180,6 @@ pub enum NotifyKind {
 pub enum SemanticNotificationKind {
     NeedsAttention,
     Finished,
-    UpdateInstalled,
     Custom,
 }
 
@@ -1296,7 +1235,7 @@ pub fn queued_message_cost(message: &ClientMessage) -> usize {
 }
 
 /// Failure payload of one endpoint operation, carried typed instead of as an
-/// `ErrorResponse` JSON envelope.
+/// public JSON error envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointResponseError {
     pub code: Option<String>,
@@ -1398,7 +1337,7 @@ pub enum ServerMessage {
     /// Whether the focused pane or popup needs the shell host to report every key.
     ClientShellKeyboardReportAll { enabled: bool },
 
-    /// API methods this connection's Core actually implements. Re-sent whenever a
+    /// Action names this connection's Core actually implements. Re-sent whenever a
     /// replacement connection changes the advertised set.
     ClientShellEndpointMethods { methods: Vec<String> },
 
@@ -1406,7 +1345,7 @@ pub enum ServerMessage {
     ClientShellEndpointResponse {
         boot_id: String,
         request_id: String,
-        result: Result<Box<crate::api::schema::ResponseResult>, EndpointResponseError>,
+        result: Result<Box<crate::actions::ActionResult>, EndpointResponseError>,
     },
 
     /// Incremental terminal-cell update for a previously committed pane surface.

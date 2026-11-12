@@ -23,20 +23,6 @@ fn is_ctrl_bracket_key(key: &crate::input::TerminalKey) -> bool {
     key.code == KeyCode::Char('[') && key.modifiers == KeyModifiers::CONTROL
 }
 
-pub(super) fn is_modal_paste_shortcut_for_platform(
-    key: &crate::input::TerminalKey,
-    macos: bool,
-) -> bool {
-    key.generated_text.as_deref().is_none_or(str::is_empty)
-        && matches!(key.code, KeyCode::Char('v' | 'V'))
-        && (key.modifiers.difference(KeyModifiers::SHIFT) == KeyModifiers::CONTROL
-            || macos && key.modifiers.difference(KeyModifiers::SHIFT) == KeyModifiers::SUPER)
-}
-
-fn is_modal_paste_shortcut(key: &crate::input::TerminalKey) -> bool {
-    is_modal_paste_shortcut_for_platform(key, false)
-}
-
 fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHostThemeUpdate> {
     use crate::protocol::{
         ClientHostAppearance, ClientHostDefaultColorKind, ClientHostThemeUpdate,
@@ -230,9 +216,6 @@ impl ClientShellState {
                 }
                 RawInputEvent::Text(text) => {
                     let text = text.into_string();
-                    if matches!(self.overlay, Some(ClientShellOverlay::ReleaseNotes(_))) {
-                        continue;
-                    }
                     if self.prepare_committed_text(&text, &mut outcome) {
                         continue;
                     }
@@ -254,9 +237,6 @@ impl ClientShellState {
                     }
                 }
                 RawInputEvent::Paste(text) => {
-                    if matches!(self.overlay, Some(ClientShellOverlay::ReleaseNotes(_))) {
-                        continue;
-                    }
                     if self.prepare_committed_text(&text, &mut outcome) {
                         continue;
                     }
@@ -502,68 +482,11 @@ impl ClientShellState {
         }
     }
 
-    pub(super) fn modal_paste_target_active(&self) -> bool {
-        if self.popup_input_target().is_some()
-            || (self.overlay.is_none()
-                && self.mode == ClientShellMode::Navigate
-                && self.workspace_preview_action_blocked())
-        {
-            return false;
-        }
-        if self.mode == ClientShellMode::Copy
-            && self.overlay.is_none()
-            && self
-                .copy_mode
-                .as_ref()
-                .is_some_and(|copy_mode| copy_mode.search_prompt.is_some())
-        {
-            return true;
-        }
-        matches!(
-            self.overlay.as_ref(),
-            Some(ClientShellOverlay::Rename(_))
-                | Some(ClientShellOverlay::Navigator(ClientNavigatorOverlay {
-                    search_focused: true,
-                    ..
-                }))
-                | Some(ClientShellOverlay::Help(ClientHelpOverlay {
-                    search_focused: true,
-                    ..
-                }))
-        )
-    }
-
-    pub(super) fn handle_modal_paste_shortcut_with(
-        &mut self,
-        key: &crate::input::TerminalKey,
-        outcome: &mut ClientShellInput,
-        read_clipboard_text: impl FnOnce() -> Option<String>,
-    ) -> bool {
-        if !is_modal_paste_shortcut(key) || !self.modal_paste_target_active() {
-            return false;
-        }
-        if let Some(text) = read_clipboard_text() {
-            let inserted = self.insert_copy_search_text(&text) || self.insert_overlay_text(&text);
-            outcome.repaint |= inserted;
-        }
-        true
-    }
-
     fn route_key_press(
         &mut self,
         key: &crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
     ) -> Option<ClientInputTarget> {
-        if self.handle_modal_paste_shortcut_with(key, outcome, crate::platform::read_clipboard_text)
-        {
-            return None;
-        }
-        if matches!(self.overlay, Some(ClientShellOverlay::ReleaseNotes(_))) {
-            if key.kind == KeyEventKind::Press {
-                self.route_overlay_key(key, outcome);
-            }
-            return None;
-        }
         if let Some(target) = self.popup_input_target() {
             return Some(target);
         }
@@ -842,14 +765,6 @@ impl ClientShellState {
         })
         .map(KeybindMatch::Action)
         .or_else(|| {
-            crate::input::resolve_custom_command(
-                &self.config.keybinds.keybinds,
-                key,
-                KeybindDispatch::Prefix,
-            )
-            .map(KeybindMatch::Command)
-        })
-        .or_else(|| {
             crate::input::resolve_indexed_action(
                 &self.config.keybinds.keybinds,
                 key,
@@ -967,7 +882,7 @@ impl ClientShellState {
         };
         let pane_id = surface.panes[next].pane_id.clone();
         self.push_endpoint_method(
-            crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
+            crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id }),
             outcome,
         );
     }

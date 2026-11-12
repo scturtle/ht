@@ -75,12 +75,6 @@ impl ClientShellState {
                 self.set_local_config_diagnostic(crate::config::config_diagnostic_summary(
                     &diagnostics,
                 ));
-                if let Some(snapshot) = self.snapshot.as_deref() {
-                    let commands = snapshot.commands.clone();
-                    if let Err(err) = self.config.apply_snapshot_keybindings(&commands) {
-                        self.set_endpoint_error(err);
-                    }
-                }
             }
             Err(diagnostics) => {
                 self.set_local_config_diagnostic(crate::config::config_diagnostic_summary(
@@ -94,15 +88,13 @@ impl ClientShellState {
 impl ClientShellConfig {
     pub(crate) fn from_config(config: &Config) -> Self {
         let theme_runtime = crate::app::client_theme_runtime_from_config(config);
-        let mut keybinds = config
+        let keybinds = config
             .live_keybinds_with_diagnostics()
             .map(|(keybinds, _diagnostics)| keybinds)
             .unwrap_or_else(|_diagnostics| LiveKeybindConfig {
                 prefix: config.prefix_keys(),
                 keybinds: config.keybinds(),
             });
-        // Only commands published in the Core projection may become active.
-        keybinds.keybinds.custom_commands.clear();
         Self {
             sidebar_width: config.ui.sidebar_width,
             sidebar_min_width: config.ui.sidebar_min_width,
@@ -127,7 +119,6 @@ impl ClientShellConfig {
             theme_runtime,
             palette: crate::app::client_palette_from_config(config),
             keybinds,
-            local_keys: config.keys.clone(),
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
             confirm_close: config.ui.confirm_close,
@@ -160,50 +151,6 @@ impl ClientShellConfig {
         self
     }
 
-    pub(super) fn apply_snapshot_keybindings(
-        &mut self,
-        commands: &[crate::protocol::ClientShellCommand],
-    ) -> Result<(), String> {
-        let mut config = crate::config::Config {
-            keys: self.local_keys.clone(),
-            ..Default::default()
-        };
-        config.keys.command = commands
-            .iter()
-            .filter_map(|command| {
-                let action_type = match command.action {
-                    crate::protocol::ClientShellCommandAction::Shell => {
-                        crate::config::CommandKeybindType::Shell
-                    }
-                    crate::protocol::ClientShellCommandAction::Pane => {
-                        crate::config::CommandKeybindType::Pane
-                    }
-                    crate::protocol::ClientShellCommandAction::PluginAction => {
-                        crate::config::CommandKeybindType::PluginAction
-                    }
-                    crate::protocol::ClientShellCommandAction::Unknown => return None,
-                };
-                Some(crate::config::CommandKeybindConfig {
-                    key: if command.binding_labels.len() == 1 {
-                        crate::config::BindingConfig::One(command.binding_labels[0].clone())
-                    } else {
-                        crate::config::BindingConfig::Many(command.binding_labels.clone())
-                    },
-                    // The client never executes this field; preserve the opaque endpoint ID
-                    // through the shared config collision resolver.
-                    command: command.command_id.clone(),
-                    action_type,
-                    description: command.description.clone(),
-                })
-            })
-            .collect();
-        self.keybinds = config
-            .live_keybinds_with_diagnostics()
-            .map(|(keybinds, _diagnostics)| keybinds)
-            .map_err(|diagnostics| diagnostics.join("; "))?;
-        Ok(())
-    }
-
     pub(super) fn apply_live_config(
         &mut self,
         config: &Config,
@@ -217,7 +164,6 @@ impl ClientShellConfig {
         if !invalid_section("keys") {
             match config.live_keybinds_with_diagnostics() {
                 Ok((keybinds, keybind_diagnostics)) => {
-                    self.local_keys = config.keys.clone();
                     self.keybinds = keybinds;
                     diagnostics.extend(keybind_diagnostics);
                 }

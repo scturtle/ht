@@ -68,17 +68,17 @@ impl ClientShellState {
         }
         gesture.pending_row = Some(row);
         let pane_id = gesture.pane_id.clone();
-        let params = crate::api::schema::PaneSelectionReadParams {
+        let params = crate::actions::PaneSelectionReadParams {
             pane_id: pane_id.clone(),
-            anchor: crate::api::schema::PaneTextPoint { row, col: 0 },
-            cursor: crate::api::schema::PaneTextPoint {
+            anchor: crate::actions::PaneTextPoint { row, col: 0 },
+            cursor: crate::actions::PaneTextPoint {
                 row,
                 col: gesture.end_col,
             },
             content_revision: gesture.content_revision,
         };
         if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneSelectionRead(params),
+            crate::actions::Action::PaneSelectionRead(params),
             PendingEndpointKind::WordSelection {
                 pane_id,
                 absolute_row: row,
@@ -164,7 +164,7 @@ impl ClientShellState {
         pane_id: String,
         absolute_row: u32,
         generation: u64,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::actions::ActionResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
         if self.word_selection_generation != generation
             || self.word_selection_gesture.as_ref().is_none_or(|gesture| {
@@ -182,12 +182,12 @@ impl ClientShellState {
             return (true, Vec::new());
         }
         let text = match result {
-            Ok(crate::api::schema::ResponseResult::PaneSelection {
+            Ok(crate::actions::ActionResult::PaneSelection {
                 pane_id: returned_pane_id,
                 text,
             }) if returned_pane_id == pane_id => text,
             other => {
-                if matches!(other, Ok(value) if !matches!(value, crate::api::schema::ResponseResult::PaneSelection { .. }))
+                if matches!(other, Ok(value) if !matches!(value, crate::actions::ActionResult::PaneSelection { .. }))
                 {
                     self.set_endpoint_error(
                         "endpoint returned an unexpected word-selection result",

@@ -83,15 +83,12 @@ pub(super) fn render_mobile_notification_banner(
             .strip_suffix(" finished")
             .map(|agent| format!("{agent} done"))
             .unwrap_or_else(|| event.title.clone()),
-        SemanticNotificationKind::UpdateInstalled => "update ready".to_owned(),
         SemanticNotificationKind::Custom => event.title.clone(),
     };
     let dot_color = match event.kind {
         SemanticNotificationKind::NeedsAttention => palette.red,
         SemanticNotificationKind::Finished => palette.blue,
-        SemanticNotificationKind::UpdateInstalled | SemanticNotificationKind::Custom => {
-            palette.accent
-        }
+        SemanticNotificationKind::Custom => palette.accent,
     };
     render_mobile_notice_banner(
         buffer,
@@ -189,9 +186,7 @@ pub(super) fn render_visible_notification(
     let dot_color = match event.kind {
         SemanticNotificationKind::NeedsAttention => palette.red,
         SemanticNotificationKind::Finished => palette.blue,
-        SemanticNotificationKind::UpdateInstalled | SemanticNotificationKind::Custom => {
-            palette.accent
-        }
+        SemanticNotificationKind::Custom => palette.accent,
     };
     render_notification_card(
         buffer,
@@ -299,7 +294,7 @@ mod tests {
             title: None,
             terminal_title: None,
             terminal_title_stripped: None,
-            agent_status: crate::api::schema::AgentStatus::Idle,
+            agent_status: crate::actions::AgentStatus::Idle,
             state_change_seq: 2,
             state_labels: Vec::new(),
             tokens: Vec::new(),
@@ -344,7 +339,7 @@ mod tests {
             title: None,
             terminal_title: None,
             terminal_title_stripped: None,
-            agent_status: crate::api::schema::AgentStatus::Working,
+            agent_status: crate::actions::AgentStatus::Working,
             state_change_seq: 1,
             state_labels: Vec::new(),
             tokens: Vec::new(),
@@ -369,7 +364,7 @@ mod tests {
         assert_eq!(state.pending_notifications.len(), 1);
 
         snapshot.revision = snapshot.revision.saturating_add(1);
-        snapshot.agents[0].agent_status = crate::api::schema::AgentStatus::Idle;
+        snapshot.agents[0].agent_status = crate::actions::AgentStatus::Idle;
         snapshot.agents[0].state_change_seq = 2;
         state.set_snapshot(Box::new(snapshot));
         let (effects, _) = state.tick_notifications(now + COMPLETION_RECHECK_INTERVAL);

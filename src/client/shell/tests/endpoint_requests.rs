@@ -100,7 +100,7 @@ fn capability_shrink_after_recovery_blocks_a_stale_close_confirmation() {
     let boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::TabClose(crate::api::schema::TabTarget {
+        crate::actions::Action::TabClose(crate::actions::TabTarget {
             tab_id: "tab_1".into(),
         }),
         &mut outcome,
@@ -141,7 +141,7 @@ fn capability_refresh_preserves_pending_request_boot_fences() {
     let boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+        crate::actions::Action::PaneFocus(crate::actions::PaneTarget {
             pane_id: "pane_1".into(),
         }),
         &mut outcome,
@@ -158,7 +158,7 @@ fn capability_refresh_preserves_pending_request_boot_fences() {
     let (repaint, actions) = state.handle_endpoint_result(
         &boot_id,
         &pending_id,
-        Ok(crate::api::schema::ResponseResult::Ok {}),
+        Ok(crate::actions::ActionResult::Ok {}),
     );
     assert!(!repaint && actions.is_empty());
     assert!(!state.pending_requests.contains_key(&pending_id));
@@ -229,9 +229,9 @@ fn capability_refresh_regates_an_open_pane_context_menu() {
         panic!("split request: {:?}", outcome.actions);
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneSplit(params)
-            if params.direction == crate::api::schema::SplitDirection::Right
+        &request.action,
+        crate::actions::Action::PaneSplit(params)
+            if params.direction == crate::actions::SplitDirection::Right
     ));
 }
 
@@ -417,7 +417,7 @@ fn local_selection_does_not_need_an_endpoint_activation_event() {
         &mut outcome
     ));
     assert!(
-        matches!(&outcome.actions[..],[ClientShellAction::Endpoint {request,..}] if matches!(request.method,crate::api::schema::Method::WorkspaceFocus(_)))
+        matches!(&outcome.actions[..],[ClientShellAction::Endpoint {request,..}] if matches!(request.action,crate::actions::Action::WorkspaceFocus(_)))
     );
     assert!(matches!(
         rx.try_recv(),
@@ -500,7 +500,7 @@ fn failed_selection_copy_does_not_send_terminal_input() {
         (0, 2),
     ));
     for result in [
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::actions::ActionResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: String::new(),
         }),
@@ -532,7 +532,7 @@ fn cancelled_link_activation_does_not_replay_mouse_input() {
     let inner_rect = state.hits.panes[0].inner_rect;
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method_with_kind(
-        crate::api::schema::Method::PaneLinkActivate(crate::api::schema::PaneLinkActivateParams {
+        crate::actions::Action::PaneLinkActivate(crate::actions::PaneLinkActivateParams {
             pane_id: pane_id.clone(),
             viewport_row: 0,
             col: 0,

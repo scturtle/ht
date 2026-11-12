@@ -892,6 +892,40 @@ delivery = "herdr"
     }
 
     #[test]
+    fn retired_custom_commands_do_not_displace_local_keybindings() {
+        for retired in [
+            "command = false",
+            "command = 42",
+            "command = [{ key = 'prefix+n', command = 'echo ignored' }]",
+            "command = [{ key = 'prefix+1', command = 'echo ignored' }]",
+        ] {
+            let content = format!("[keys]\nprefix = 'ctrl+x'\nnew_tab = 'prefix+c'\n{retired}\n[ui]\nmouse_capture = false\n");
+            let loaded = load_live_config_from_str(&content).unwrap();
+            assert_eq!(
+                loaded.diagnostics,
+                ["unknown config key keys.command; ignoring key"]
+            );
+            assert!(loaded.invalid_sections.is_empty());
+            assert!(!loaded.config.ui.mouse_capture);
+            assert_eq!(
+                loaded.config.prefix_keys(),
+                vec![(
+                    crossterm::event::KeyCode::Char('x'),
+                    crossterm::event::KeyModifiers::CONTROL
+                )]
+            );
+            let keybinds = loaded.config.keybinds();
+            assert_eq!(keybinds.new_tab.labels(), ["prefix+c"]);
+            assert!(keybinds
+                .next_tab
+                .labels()
+                .iter()
+                .any(|label| label == "prefix+n"));
+            assert_eq!(keybinds.switch_tab.len(), 9);
+        }
+    }
+
+    #[test]
     fn load_live_config_warns_about_unknown_keys_and_applies_known_siblings() {
         let loaded = load_live_config_from_str(
             r##"
@@ -933,7 +967,7 @@ claude = [["terminal_title"]]
             vec![
                 "unknown config key plugin; ignoring key",
                 "unknown config key theme.custom.accentt; ignoring key",
-                "unknown config key keys.command.0.descrption; ignoring key",
+                "unknown config key keys.command; ignoring key",
                 "unknown config key keys.new_tabb; ignoring key",
                 "unknown config key ui.\"foo.?.bar\"; ignoring key",
                 "unknown config key ui.\"foo.bar\"; ignoring key",

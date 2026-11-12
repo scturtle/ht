@@ -100,19 +100,9 @@ pub(crate) fn take_terminal_resize_signal() -> bool {
     TERMINAL_RESIZE_SIGNALLED.swap(false, std::sync::atomic::Ordering::AcqRel)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClipboardCommand {
-    pub program: &'static str,
-    pub args: &'static [&'static str],
-}
-
 mod unix_common;
 
 pub(crate) mod unix_image_files;
-
-mod client_state;
-
-pub(crate) use client_state::{create_private_state_file, replace_file};
 
 mod linux;
 

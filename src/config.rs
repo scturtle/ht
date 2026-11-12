@@ -18,11 +18,10 @@ pub use self::{
     },
     keybinds::{
         format_prefix_combos, normalize_key_combo, terminal_key_matches_combo, ActionKeybinds,
-        BindingConfig, CommandKeybindConfig, CustomCommandAction, CustomCommandKeybind,
-        IndexedKeybind, KeyCombo, Keybinds, LiveKeybindConfig,
+        BindingConfig, IndexedKeybind, KeyCombo, Keybinds, LiveKeybindConfig,
     },
     model::{
-        validated_sidebar_bounds, AdvancedConfig, AgentPanelSortConfig, Config, ConfigReloadStatus,
+        validated_sidebar_bounds, AdvancedConfig, AgentPanelSortConfig, Config,
         HostCursorModeConfig, PaneBordersConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle,
         TabBarPositionConfig, ToastClipboardPosition, ToastDelivery, ToastHerdrPosition,
     },
@@ -41,8 +40,6 @@ pub(crate) use self::{
     tab_bar::tab_bar_right_diagnostics, theme::canonical_theme_name,
     window_title::window_title_diagnostics,
 };
-
-pub(crate) use self::{keybinds::CommandKeybindType, model::KeysConfig};
 
 pub const CONFIG_PATH_ENV_VAR: &str = "HERDR_CONFIG_PATH";
 
@@ -188,27 +185,6 @@ mod tests {
         assert!(keys.switch_tab.iter().all(|b| b.label.starts_with("ctrl+")));
         let invalid: Config = toml::from_str("[keys.indexed]\ntabs = \"bogus\"").unwrap();
         assert!(invalid.keybinds().switch_tab.is_empty());
-    }
-
-    #[test]
-    fn local_command_conflicts_keep_displaced_default_bindings_disabled() {
-        let next: Config =
-            toml::from_str("[[keys.command]]\nkey = \"prefix+n\"\ncommand = \"echo next\"")
-                .unwrap();
-        assert!(next.keybinds().next_tab.bindings.is_empty());
-
-        let indexed: Config =
-            toml::from_str("[[keys.command]]\nkey = \"prefix+1\"\ncommand = \"echo one\"").unwrap();
-        let labels = indexed
-            .keybinds()
-            .switch_tab
-            .into_iter()
-            .map(|binding| binding.label)
-            .collect::<Vec<_>>();
-        assert_eq!(labels.len(), 8);
-        assert!(!labels.iter().any(|label| label == "prefix+1"));
-        assert!(labels.iter().any(|label| label == "prefix+2"));
-        assert!(labels.iter().any(|label| label == "prefix+9"));
     }
 
     #[test]

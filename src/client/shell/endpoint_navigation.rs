@@ -56,15 +56,15 @@ impl ClientShellState {
         }
         let method = match target {
             ClientEndpointFocusTarget::Workspace(workspace_id) => {
-                crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+                crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
                     workspace_id,
                 })
             }
             ClientEndpointFocusTarget::Tab(tab_id) => {
-                crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id })
+                crate::actions::Action::TabFocus(crate::actions::TabTarget { tab_id })
             }
             ClientEndpointFocusTarget::Pane(pane_id) => {
-                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
+                crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id })
             }
         };
         self.push_endpoint_method(method, outcome);

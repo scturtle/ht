@@ -1,7 +1,7 @@
 //! Client projection of Core-backed organization; program addresses stay opaque.
 use super::organization::{self, Branch, Organization};
 use crate::{
-    api::schema as api,
+    actions,
     layout::{Node, PaneId, TileLayout},
 };
 use ratatui::layout::Direction;
@@ -39,13 +39,13 @@ pub(super) fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 
-pub(super) fn status(facts: &Value) -> api::AgentStatus {
+pub(super) fn status(facts: &Value) -> actions::AgentStatus {
     match facts["status"]["state"].as_str() {
-        Some("working") => api::AgentStatus::Working,
-        Some("blocked" | "error") => api::AgentStatus::Blocked,
-        Some("idle") => api::AgentStatus::Idle,
-        Some("done") => api::AgentStatus::Done,
-        _ => api::AgentStatus::Unknown,
+        Some("working") => actions::AgentStatus::Working,
+        Some("blocked" | "error") => actions::AgentStatus::Blocked,
+        Some("idle") => actions::AgentStatus::Idle,
+        Some("done") => actions::AgentStatus::Done,
+        _ => actions::AgentStatus::Unknown,
     }
 }
 
@@ -539,14 +539,14 @@ impl Model {
         Ok(())
     }
     /// One-time migration of the private experimental layout, never shared focus.
-    pub fn restore(&mut self, saved: &api::LayoutDescription) -> io::Result<()> {
+    pub fn restore(&mut self, saved: &actions::LayoutDescription) -> io::Result<()> {
         fn convert(
-            node: &api::LayoutNode,
+            node: &actions::LayoutNode,
             model: &Model,
             seen: &mut HashSet<PaneId>,
         ) -> io::Result<Option<Node>> {
             Ok(match node {
-                api::LayoutNode::Pane { pane } => {
+                actions::LayoutNode::Pane { pane } => {
                     let Some(id) = pane.pane_id.as_deref().and_then(|a| model.id(a)) else {
                         return Ok(None);
                     };
@@ -555,7 +555,7 @@ impl Model {
                     }
                     Some(Node::Pane(id))
                 }
-                api::LayoutNode::Split {
+                actions::LayoutNode::Split {
                     direction,
                     ratio,
                     first,
@@ -566,7 +566,7 @@ impl Model {
                     }
                     match (convert(first, model, seen)?, convert(second, model, seen)?) {
                         (Some(first), Some(second)) => Some(Node::Split {
-                            direction: if *direction == api::SplitDirection::Right {
+                            direction: if *direction == actions::SplitDirection::Right {
                                 Direction::Horizontal
                             } else {
                                 Direction::Vertical

@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::schema::AgentStatus;
+use crate::actions::AgentStatus;
 use crate::protocol::{
     ClientShellAgent, ClientShellPane, ClientShellTab, ClientShellWorktree, PaneSurfacePane,
     PaneSurfaceSplit, PaneSurfaceSplitDirection, SurfaceRect,
@@ -13,11 +13,6 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
         revision: 1,
         config_diagnostic: None,
         product_announcement: None,
-        update_available: None,
-        update_install_command: "herdr update".into(),
-        server_keybindings_toml: None,
-        latest_release_notes_available: false,
-        release_notes: None,
         focused_workspace_id: Some("ws_1".into()),
         focused_tab_id: Some("tab_1".into()),
         focused_pane_id: Some("pane_1".into()),
@@ -60,7 +55,6 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
             right_click_passthrough: false,
         }],
         agents: Vec::new(),
-        commands: Vec::new(),
     }
 }
 
@@ -148,9 +142,9 @@ fn pane_scroll_result(
     offset_from_bottom: u64,
     max_offset_from_bottom: u64,
     viewport_rows: u64,
-) -> crate::api::schema::ResponseResult {
-    crate::api::schema::ResponseResult::PaneInfo {
-        pane: crate::api::schema::PaneInfo {
+) -> crate::actions::ActionResult {
+    crate::actions::ActionResult::PaneInfo {
+        pane: crate::actions::PaneInfo {
             pane_id: "pane_1".into(),
             terminal_id: "terminal_1".into(),
             workspace_id: "ws_1".into(),
@@ -165,11 +159,11 @@ fn pane_scroll_result(
             terminal_title: None,
             terminal_title_stripped: None,
             display_agent: None,
-            agent_status: crate::api::schema::AgentStatus::Unknown,
+            agent_status: crate::actions::AgentStatus::Unknown,
             state_labels: HashMap::new(),
             tokens: HashMap::new(),
             agent_session: None,
-            scroll: Some(crate::api::schema::PaneScrollInfo {
+            scroll: Some(crate::actions::PaneScrollInfo {
                 offset_from_bottom,
                 max_offset_from_bottom,
                 viewport_rows,
@@ -180,11 +174,11 @@ fn pane_scroll_result(
 }
 
 fn copy_search_result(
-    matches: Vec<crate::api::schema::PaneTextRange>,
+    matches: Vec<crate::actions::PaneTextRange>,
     current: Option<u32>,
-) -> crate::api::schema::ResponseResult {
+) -> crate::actions::ActionResult {
     let total = matches.len() as u64;
-    crate::api::schema::ResponseResult::PaneCopySearch {
+    crate::actions::ActionResult::PaneCopySearch {
         pane_id: "pane_1".into(),
         content_revision: 0,
         matches,

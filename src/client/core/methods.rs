@@ -6,7 +6,7 @@ use super::{
     transport::DATA,
 };
 use crate::{
-    api::schema as api,
+    actions,
     layout::{NavDirection, Node, PaneId, TileLayout},
     protocol::*,
 };
@@ -16,16 +16,12 @@ use std::io;
 
 pub(super) const METHODS: &[&str] = &[
     "workspace.create",
-    "workspace.list",
-    "workspace.get",
     "workspace.focus",
     "workspace.rename",
     "workspace.move",
     "workspace.move_block",
     "workspace.close",
     "tab.create",
-    "tab.list",
-    "tab.get",
     "tab.focus",
     "tab.rename",
     "tab.move",
@@ -53,12 +49,12 @@ pub(super) fn advertised(hello: &Value) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn nav(direction: api::PaneDirection) -> NavDirection {
+pub(super) fn nav(direction: actions::PaneDirection) -> NavDirection {
     match direction {
-        api::PaneDirection::Left => NavDirection::Left,
-        api::PaneDirection::Right => NavDirection::Right,
-        api::PaneDirection::Up => NavDirection::Up,
-        api::PaneDirection::Down => NavDirection::Down,
+        actions::PaneDirection::Left => NavDirection::Left,
+        actions::PaneDirection::Right => NavDirection::Right,
+        actions::PaneDirection::Up => NavDirection::Up,
+        actions::PaneDirection::Down => NavDirection::Down,
     }
 }
 
@@ -136,7 +132,7 @@ impl Session {
         }
         .ok_or_else(|| invalid("Core pane not found"))
     }
-    pub(super) fn pane_info(&self, id: PaneId) -> io::Result<api::PaneInfo> {
+    pub(super) fn pane_info(&self, id: PaneId) -> io::Result<actions::PaneInfo> {
         let record = self
             .model
             .records
@@ -145,7 +141,7 @@ impl Session {
         let facts = &record.facts;
         let view = self.views.get(&id);
         let text = |key| facts[key].as_str().map(str::to_owned);
-        Ok(api::PaneInfo {
+        Ok(actions::PaneInfo {
             pane_id: record.address.clone(),
             terminal_id: record.address.clone(),
             workspace_id: self
@@ -176,20 +172,20 @@ impl Session {
             state_labels: Default::default(),
             tokens: Default::default(),
             agent_session: None,
-            scroll: view
-                .and_then(|v| v.terminal.scroll_metrics())
-                .map(|s| api::PaneScrollInfo {
+            scroll: view.and_then(|v| v.terminal.scroll_metrics()).map(|s| {
+                actions::PaneScrollInfo {
                     offset_from_bottom: s.offset_from_bottom as u64,
                     max_offset_from_bottom: s.max_offset_from_bottom as u64,
                     viewport_rows: s.viewport_rows as u64,
-                }),
+                }
+            }),
             revision: view.map_or(0, |v| v.revision),
         })
     }
 
-    fn execute(&mut self, method: api::Method) -> io::Result<api::ResponseResult> {
-        use api::{Method as M, ResponseResult as R};
-        let name = method.operation().name;
+    fn execute(&mut self, method: actions::Action) -> io::Result<actions::ActionResult> {
+        use actions::{Action as M, ActionResult as R};
+        let name = method.name();
         if name.starts_with("workspace.") || name.starts_with("tab.") {
             return self.organization_action(method);
         }
@@ -216,7 +212,7 @@ impl Session {
                 let layout =
                     super::view::api_layout_snapshot(&self.model, tab, self.area(), &self.ui)?;
                 Ok(R::PaneZoom {
-                    zoom: api::PaneZoomResult {
+                    zoom: actions::PaneZoomResult {
                         changed: outcome.changed || outcome.focus_changed,
                         zoom_changed: outcome.changed,
                         focus_changed: outcome.focus_changed,
@@ -239,7 +235,7 @@ impl Session {
                 if let Some(workspace) = &p.workspace_id {
                     self.model.workspace_info(workspace)?;
                 }
-                if p.right_click != api::PaneRightClickTarget::Herdr {
+                if p.right_click != actions::PaneRightClickTarget::Herdr {
                     return Err(io::Error::new(
                         io::ErrorKind::Unsupported,
                         "Core right-click passthrough is not implemented",
@@ -277,7 +273,7 @@ impl Session {
                         .map(str::to_owned)
                 });
                 let result = self.run_terminal(cwd, p.env)?;
-                let direction = if p.direction == api::SplitDirection::Right {
+                let direction = if p.direction == actions::SplitDirection::Right {
                     Direction::Horizontal
                 } else {
                     Direction::Vertical
@@ -322,11 +318,11 @@ impl Session {
                     self.model.focus(id)?;
                 }
                 Ok(R::PaneFocusDirection {
-                    focus: api::PaneFocusDirectionResult {
+                    focus: actions::PaneFocusDirectionResult {
                         changed: neighbor.is_some(),
                         reason: neighbor
                             .is_none()
-                            .then_some(api::PaneFocusDirectionReason::NoNeighbor),
+                            .then_some(actions::PaneFocusDirectionReason::NoNeighbor),
                         source_pane_id: self.model.records[&source].address.clone(),
                         focused_pane_id: self
                             .model
@@ -366,9 +362,9 @@ impl Session {
                     Ok(layout.resize_pane(id, nav(p.direction), amount, area))
                 })?;
                 Ok(R::PaneResize {
-                    resize: api::PaneResizeResult {
+                    resize: actions::PaneResizeResult {
                         changed,
-                        reason: (!changed).then_some(api::PaneResizeReason::Unchanged),
+                        reason: (!changed).then_some(actions::PaneResizeReason::Unchanged),
                         pane_id: self.model.records[&id].address.clone(),
                         focused_pane_id: self.model.records
                             [&self.model.focused().ok_or_else(|| invalid("no focus"))?]
@@ -519,45 +515,45 @@ impl Session {
             ClientMessage::ClientShellEndpointRequest { boot_id, request } => {
                 let request = *request;
                 let layout_change = matches!(
-                    &request.method,
-                    api::Method::PaneSplit(_)
-                        | api::Method::PaneClose(_)
-                        | api::Method::PaneSwap(_)
-                        | api::Method::PaneResize(_)
-                        | api::Method::LayoutSetSplitRatio(_)
-                        | api::Method::WorkspaceCreate(_)
-                        | api::Method::WorkspaceClose(_)
-                        | api::Method::TabCreate(_)
-                        | api::Method::TabClose(_)
+                    &request.action,
+                    actions::Action::PaneSplit(_)
+                        | actions::Action::PaneClose(_)
+                        | actions::Action::PaneSwap(_)
+                        | actions::Action::PaneResize(_)
+                        | actions::Action::LayoutSetSplitRatio(_)
+                        | actions::Action::WorkspaceCreate(_)
+                        | actions::Action::WorkspaceClose(_)
+                        | actions::Action::TabCreate(_)
+                        | actions::Action::TabClose(_)
                 );
                 let focus_change = layout_change
                     || matches!(
-                        &request.method,
-                        api::Method::PaneFocus(_)
-                            | api::Method::PaneZoom(_)
-                            | api::Method::PaneFocusDirection(_)
-                            | api::Method::WorkspaceFocus(_)
-                            | api::Method::TabFocus(_)
+                        &request.action,
+                        actions::Action::PaneFocus(_)
+                            | actions::Action::PaneZoom(_)
+                            | actions::Action::PaneFocusDirection(_)
+                            | actions::Action::WorkspaceFocus(_)
+                            | actions::Action::TabFocus(_)
                     );
-                let name = request.method.operation().name;
+                let name = request.action.name();
                 let read_only = name.ends_with(".get")
                     || name.ends_with(".list")
                     || matches!(
-                        &request.method,
-                        api::Method::PaneSelectionRead(_)
-                            | api::Method::PaneCopyMotion(_)
-                            | api::Method::PaneCopySearch(_)
+                        &request.action,
+                        actions::Action::PaneSelectionRead(_)
+                            | actions::Action::PaneCopyMotion(_)
+                            | actions::Action::PaneCopySearch(_)
                     );
-                let metadata_only = matches!(&request.method, api::Method::PaneRename(_));
+                let metadata_only = matches!(&request.action, actions::Action::PaneRename(_));
                 let can_be_noop = matches!(
-                    &request.method,
-                    api::Method::PaneZoom(_) | api::Method::PaneSwap(_)
+                    &request.action,
+                    actions::Action::PaneZoom(_) | actions::Action::PaneSwap(_)
                 );
                 let before = self.model.revision;
                 let mut result = if boot_id != self.model.boot {
                     Err(invalid("Core client generation changed"))
                 } else {
-                    self.execute(request.method)
+                    self.execute(request.action)
                 };
                 if focus_change && self.model.revision != before {
                     self.snapshot_dirty = true;

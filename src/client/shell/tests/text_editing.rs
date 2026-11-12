@@ -78,7 +78,7 @@ fn all_eight_fields_route_shared_text_editing() {
 
 #[test]
 fn text_delivery_paths_insert_at_the_cursor() {
-    for delivery in 0..4 {
+    for delivery in 0..3 {
         let mut state = shell(0);
         *editor(&mut state) = TextEditor::from("ab");
         press(&mut state, KeyCode::Left, KeyModifiers::NONE);
@@ -88,16 +88,7 @@ fn text_delivery_paths_insert_at_the_cursor() {
                     .with_generated_text(Some("X".into())),
             )]),
             1 => state.handle_raw_events(vec![RawInputEvent::Text(TextCommit::new("X"))]),
-            2 => state.handle_raw_events(vec![RawInputEvent::Paste("X".into())]),
-            _ => {
-                let mut result = ClientShellInput::default();
-                assert!(state.handle_modal_paste_shortcut_with(
-                    &TerminalKey::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
-                    &mut result,
-                    || Some("X".into())
-                ));
-                result
-            }
+            _ => state.handle_raw_events(vec![RawInputEvent::Paste("X".into())]),
         };
         assert!(result.repaint, "delivery {delivery}");
         assert!(result.requests.is_empty() && result.actions.is_empty());
@@ -186,7 +177,7 @@ fn focused_filters_keep_ctrl_n_p_navigation_and_literal_commands() {
 
 #[test]
 fn all_naming_targets_preserve_submission_and_empty_semantics() {
-    use crate::api::schema::Method;
+    use crate::actions::Action;
     for field in 0..5 {
         for empty in [false, true] {
             let mut state = shell(field);
@@ -205,16 +196,16 @@ fn all_naming_targets_preserve_submission_and_empty_semantics() {
                 panic!("naming target {field}");
             };
             let expected = if empty { "" } else { "X  ab" };
-            match &request.method {
-                Method::WorkspaceCreate(v) => {
+            match &request.action {
+                Action::WorkspaceCreate(v) => {
                     assert_eq!(v.label.as_deref(), (!empty).then_some(expected))
                 }
-                Method::WorkspaceRename(v) => assert_eq!(v.label, expected),
-                Method::TabCreate(v) => {
+                Action::WorkspaceRename(v) => assert_eq!(v.label, expected),
+                Action::TabCreate(v) => {
                     assert_eq!(v.label.as_deref(), (!empty).then_some(expected))
                 }
-                Method::TabRename(v) => assert_eq!(v.label, expected),
-                Method::PaneRename(v) => assert_eq!(v.label.as_deref(), Some(expected)),
+                Action::TabRename(v) => assert_eq!(v.label, expected),
+                Action::PaneRename(v) => assert_eq!(v.label.as_deref(), Some(expected)),
                 _ => panic!("wrong method"),
             }
         }
@@ -230,7 +221,7 @@ fn new_tab_unchanged_suggestion_preserves_original_automatic_naming() {
     let [ClientShellAction::Endpoint { request, .. }] = &result.actions[..] else {
         panic!("expected tab creation");
     };
-    let crate::api::schema::Method::TabCreate(params) = &request.method else {
+    let crate::actions::Action::TabCreate(params) = &request.action else {
         panic!("expected tab.create");
     };
     assert_eq!(params.label, None);
@@ -245,13 +236,11 @@ fn copy_search_owns_prefix_but_parked_prompt_does_not_steal_input() {
     state.handle_raw_events(vec![RawInputEvent::Text(TextCommit::new("X"))]);
     assert_eq!(editor(&mut state).as_str(), "aXb");
     state.open_rename_pane_overlay();
-    assert!(state.modal_paste_target_active());
     state.handle_raw_events(vec![RawInputEvent::Paste("name".into())]);
     assert_eq!(editor(&mut state).as_str(), "name");
     state.overlay = None;
     assert_eq!(editor(&mut state).as_str(), "aXb");
     state.mode = ClientShellMode::Terminal;
-    assert!(!state.modal_paste_target_active());
     let input = state.handle_raw_events(vec![RawInputEvent::Text(TextCommit::new("terminal"))]);
     assert!(
         matches!(&input.requests[..], [ClientMessage::ClientShellPaneInput { events, .. }] if matches!(&events[..], [ClientPaneInputEvent::TextCommit(text)] if text == "terminal"))

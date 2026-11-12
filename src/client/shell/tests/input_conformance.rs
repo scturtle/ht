@@ -335,15 +335,11 @@ impl HerdrPath {
             match action {
                 ClientShellAction::Endpoint {
                     boot_id, request, ..
-                } if matches!(
-                    request.method,
-                    crate::api::schema::Method::PaneLinkActivate(_)
-                ) =>
-                {
+                } if matches!(request.action, crate::actions::Action::PaneLinkActivate(_)) => {
                     let (_, actions) = self.state.handle_endpoint_result(
                         &boot_id,
                         &request.id,
-                        Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+                        Ok(crate::actions::ActionResult::PaneLinkActivated {
                             url: None,
                             handled: false,
                         }),

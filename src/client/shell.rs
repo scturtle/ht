@@ -150,10 +150,10 @@ fn pane_surface_topology_signature(surface: &PaneSurfaceFrame) -> u64 {
 }
 
 fn status_icon(
-    status: crate::api::schema::AgentStatus,
+    status: crate::actions::AgentStatus,
     style: crate::config::StatusIndicatorStyle,
 ) -> &'static str {
-    use crate::api::schema::AgentStatus;
+    use crate::actions::AgentStatus;
     use crate::config::StatusIndicatorStyle;
     match (style, status) {
         (
@@ -170,12 +170,12 @@ fn status_icon(
     }
 }
 
-fn status_dot(status: crate::api::schema::AgentStatus) -> &'static str {
+fn status_dot(status: crate::actions::AgentStatus) -> &'static str {
     status_icon(status, crate::config::StatusIndicatorStyle::Dots)
 }
 
-fn status_priority(status: crate::api::schema::AgentStatus) -> u8 {
-    use crate::api::schema::AgentStatus;
+fn status_priority(status: crate::actions::AgentStatus) -> u8 {
+    use crate::actions::AgentStatus;
     match status {
         AgentStatus::Blocked => 4,
         AgentStatus::Done => 3,
@@ -185,8 +185,8 @@ fn status_priority(status: crate::api::schema::AgentStatus) -> u8 {
     }
 }
 
-fn status_text(status: crate::api::schema::AgentStatus) -> &'static str {
-    use crate::api::schema::AgentStatus;
+fn status_text(status: crate::actions::AgentStatus) -> &'static str {
+    use crate::actions::AgentStatus;
     match status {
         AgentStatus::Working => "working",
         AgentStatus::Blocked => "blocked",
@@ -196,11 +196,8 @@ fn status_text(status: crate::api::schema::AgentStatus) -> &'static str {
     }
 }
 
-fn status_color(
-    status: crate::api::schema::AgentStatus,
-    palette: &Palette,
-) -> ratatui::style::Color {
-    use crate::api::schema::AgentStatus;
+fn status_color(status: crate::actions::AgentStatus, palette: &Palette) -> ratatui::style::Color {
+    use crate::actions::AgentStatus;
     match status {
         AgentStatus::Working => palette.yellow,
         AgentStatus::Blocked => palette.red,

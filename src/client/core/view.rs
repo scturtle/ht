@@ -239,7 +239,7 @@ pub(super) fn api_layout_snapshot(
     tab: &str,
     area: Rect,
     config: &ChromeConfig,
-) -> io::Result<crate::api::schema::PaneLayoutSnapshot> {
+) -> io::Result<crate::actions::PaneLayoutSnapshot> {
     let mut snapshot = if model.active_tab() == Some(tab) {
         model.layout_snapshot(area)?
     } else {
@@ -248,7 +248,7 @@ pub(super) fn api_layout_snapshot(
     if let Some(layout) = model.layouts.get(tab) {
         snapshot.panes = layout_infos(layout, area, config)
             .into_iter()
-            .map(|pane| crate::api::schema::PaneLayoutPane {
+            .map(|pane| crate::actions::PaneLayoutPane {
                 pane_id: model.records[&pane.id].address.clone(),
                 focused: pane.is_focused,
                 rect: pane.rect.into(),

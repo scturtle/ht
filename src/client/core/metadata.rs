@@ -1,6 +1,6 @@
 //! Shared terminal metadata through existing Core APIs, not TUI-owned storage.
 use super::{model::invalid, session::Session};
-use crate::api::schema as api;
+use crate::actions;
 use serde_json::{json, Value};
 use std::io;
 
@@ -20,8 +20,8 @@ pub(super) fn pane_label(facts: &Value) -> Option<String> {
 impl Session {
     pub(super) fn rename_pane(
         &mut self,
-        params: api::PaneRenameParams,
-    ) -> io::Result<api::ResponseResult> {
+        params: actions::PaneRenameParams,
+    ) -> io::Result<actions::ActionResult> {
         if !supports_rename(&self.core.hello) {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -46,7 +46,7 @@ impl Session {
         }
         self.model.insert(facts)?;
         self.snapshot_dirty = true;
-        Ok(api::ResponseResult::PaneInfo {
+        Ok(actions::ActionResult::PaneInfo {
             pane: self.pane_info(id)?,
         })
     }

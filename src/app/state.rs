@@ -664,11 +664,3 @@ pub struct ThemeRuntimeConfig {
 pub struct CopyFeedback {
     pub message: String,
 }
-
-#[derive(Debug)]
-pub struct ReleaseNotesState {
-    pub version: String,
-    pub body: String,
-    pub scroll: u16,
-    pub preview: bool,
-}

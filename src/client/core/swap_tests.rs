@@ -8,8 +8,8 @@ fn fixture() -> (Model, PaneId, PaneId) {
     model.focus(first).unwrap();
     (model, first, second)
 }
-fn explicit(source: &str, target: &str) -> api::PaneSwapParams {
-    api::PaneSwapParams {
+fn explicit(source: &str, target: &str) -> actions::PaneSwapParams {
+    actions::PaneSwapParams {
         source_pane_id: Some(source.into()),
         target_pane_id: Some(target.into()),
         ..Default::default()
@@ -22,10 +22,10 @@ fn area() -> Rect {
 #[test]
 fn original_directional_swap_uses_hidden_bsp_keeps_zoom_and_follows_source_identity() {
     let (mut model, first, second) = fixture();
-    model.zoom_pane(first, api::PaneZoomMode::On).unwrap();
+    model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     let before = model.layout().unwrap().panes(area());
-    let params = api::PaneSwapParams {
-        direction: Some(api::PaneDirection::Right),
+    let params = actions::PaneSwapParams {
+        direction: Some(actions::PaneDirection::Right),
         ..Default::default()
     };
     let params = pin_source(&model, params).unwrap();
@@ -75,31 +75,31 @@ fn original_explicit_swap_noop_reasons_preserve_raw_ids_and_context_without_focu
         (
             "opaque/first",
             "opaque/first",
-            api::PaneSwapReason::SamePane,
+            actions::PaneSwapReason::SamePane,
             original_tab.as_str(),
         ),
         (
             "opaque/first",
             "other/tab",
-            api::PaneSwapReason::CrossTab,
+            actions::PaneSwapReason::CrossTab,
             original_tab.as_str(),
         ),
         (
             "missing/source",
             "opaque/first",
-            api::PaneSwapReason::NotFound,
+            actions::PaneSwapReason::NotFound,
             original_tab.as_str(),
         ),
         (
             "opaque/first",
             "missing/target",
-            api::PaneSwapReason::NotFound,
+            actions::PaneSwapReason::NotFound,
             original_tab.as_str(),
         ),
         (
             "missing/source",
             "missing/target",
-            api::PaneSwapReason::NotFound,
+            actions::PaneSwapReason::NotFound,
             active_tab.as_str(),
         ),
     ] {
@@ -123,32 +123,32 @@ fn original_explicit_swap_noop_reasons_preserve_raw_ids_and_context_without_focu
 fn original_swap_rejects_invalid_shapes_and_missing_directional_sources() {
     let (mut model, _, _) = fixture();
     for (params, code) in [
-        (api::PaneSwapParams::default(), "invalid_pane_swap"),
+        (actions::PaneSwapParams::default(), "invalid_pane_swap"),
         (
-            api::PaneSwapParams {
-                direction: Some(api::PaneDirection::Right),
+            actions::PaneSwapParams {
+                direction: Some(actions::PaneDirection::Right),
                 ..explicit("opaque/first", "opaque/second")
             },
             "invalid_pane_swap",
         ),
         (
-            api::PaneSwapParams {
+            actions::PaneSwapParams {
                 source_pane_id: Some("opaque/first".into()),
                 ..Default::default()
             },
             "invalid_pane_swap",
         ),
         (
-            api::PaneSwapParams {
+            actions::PaneSwapParams {
                 target_pane_id: Some("opaque/second".into()),
                 ..Default::default()
             },
             "invalid_pane_swap",
         ),
         (
-            api::PaneSwapParams {
+            actions::PaneSwapParams {
                 pane_id: Some("missing".into()),
-                direction: Some(api::PaneDirection::Right),
+                direction: Some(actions::PaneDirection::Right),
                 ..Default::default()
             },
             "pane_not_found",
@@ -166,8 +166,8 @@ fn original_no_neighbor_swap_is_a_noop_and_pinned_source_never_redirects_after_r
     let (mut model, first, second) = fixture();
     let params = pin_source(
         &model,
-        api::PaneSwapParams {
-            direction: Some(api::PaneDirection::Left),
+        actions::PaneSwapParams {
+            direction: Some(actions::PaneDirection::Left),
             ..Default::default()
         },
     )
@@ -175,7 +175,7 @@ fn original_no_neighbor_swap_is_a_noop_and_pinned_source_never_redirects_after_r
     let before = model.description();
     let result = model.swap_panes(&params, area()).unwrap();
     assert!(!result.changed);
-    assert_eq!(result.reason, Some(api::PaneSwapReason::NoNeighbor));
+    assert_eq!(result.reason, Some(actions::PaneSwapReason::NoNeighbor));
     assert!(result.target_pane_id.is_none());
     assert_eq!(before, model.description());
     model.retire(first).unwrap();

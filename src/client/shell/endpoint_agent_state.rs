@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::api::schema::AgentStatus;
+use crate::actions::AgentStatus;
 use crate::protocol::{ClientShellAgent, ClientShellSnapshot, PaneSurfaceFrame};
 
 #[derive(Clone, Debug, Default)]

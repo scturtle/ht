@@ -3,24 +3,10 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
-    WhatsNew,
     DumpPaneDiagnostics,
 }
 
-pub(super) fn global_menu_attention(snapshot: &ClientShellSnapshot) -> bool {
-    snapshot.update_available.is_some()
-}
-
-pub(super) fn global_menu_item_has_badge(
-    snapshot: &ClientShellSnapshot,
-    action: ClientGlobalMenuAction,
-) -> bool {
-    action == ClientGlobalMenuAction::WhatsNew && snapshot.update_available.is_some()
-}
-
-pub(super) fn global_menu_items(
-    snapshot: &ClientShellSnapshot,
-) -> Vec<(&'static str, ClientGlobalMenuAction)> {
+pub(super) fn global_menu_items() -> Vec<(&'static str, ClientGlobalMenuAction)> {
     let mut items = vec![
         (
             "settings",
@@ -35,16 +21,6 @@ pub(super) fn global_menu_items(
             ClientGlobalMenuAction::Binding(crate::input::KeybindAction::ReloadConfig),
         ),
     ];
-    if snapshot.update_available.is_some() || snapshot.latest_release_notes_available {
-        items.push((
-            if snapshot.update_available.is_some() {
-                "update ready"
-            } else {
-                "what's new"
-            },
-            ClientGlobalMenuAction::WhatsNew,
-        ));
-    }
     items.push((
         "dump pane diagnostics",
         ClientGlobalMenuAction::DumpPaneDiagnostics,
@@ -71,7 +47,7 @@ impl ClientShellState {
         let item_count = self
             .snapshot
             .as_deref()
-            .map(global_menu_items)
+            .map(|_| global_menu_items())
             .map_or(0, |items| items.len());
         let Some(ClientShellOverlay::GlobalMenu(menu)) = self.overlay.as_mut() else {
             return;
@@ -85,28 +61,18 @@ impl ClientShellState {
         index: usize,
         outcome: &mut ClientShellInput,
     ) {
-        let Some(action) = self.snapshot.as_deref().and_then(|snapshot| {
-            global_menu_items(snapshot)
-                .get(index)
-                .map(|(_, action)| *action)
-        }) else {
+        let Some(action) = self
+            .snapshot
+            .as_deref()
+            .and_then(|_| global_menu_items().get(index).map(|(_, action)| *action))
+        else {
             return;
         };
-        if action == ClientGlobalMenuAction::WhatsNew
-            && self
-                .snapshot
-                .as_deref()
-                .and_then(|snapshot| snapshot.release_notes.as_ref())
-                .is_none()
-        {
-            return;
-        }
         self.overlay = None;
         match action {
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }
-            ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
             ClientGlobalMenuAction::DumpPaneDiagnostics => {
                 self.dump_pane_diagnostics(self.focused_pane_id().unwrap_or_default(), outcome);
             }

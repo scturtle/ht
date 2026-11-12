@@ -24,8 +24,8 @@ fn hover_request(outcome: &ClientShellInput) -> String {
         panic!("expected one side-effect-free link resolution");
     };
     assert!(matches!(
-        request.method,
-        crate::api::schema::Method::PaneLinkResolve(_)
+        request.action,
+        crate::actions::Action::PaneLinkResolve(_)
     ));
     request.id.clone()
 }
@@ -34,14 +34,14 @@ fn resolve_hover(state: &mut ClientShellState, id: &str) -> bool {
     let (repaint, actions) = state.handle_endpoint_result(
         "boot-1",
         id,
-        Ok(crate::api::schema::ResponseResult::PaneLinkResolved {
+        Ok(crate::actions::ActionResult::PaneLinkResolved {
             regions: vec![
-                crate::api::schema::PaneLinkRegion {
+                crate::actions::PaneLinkRegion {
                     row: 0,
                     start_col: 1,
                     end_col: 3,
                 },
-                crate::api::schema::PaneLinkRegion {
+                crate::actions::PaneLinkRegion {
                     row: 1,
                     start_col: 0,
                     end_col: 2,
@@ -99,14 +99,14 @@ fn ctrl_hover_coalesces_motion_and_ignores_old_replies() {
     let (repaint, actions) = state.handle_endpoint_result(
         "boot-1",
         &id,
-        Ok(crate::api::schema::ResponseResult::PaneLinkResolved { regions: vec![] }),
+        Ok(crate::actions::ActionResult::PaneLinkResolved { regions: vec![] }),
     );
     assert!(!repaint);
     assert!(
         matches!(
             &actions[..],
             [ClientShellAction::Endpoint { request, .. }]
-                if matches!(&request.method, crate::api::schema::Method::PaneLinkResolve(params)
+                if matches!(&request.action, crate::actions::Action::PaneLinkResolve(params)
                     if params.viewport_row == 1 && params.col == 0)
         ),
         "only the latest pointer position should be queried"

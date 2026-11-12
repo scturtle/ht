@@ -232,12 +232,6 @@ fn endpoint_notice_and_multiline_diagnostic_cover_the_actual_rows() {
 fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
     let palette = ClientShellConfig::from_config(&Config::default()).palette;
     let overlays = vec![
-        ClientShellOverlay::ReleaseNotes(crate::app::state::ReleaseNotesState {
-            version: "1".into(),
-            body: "body".into(),
-            scroll: 0,
-            preview: false,
-        }),
         ClientShellOverlay::Rename(ClientRenameOverlay {
             title: "rename",
             input: "name".into(),
@@ -290,7 +284,6 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
         state.compose(106, 40).unwrap();
         let layout = state.layout(106, 40);
         let mut buffer = Buffer::empty(Rect::new(0, 0, 106, 40));
-        let snapshot = state.snapshot.as_deref().unwrap();
         let rendered = match &overlay {
             ClientShellOverlay::ContextMenu(menu) => {
                 render::render_context_menu(&mut buffer, menu, &state.config.palette)
@@ -299,13 +292,11 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
                 &mut buffer,
                 state.hits.global_launcher,
                 menu,
-                snapshot,
                 &state.config.palette,
             ),
             _ => render::render_client_overlay(
                 &mut buffer,
                 &overlay,
-                snapshot,
                 &state.endpoint,
                 &state.config.keybinds,
                 &state.config.palette,
@@ -396,9 +387,9 @@ fn selection_copy_cursor_and_search_hide_only_the_highlighted_images() {
         .as_mut()
         .unwrap()
         .search_matches
-        .push(crate::api::schema::PaneTextRange {
-            start: crate::api::schema::PaneTextPoint { row: 0, col: 2 },
-            end: crate::api::schema::PaneTextPoint { row: 0, col: 2 },
+        .push(crate::actions::PaneTextRange {
+            start: crate::actions::PaneTextPoint { row: 0, col: 2 },
+            end: crate::actions::PaneTextPoint { row: 0, col: 2 },
         });
     let frame = state.compose(106, 20).unwrap();
     for point in &points[..3] {

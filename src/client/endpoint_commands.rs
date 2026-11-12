@@ -4,7 +4,7 @@ use super::{
     shell::ClientShellEndpointError,
 };
 use crate::{
-    api::schema::{Request, ResponseResult},
+    actions::{ActionRequest, ActionResult},
     protocol::ClientMessage,
 };
 use std::{
@@ -16,7 +16,7 @@ const MAX_RETIRED_REQUESTS: usize = 128;
 struct QueuedCommand {
     generation: u64,
     boot_id: String,
-    request: Box<Request>,
+    request: Box<ActionRequest>,
 }
 struct InFlightCommand {
     generation: u64,
@@ -28,7 +28,7 @@ pub(super) struct EndpointCommandResult {
     pub(super) generation: u64,
     pub(super) boot_id: String,
     pub(super) request_id: String,
-    pub(super) result: Result<ResponseResult, ClientShellEndpointError>,
+    pub(super) result: Result<ActionResult, ClientShellEndpointError>,
 }
 #[derive(Default)]
 pub(super) struct EndpointCommands {
@@ -37,7 +37,12 @@ pub(super) struct EndpointCommands {
     retired: VecDeque<(u64, String, String)>,
 }
 impl EndpointCommands {
-    pub(super) fn enqueue(&mut self, generation: u64, boot_id: String, request: Box<Request>) {
+    pub(super) fn enqueue(
+        &mut self,
+        generation: u64,
+        boot_id: String,
+        request: Box<ActionRequest>,
+    ) {
         self.queued.push_back(QueuedCommand {
             generation,
             boot_id,
@@ -150,7 +155,7 @@ impl EndpointCommands {
         generation: u64,
         boot: &str,
         id: &str,
-        result: Result<Box<ResponseResult>, crate::protocol::EndpointResponseError>,
+        result: Result<Box<ActionResult>, crate::protocol::EndpointResponseError>,
     ) -> Option<EndpointCommandResult> {
         if let Some(index) = self
             .retired
@@ -199,17 +204,12 @@ mod tests {
             (1, "boot-a", "request-b"),
         ] {
             assert!(c
-                .receive_response(generation, boot, id, Ok(Box::new(ResponseResult::Ok {})))
+                .receive_response(generation, boot, id, Ok(Box::new(ActionResult::Ok {})))
                 .is_none());
             assert!(c.in_flight.is_some());
         }
         assert!(c
-            .receive_response(
-                1,
-                "boot-a",
-                "request-a",
-                Ok(Box::new(ResponseResult::Ok {}))
-            )
+            .receive_response(1, "boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
             .is_some());
         assert!(c.in_flight.is_none());
     }
@@ -222,14 +222,14 @@ mod tests {
                 1,
                 "boot-a",
                 "request-a",
-                Ok(Box::new(ResponseResult::PaneSelection {
+                Ok(Box::new(ActionResult::PaneSelection {
                     pane_id: "w1:p1".into(),
                     text: selection.clone(),
                 })),
             )
             .unwrap();
         assert!(
-            matches!(completed.result,Ok(ResponseResult::PaneSelection {text,..}) if text==selection)
+            matches!(completed.result,Ok(ActionResult::PaneSelection {text,..}) if text==selection)
         );
     }
     #[test]
@@ -249,12 +249,7 @@ mod tests {
             sent_at: Instant::now(),
         });
         assert!(c
-            .receive_response(
-                1,
-                "boot-a",
-                "request-a",
-                Ok(Box::new(ResponseResult::Ok {}))
-            )
+            .receive_response(1, "boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
             .is_none());
         assert!(c.accepts_response(1, "boot-a", "next"));
     }
@@ -265,12 +260,7 @@ mod tests {
         assert!(c.in_flight.is_none() && c.queued.is_empty());
         assert!(c.observe_snapshot(1, "boot-b").is_empty());
         assert!(c
-            .receive_response(
-                1,
-                "boot-a",
-                "request-a",
-                Ok(Box::new(ResponseResult::Ok {}))
-            )
+            .receive_response(1, "boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
             .is_none());
     }
     #[test]

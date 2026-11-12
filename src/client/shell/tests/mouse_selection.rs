@@ -71,9 +71,9 @@ fn selection_release_copies_latest_position_before_deferred_paint() {
     assert!(matches!(
         &release.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method,
-                crate::api::schema::Method::PaneSelectionRead(params)
-                    if params.cursor == crate::api::schema::PaneTextPoint { row: 0, col: 2 })
+            if matches!(&request.action,
+                crate::actions::Action::PaneSelectionRead(params)
+                    if params.cursor == crate::actions::PaneTextPoint { row: 0, col: 2 })
     ));
     state.compose(106, 20).expect("release frame");
     assert!(state.selection_repaint_deadline.is_none());
@@ -98,8 +98,8 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
     };
     let request_id = request.id.clone();
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneLinkActivate(params)
+        &request.action,
+        crate::actions::Action::PaneLinkActivate(params)
             if params.pane_id == "pane_1" && params.viewport_row == 1 && params.col == 2
     ));
 
@@ -112,7 +112,7 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+        Ok(crate::actions::ActionResult::PaneLinkActivated {
             url: Some("https://example.test".to_owned()),
             handled: false,
         }),
@@ -133,7 +133,7 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
             .handle_endpoint_result(
                 "boot-1",
                 &request.id,
-                Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+                Ok(crate::actions::ActionResult::PaneLinkActivated {
                     url: Some(url.into()),
                     handled,
                 }),
@@ -187,7 +187,7 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
     let native = state.handle_raw_events(vec![RawInputEvent::Mouse(down)]);
     assert!(!native.actions.iter().any(|action| matches!(action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneLinkActivate(_)))));
+            if matches!(request.action, crate::actions::Action::PaneLinkActivate(_)))));
     assert!(matches!(&native.requests[..],
         [ClientMessage::ClientShellPaneInput { events, .. }]
             if matches!(&events[..], [ClientPaneInputEvent::Mouse { modifiers, .. }]
@@ -216,7 +216,7 @@ fn ctrl_click_without_a_link_replays_the_original_gesture() {
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+        Ok(crate::actions::ActionResult::PaneLinkActivated {
             url: None,
             handled: false,
         }),
@@ -232,7 +232,7 @@ fn ctrl_click_without_a_link_replays_the_original_gesture() {
     assert!(matches!(
         &replay.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::PaneFocus(_))
+            if matches!(request.action, crate::actions::Action::PaneFocus(_))
     ));
     assert!(state.selection.is_some());
 }
@@ -312,8 +312,8 @@ fn pane_split_drag_uses_projected_handle_and_stable_tab_path() {
         panic!("pane split drag should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::LayoutSetSplitRatio(params)
+        &request.action,
+        crate::actions::Action::LayoutSetSplitRatio(params)
             if params.tab_id.as_deref() == Some("tab_1")
                 && params.path == vec![false, true]
                 && (params.ratio - 0.6).abs() < f32::EPSILON
@@ -374,8 +374,8 @@ fn disabled_mouse_chrome_keeps_tab_wheel_but_removes_split_drag_hits() {
         &wheel.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_2"
+                &request.action,
+                crate::actions::Action::TabFocus(target) if target.tab_id == "tab_2"
             )
     ));
 }
@@ -414,7 +414,7 @@ fn client_double_click_selects_word_and_copies_only_after_release() {
         if copy_on_select {
             assert!(
                 matches!(&actions[..], [ClientShellAction::Endpoint { request, .. }]
-                if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+                if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
                     if params.anchor.col == 6 && params.cursor.col == 10))
             );
             let copied = word_row_reply(&mut state, &word_read_id(&actions), "bravo");
@@ -474,10 +474,7 @@ fn word_read_id(actions: &[ClientShellAction]) -> String {
         .iter()
         .find_map(|action| match action {
             ClientShellAction::Endpoint { request, .. }
-                if matches!(
-                    request.method,
-                    crate::api::schema::Method::PaneSelectionRead(_)
-                ) =>
+                if matches!(request.action, crate::actions::Action::PaneSelectionRead(_)) =>
             {
                 Some(request.id.clone())
             }
@@ -491,7 +488,7 @@ fn word_row_reply(state: &mut ClientShellState, id: &str, text: &str) -> Vec<Cli
         .handle_endpoint_result(
             "boot-1",
             id,
-            Ok(crate::api::schema::ResponseResult::PaneSelection {
+            Ok(crate::actions::ActionResult::PaneSelection {
                 pane_id: "pane_1".into(),
                 text: text.into(),
             }),
@@ -505,7 +502,7 @@ fn start_word_drag(state: &mut ClientShellState) -> String {
     assert!(state.selection.is_none(), "plain clicks must not select");
     let second = word_drag_mouse(state, MouseEventKind::Down(MouseButton::Left), 0, 8);
     assert!(second.actions.iter().any(|action| matches!(action, ClientShellAction::Endpoint { request, .. }
-        if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+        if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
             if params.anchor.col == 0 && params.cursor.col == state.hits.panes[0].inner_rect.width - 1))));
     word_read_id(&second.actions)
 }
@@ -570,15 +567,15 @@ fn double_click_drag_waits_for_latest_row_before_copying() {
         };
         assert!(
             matches!(&final_read[..], [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
                 if params.anchor.row == 2 && params.cursor.row == 2))
         );
         let copy = word_row_reply(&mut state, &word_read_id(&final_read), "golf hotel india");
         assert!(
             matches!(&copy[..], [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
-                if params.anchor == crate::api::schema::PaneTextPoint { row: 0, col: 6 }
-                    && params.cursor == crate::api::schema::PaneTextPoint { row: 2, col: 9 }))
+            if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
+                if params.anchor == crate::actions::PaneTextPoint { row: 0, col: 6 }
+                    && params.cursor == crate::actions::PaneTextPoint { row: 2, col: 9 }))
         );
         let copied = word_row_reply(
             &mut state,
@@ -1091,8 +1088,8 @@ fn tab_click_waits_for_release_and_drag_reorders_by_stable_id() {
         panic!("tab drag should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::TabMove(params)
+        &request.action,
+        crate::actions::Action::TabMove(params)
             if params.tab_id == "tab_1" && params.insert_index == 3
     ));
 
@@ -1113,7 +1110,7 @@ fn tab_click_waits_for_release_and_drag_reorders_by_stable_id() {
     assert!(matches!(
         &click.actions[0],
         ClientShellAction::Endpoint { request, .. }
-            if matches!(&request.method, crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_2")
+            if matches!(&request.action, crate::actions::Action::TabFocus(target) if target.tab_id == "tab_2")
     ));
 }
 
@@ -1188,8 +1185,8 @@ fn tab_wheel_switches_tabs_without_changing_overflow_scroll() {
         &outcome.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
-                &request.method,
-                crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_1"
+                &request.action,
+                crate::actions::Action::TabFocus(target) if target.tab_id == "tab_1"
             )
     ));
     assert_eq!(state.tab_scroll, 0);

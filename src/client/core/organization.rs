@@ -1,7 +1,7 @@
 //! Core-backed organization facts. No focus, viewport, process or PTY state.
 use super::model::{invalid, MAX_PANES};
 use crate::{
-    api::schema as api,
+    actions,
     layout::{Node, PaneId},
 };
 use serde::{Deserialize, Serialize};
@@ -106,7 +106,7 @@ pub(super) enum Branch {
         terminal: String,
     },
     Split {
-        direction: api::SplitDirection,
+        direction: actions::SplitDirection,
         ratio: f32,
         first: Box<Branch>,
         second: Box<Branch>,
@@ -156,9 +156,9 @@ impl Branch {
                 second,
             } => Self::Split {
                 direction: if *direction == ratatui::layout::Direction::Horizontal {
-                    api::SplitDirection::Right
+                    actions::SplitDirection::Right
                 } else {
-                    api::SplitDirection::Down
+                    actions::SplitDirection::Down
                 },
                 ratio: *ratio,
                 first: Box::new(Self::from_node(first, address)),
@@ -176,7 +176,7 @@ impl Branch {
                 first,
                 second,
             } => Node::Split {
-                direction: if *direction == api::SplitDirection::Right {
+                direction: if *direction == actions::SplitDirection::Right {
                     ratatui::layout::Direction::Horizontal
                 } else {
                     ratatui::layout::Direction::Vertical
@@ -400,7 +400,7 @@ mod tests {
         doc.retiring.clear();
         let pane = doc.workspaces[0].tabs[0].root.clone();
         doc.workspaces[0].tabs[0].root = Branch::Split {
-            direction: api::SplitDirection::Right,
+            direction: actions::SplitDirection::Right,
             ratio: 0.5,
             first: Box::new(pane.clone()),
             second: Box::new(pane),
@@ -418,7 +418,7 @@ mod tests {
         for ratio in [f32::NAN, f32::INFINITY, -0.1, 0.0, 1.0] {
             let mut doc = sample();
             doc.workspaces[0].tabs[0].root = Branch::Split {
-                direction: api::SplitDirection::Right,
+                direction: actions::SplitDirection::Right,
                 ratio,
                 first: Box::new(Branch::Pane {
                     terminal: "a".into(),
@@ -435,7 +435,7 @@ mod tests {
         };
         for i in 0..=MAX_DEPTH {
             root = Branch::Split {
-                direction: api::SplitDirection::Down,
+                direction: actions::SplitDirection::Down,
                 ratio: 0.5,
                 first: Box::new(root),
                 second: Box::new(Branch::Pane {

@@ -76,7 +76,7 @@ pub(crate) fn keybind_help_groups(
     keybinds: &Keybinds,
     prefixes: &[crate::config::KeyCombo],
 ) -> Vec<KeybindHelpGroup> {
-    let mut groups = vec![
+    let groups = vec![
         (
             "global",
             vec![
@@ -200,25 +200,6 @@ pub(crate) fn keybind_help_groups(
         ),
     ];
 
-    if !keybinds.custom_commands.is_empty() {
-        groups.push((
-            "custom",
-            keybinds
-                .custom_commands
-                .iter()
-                .map(|binding| {
-                    (
-                        binding.label.clone(),
-                        binding
-                            .description
-                            .clone()
-                            .map(Cow::Owned)
-                            .unwrap_or(Cow::Borrowed("custom command")),
-                    )
-                })
-                .collect(),
-        ));
-    }
     groups
 }
 

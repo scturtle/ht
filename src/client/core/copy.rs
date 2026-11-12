@@ -4,7 +4,7 @@ use std::io;
 
 use super::{model::invalid, view::View};
 use crate::{
-    api::schema as api,
+    actions,
     layout::PaneId,
     pane::{TerminalSearchDirection, TerminalTextPoint, TerminalWordMotion},
 };
@@ -22,9 +22,9 @@ fn current(view: &View, revision: Option<u64>) -> io::Result<()> {
 pub(super) fn motion(
     view: &View,
     id: PaneId,
-    params: api::PaneCopyMotionParams,
-) -> io::Result<api::ResponseResult> {
-    use api::PaneCopyMotion as M;
+    params: actions::PaneCopyMotionParams,
+) -> io::Result<actions::ActionResult> {
+    use actions::PaneCopyMotion as M;
     current(view, params.content_revision)?;
     let (width, rows) = view
         .terminal
@@ -94,9 +94,9 @@ pub(super) fn motion(
     };
     // Session owns this View on its one worker thread: output/resize cannot
     // interleave this read, unlike the removed async PTY runtime.
-    Ok(api::ResponseResult::PaneCopyMotion {
+    Ok(actions::ActionResult::PaneCopyMotion {
         pane_id: params.pane_id,
-        cursor: api::PaneTextPoint {
+        cursor: actions::PaneTextPoint {
             row: target.row,
             col: target.col,
         },
@@ -106,13 +106,13 @@ pub(super) fn motion(
 
 pub(super) fn search(
     view: &View,
-    params: api::PaneCopySearchParams,
-) -> io::Result<api::ResponseResult> {
+    params: actions::PaneCopySearchParams,
+) -> io::Result<actions::ActionResult> {
     if params.query.len() > MAX_QUERY_BYTES {
         return Err(invalid("query_too_large"));
     }
     current(view, Some(params.content_revision))?;
-    let point = |point: api::PaneTextPoint| TerminalTextPoint {
+    let point = |point: actions::PaneTextPoint| TerminalTextPoint {
         row: point.row,
         col: point.col,
     };
@@ -120,8 +120,8 @@ pub(super) fn search(
         &params.query,
         params.query.chars().any(char::is_uppercase),
         match params.direction {
-            api::PaneCopySearchDirection::Forward => TerminalSearchDirection::Forward,
-            api::PaneCopySearchDirection::Backward => TerminalSearchDirection::Backward,
+            actions::PaneCopySearchDirection::Forward => TerminalSearchDirection::Forward,
+            actions::PaneCopySearchDirection::Backward => TerminalSearchDirection::Backward,
         },
         point(params.cursor),
         params
@@ -129,17 +129,17 @@ pub(super) fn search(
             .map(|range| (point(range.start), point(range.end))),
         MAX_RETURNED_MATCHES,
     );
-    let point = |point: TerminalTextPoint| api::PaneTextPoint {
+    let point = |point: TerminalTextPoint| actions::PaneTextPoint {
         row: point.row,
         col: point.col,
     };
-    Ok(api::ResponseResult::PaneCopySearch {
+    Ok(actions::ActionResult::PaneCopySearch {
         pane_id: params.pane_id,
         content_revision: view.revision,
         matches: result
             .matches
             .into_iter()
-            .map(|found| api::PaneTextRange {
+            .map(|found| actions::PaneTextRange {
                 start: point(found.start),
                 end: point(found.end),
             })
@@ -155,7 +155,7 @@ pub(super) fn search(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use api::{PaneCopyMotion as M, PaneCopySearchDirection as D, PaneTextPoint as P};
+    use actions::{PaneCopyMotion as M, PaneCopySearchDirection as D, PaneTextPoint as P};
 
     fn view(cols: u16, rows: u16, text: &str) -> View {
         let mut view = View::new(cols, rows, 17).unwrap();
@@ -167,7 +167,7 @@ mod tests {
         let result = motion(
             view,
             PaneId::from_raw(1),
-            api::PaneCopyMotionParams {
+            actions::PaneCopyMotionParams {
                 pane_id: "opaque/terminal".into(),
                 cursor: P { row, col },
                 motion: motion_kind,
@@ -175,7 +175,7 @@ mod tests {
             },
         )
         .unwrap();
-        let api::ResponseResult::PaneCopyMotion {
+        let actions::ActionResult::PaneCopyMotion {
             pane_id,
             cursor,
             content_revision,
@@ -192,11 +192,11 @@ mod tests {
         view: &View,
         text: &str,
         direction: D,
-        previous: Option<api::PaneTextRange>,
-    ) -> api::ResponseResult {
+        previous: Option<actions::PaneTextRange>,
+    ) -> actions::ActionResult {
         search(
             view,
-            api::PaneCopySearchParams {
+            actions::PaneCopySearchParams {
                 pane_id: "opaque/terminal".into(),
                 query: text.into(),
                 direction,
@@ -208,8 +208,8 @@ mod tests {
         .unwrap()
     }
 
-    fn selected(result: api::ResponseResult) -> api::PaneTextRange {
-        let api::ResponseResult::PaneCopySearch {
+    fn selected(result: actions::ActionResult) -> actions::PaneTextRange {
+        let actions::ActionResult::PaneCopySearch {
             matches, current, ..
         } = result
         else {
@@ -267,13 +267,13 @@ mod tests {
             selected(query(&view, "needle", D::Backward, Some(first))),
             third
         );
-        let api::ResponseResult::PaneCopySearch { total, .. } =
+        let actions::ActionResult::PaneCopySearch { total, .. } =
             query(&view, "Needle", D::Forward, None)
         else {
             panic!("wrong response")
         };
         assert_eq!(total, 1);
-        let api::ResponseResult::PaneCopySearch { total, .. } =
+        let actions::ActionResult::PaneCopySearch { total, .. } =
             query(&view, "n.edle", D::Forward, None)
         else {
             panic!("wrong response")
@@ -292,11 +292,8 @@ mod tests {
         let before = query(&view, "needle", D::Backward, None);
         view.terminal.scroll_up(100);
         let after = query(&view, "needle", D::Backward, None);
-        assert_eq!(
-            serde_json::to_value(&before).unwrap(),
-            serde_json::to_value(&after).unwrap()
-        );
-        let api::ResponseResult::PaneCopySearch {
+        assert_eq!(before, after);
+        let actions::ActionResult::PaneCopySearch {
             matches,
             total,
             current,
@@ -319,7 +316,7 @@ mod tests {
         let old_revision = view.revision;
         view.process_output(PaneId::from_raw(1), b"\r\nnew output");
         let revision = view.revision;
-        let request = api::PaneCopyMotionParams {
+        let request = actions::PaneCopyMotionParams {
             pane_id: "opaque/terminal".into(),
             cursor: P { row: 0, col: 0 },
             motion: M::LineEnd,
@@ -331,7 +328,7 @@ mod tests {
                 .to_string(),
             "stale_content"
         );
-        let request = api::PaneCopySearchParams {
+        let request = actions::PaneCopySearchParams {
             pane_id: "opaque/terminal".into(),
             query: "needle".into(),
             direction: D::Forward,
@@ -360,7 +357,7 @@ mod tests {
                 motion(
                     &view,
                     PaneId::from_raw(1),
-                    api::PaneCopyMotionParams {
+                    actions::PaneCopyMotionParams {
                         pane_id: "opaque/terminal".into(),
                         cursor,
                         motion: M::LineEnd,
@@ -375,7 +372,7 @@ mod tests {
         assert_eq!(
             search(
                 &view,
-                api::PaneCopySearchParams {
+                actions::PaneCopySearchParams {
                     pane_id: "opaque/terminal".into(),
                     query: "x".repeat(MAX_QUERY_BYTES + 1),
                     direction: D::Forward,

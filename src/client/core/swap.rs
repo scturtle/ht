@@ -1,7 +1,7 @@
 //! The original pane-swap API policy over the retained pure TileLayout.
 //! Recomputed after each CAS rebase; never spawns, kills or replays input.
 use super::model::{invalid, Model};
-use crate::{api::schema as api, layout::PaneId};
+use crate::{actions, layout::PaneId};
 use ratatui::layout::Rect;
 use std::io;
 
@@ -25,8 +25,8 @@ pub(super) fn error_code(error: &io::Error) -> Option<&'static str> {
 /// never silently redirect the gesture to a newly focused surviving program.
 pub(super) fn pin_source(
     model: &Model,
-    mut params: api::PaneSwapParams,
-) -> io::Result<api::PaneSwapParams> {
+    mut params: actions::PaneSwapParams,
+) -> io::Result<actions::PaneSwapParams> {
     let explicit = params.source_pane_id.is_some() || params.target_pane_id.is_some();
     if params.direction.is_some() == explicit {
         return Err(invalid(INVALID_SHAPE));
@@ -47,10 +47,10 @@ pub(super) fn pin_source(
 impl Model {
     pub(super) fn swap_panes(
         &mut self,
-        params: &api::PaneSwapParams,
+        params: &actions::PaneSwapParams,
         area: Rect,
-    ) -> io::Result<api::PaneSwapResult> {
-        use api::PaneSwapReason as Reason;
+    ) -> io::Result<actions::PaneSwapResult> {
+        use actions::PaneSwapReason as Reason;
         let directional = params.direction.is_some();
         let explicit = params.source_pane_id.is_some() || params.target_pane_id.is_some();
         if directional == explicit {
@@ -123,7 +123,7 @@ impl Model {
             }
         }
         let layout = self.layout_snapshot_for(&tab, area)?;
-        Ok(api::PaneSwapResult {
+        Ok(actions::PaneSwapResult {
             changed,
             reason,
             source_pane_id: params

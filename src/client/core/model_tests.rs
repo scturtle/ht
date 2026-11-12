@@ -46,14 +46,14 @@ mod tests {
         model.remove(ids[2]);
         assert_eq!(before, model.description());
         let mut corrupt = model.description().unwrap();
-        let pane = api::LayoutNode::Pane {
-            pane: api::LayoutPane {
+        let pane = actions::LayoutNode::Pane {
+            pane: actions::LayoutPane {
                 pane_id: Some("t1".into()),
                 ..Default::default()
             },
         };
-        corrupt.root = api::LayoutNode::Split {
-            direction: api::SplitDirection::Right,
+        corrupt.root = actions::LayoutNode::Split {
+            direction: actions::SplitDirection::Right,
             ratio: 0.5,
             first: Box::new(pane.clone()),
             second: Box::new(pane),
@@ -257,7 +257,7 @@ mod tests {
             .insert(json!({"address":"t1","status":{"state":"error","app":"demo"}}))
             .unwrap();
         let a = model.snapshot().agents.remove(0);
-        assert_eq!(a.agent_status, api::AgentStatus::Blocked);
+        assert_eq!(a.agent_status, actions::AgentStatus::Blocked);
         assert_eq!(a.state_labels, vec![("OSC 7501".into(), "error".into())]);
         model.insert(json!({"address":"t1","status":null})).unwrap();
         assert!(model.snapshot().agents.is_empty());

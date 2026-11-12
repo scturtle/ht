@@ -117,7 +117,6 @@ use std::time::Duration;
 
 use tracing::{debug, info, warn};
 
-use crate::endpoint_paths::client_socket_path;
 use crate::protocol::render_ansi;
 #[cfg(test)]
 use crate::protocol::{AttachScrollDirection, AttachScrollSource, NotifyKind};
@@ -130,7 +129,7 @@ pub fn run_core_client() -> io::Result<()> {
     let loaded_config = crate::config::Config::load();
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     // Keep the existing chrome preference key; it is not a transport socket.
-    let preference_key = client_socket_path();
+    let preference_key = crate::config::config_dir().join("herdr-client.sock");
     let shell_config = shell::ClientShellConfig::from_config(&loaded_config.config)
         .with_startup_config_diagnostic(crate::config::config_diagnostic_summary(
             &loaded_config.diagnostics,

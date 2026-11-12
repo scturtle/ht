@@ -318,10 +318,10 @@ impl ClientShellState {
         action: ClientContextMenuAction,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::api::schema::{Method, TabTarget};
+        use crate::actions::{Action, TabTarget};
 
         self.push_endpoint_method(
-            Method::TabFocus(TabTarget {
+            Action::TabFocus(TabTarget {
                 tab_id: tab_id.clone(),
             }),
             outcome,
@@ -352,7 +352,7 @@ impl ClientShellState {
                     }));
                 } else {
                     self.push_endpoint_method(
-                        Method::TabCreate(crate::api::schema::TabCreateParams {
+                        Action::TabCreate(crate::actions::TabCreateParams {
                             workspace_id: Some(workspace_id),
                             cwd: None,
                             focus: true,
@@ -396,8 +396,8 @@ impl ClientShellState {
         action: ClientContextMenuAction,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::api::schema::{
-            Method, PaneInputSetParams, PaneRenameParams, PaneRightClickTarget, PaneSplitParams,
+        use crate::actions::{
+            Action, PaneInputSetParams, PaneRenameParams, PaneRightClickTarget, PaneSplitParams,
             PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
         };
 
@@ -420,7 +420,7 @@ impl ClientShellState {
                 }));
             }
             ClientContextMenuAction::ClearPaneName => self.push_endpoint_method(
-                Method::PaneRename(PaneRenameParams {
+                Action::PaneRename(PaneRenameParams {
                     pane_id,
                     label: None,
                 }),
@@ -429,7 +429,7 @@ impl ClientShellState {
             ClientContextMenuAction::SwapWithFocusedPane => {
                 if let Some(source_pane_id) = source_pane_id {
                     self.push_endpoint_method(
-                        Method::PaneSwap(PaneSwapParams {
+                        Action::PaneSwap(PaneSwapParams {
                             pane_id: None,
                             direction: None,
                             source_pane_id: Some(source_pane_id.clone()),
@@ -438,7 +438,7 @@ impl ClientShellState {
                         outcome,
                     );
                     self.push_endpoint_method(
-                        Method::PaneFocus(PaneTarget {
+                        Action::PaneFocus(PaneTarget {
                             pane_id: source_pane_id,
                         }),
                         outcome,
@@ -447,7 +447,7 @@ impl ClientShellState {
             }
             ClientContextMenuAction::SplitRight | ClientContextMenuAction::SplitDown => {
                 self.push_endpoint_method(
-                    Method::PaneSplit(PaneSplitParams {
+                    Action::PaneSplit(PaneSplitParams {
                         workspace_id: Some(workspace_id),
                         target_pane_id: Some(pane_id),
                         direction: if action == ClientContextMenuAction::SplitRight {
@@ -465,14 +465,14 @@ impl ClientShellState {
                 );
             }
             ClientContextMenuAction::Zoom => self.push_endpoint_method(
-                Method::PaneZoom(PaneZoomParams {
+                Action::PaneZoom(PaneZoomParams {
                     pane_id: Some(pane_id),
                     mode: PaneZoomMode::Toggle,
                 }),
                 outcome,
             ),
             ClientContextMenuAction::ToggleRightClickPassthrough => self.push_endpoint_method(
-                Method::PaneInputSet(PaneInputSetParams {
+                Action::PaneInputSet(PaneInputSetParams {
                     pane_id,
                     right_click: if right_click_passthrough {
                         PaneRightClickTarget::Herdr

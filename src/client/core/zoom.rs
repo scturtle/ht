@@ -1,6 +1,6 @@
 //! Original zoom transition, owned by each client's presentation, not Core BSP.
 use super::model::{invalid, Model};
-use crate::{api::schema as api, app::actions::PaneZoomOutcome, layout::PaneId};
+use crate::{actions, app::actions::PaneZoomOutcome, layout::PaneId};
 use std::io;
 
 impl Model {
@@ -12,7 +12,7 @@ impl Model {
     pub(super) fn zoom_pane(
         &mut self,
         id: PaneId,
-        mode: api::PaneZoomMode,
+        mode: actions::PaneZoomMode,
     ) -> io::Result<PaneZoomOutcome> {
         let (workspace, tab) = self
             .context(id)

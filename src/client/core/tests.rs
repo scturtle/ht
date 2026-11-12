@@ -10,6 +10,31 @@ use serde_json::json;
 use std::collections::HashMap;
 
 #[test]
+fn advertised_core_actions_are_internal_and_exclude_unimplemented_ui_actions() {
+    let names: std::collections::HashSet<_> =
+        crate::actions::Action::NAMES.iter().copied().collect();
+    let implemented: std::collections::HashSet<_> = methods::METHODS.iter().copied().collect();
+    assert_eq!(implemented.len(), methods::METHODS.len());
+    assert!(implemented.is_subset(&names));
+    for unavailable in [
+        "release_notes.dismiss",
+        "command.invoke",
+        "pane.clear",
+        "pane.edit_scrollback",
+        "pane.input.set",
+        "pane.link.activate",
+        "pane.link.resolve",
+        "server.reload_config",
+        "workspace.list",
+        "workspace.get",
+        "tab.list",
+        "tab.get",
+    ] {
+        assert!(!implemented.contains(unavailable), "{unavailable}");
+    }
+}
+
+#[test]
 fn hc_socket_selects_an_external_core_without_creating_a_session_socket() {
     // No directory creation or existence check: `hc connect` handles the target.
     let socket = PathBuf::from("/external/nonexistent/runtime/other.sock");
@@ -597,7 +622,7 @@ fn presentation_surface_preserves_geometry_and_cannot_infer_agent_status() {
     assert!(model
         .records
         .values()
-        .all(|record| model::status(&record.facts) == crate::api::schema::AgentStatus::Unknown));
+        .all(|record| model::status(&record.facts) == crate::actions::AgentStatus::Unknown));
 }
 
 #[test]
@@ -645,10 +670,7 @@ fn render_scale_profile_core() {
         }
         if zoom_requested {
             model
-                .zoom_pane(
-                    model.focused().unwrap(),
-                    crate::api::schema::PaneZoomMode::On,
-                )
+                .zoom_pane(model.focused().unwrap(), crate::actions::PaneZoomMode::On)
                 .unwrap();
         }
         let zoomed = model.active_zoomed();

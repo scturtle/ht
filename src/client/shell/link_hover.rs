@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::schema::{PaneLinkActivateParams, PaneLinkRegion};
+use crate::actions::{PaneLinkActivateParams, PaneLinkRegion};
 use crate::protocol::SurfaceRect;
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 
@@ -169,7 +169,7 @@ impl ClientShellState {
             return;
         }
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneLinkResolve(PaneLinkActivateParams {
+            crate::actions::Action::PaneLinkResolve(PaneLinkActivateParams {
                 pane_id: target.pane_id.clone(),
                 viewport_row: target.row,
                 col: target.col,
@@ -184,7 +184,7 @@ impl ClientShellState {
     pub(super) fn complete_link_hover(
         &mut self,
         target: LinkHoverTarget,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::actions::ActionResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
         let cancelled = result
             .as_ref()
@@ -198,7 +198,7 @@ impl ClientShellState {
                 .is_some_and(|hover| hover.target == target)
         {
             let regions = match result {
-                Ok(crate::api::schema::ResponseResult::PaneLinkResolved { regions })
+                Ok(crate::actions::ActionResult::PaneLinkResolved { regions })
                     if regions.len() <= usize::from(target.inner_rect.height)
                         && regions.iter().all(|region| {
                             region.row < target.inner_rect.height

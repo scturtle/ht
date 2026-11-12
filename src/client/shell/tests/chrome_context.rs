@@ -304,7 +304,7 @@ fn diagnostic_menus_capture_only_local_state_without_focus_or_input_requests() {
         let mut outcome = ClientShellInput::default();
         if global {
             state.toggle_global_menu();
-            let index = global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
+            let index = global_menu::global_menu_items()
                 .iter()
                 .position(|(_, action)| {
                     *action == global_menu::ClientGlobalMenuAction::DumpPaneDiagnostics
@@ -420,10 +420,10 @@ fn context_menus_capture_stable_targets_and_route_actions() {
         panic!("pane split context action should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneSplit(params)
+        &request.action,
+        crate::actions::Action::PaneSplit(params)
             if params.target_pane_id.as_deref() == Some("pane_1")
-                && params.direction == crate::api::schema::SplitDirection::Right
+                && params.direction == crate::actions::SplitDirection::Right
     ));
 }
 
@@ -470,7 +470,7 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     assert!(help.actions.is_empty());
     assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(_))));
 
-    let detach_index = global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
+    let detach_index = global_menu::global_menu_items()
         .iter()
         .position(|(_, action)| {
             *action
@@ -523,8 +523,8 @@ fn new_tab_overlay_owns_text_cursor_and_submits_public_api_request() {
         panic!("new tab save should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::TabCreate(params)
+        &request.action,
+        crate::actions::Action::TabCreate(params)
             if params.workspace_id.as_deref() == Some("ws_1")
                 && params.label.as_deref() == Some("logs")
     ));
@@ -540,7 +540,7 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_workspace_cl
     // Exercise the server error fallback directly: last-pane keybindings now
     // confirm locally before issuing a request.
     state.push_endpoint_method(
-        crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget {
+        crate::actions::Action::PaneClose(crate::actions::PaneTarget {
             pane_id: "pane_1".into(),
         }),
         &mut close,
@@ -580,8 +580,8 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_workspace_cl
         panic!("confirmation should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::WorkspaceClose(params)
+        &request.action,
+        crate::actions::Action::WorkspaceClose(params)
             if params.workspace_id == "ws_1" && !params.close_group
     ));
 }

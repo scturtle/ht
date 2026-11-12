@@ -105,49 +105,7 @@ fn full_host_palette_response_is_sent_as_one_theme_update() {
 }
 
 #[test]
-fn modal_paste_shortcut_modifiers_are_platform_specific() {
-    let key = |code, modifiers| crate::input::TerminalKey::new(code, modifiers);
-    for macos in [false, true] {
-        assert!(!input::is_modal_paste_shortcut_for_platform(
-            &key(
-                KeyCode::Char('v'),
-                KeyModifiers::CONTROL | KeyModifiers::ALT
-            ),
-            macos
-        ));
-    }
-
-    assert!(input::is_modal_paste_shortcut_for_platform(
-        &key(KeyCode::Char('v'), KeyModifiers::CONTROL),
-        false
-    ));
-    assert!(input::is_modal_paste_shortcut_for_platform(
-        &key(
-            KeyCode::Char('V'),
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT
-        ),
-        false
-    ));
-    assert!(!input::is_modal_paste_shortcut_for_platform(
-        &key(KeyCode::Char('v'), KeyModifiers::SUPER),
-        false
-    ));
-    assert!(input::is_modal_paste_shortcut_for_platform(
-        &key(KeyCode::Char('v'), KeyModifiers::CONTROL),
-        true
-    ));
-    assert!(input::is_modal_paste_shortcut_for_platform(
-        &key(KeyCode::Char('v'), KeyModifiers::SUPER),
-        true
-    ));
-    assert!(!input::is_modal_paste_shortcut_for_platform(
-        &key(KeyCode::Char('v'), KeyModifiers::ALT),
-        true
-    ));
-}
-
-#[test]
-fn modal_paste_inserts_clipboard_text_through_overlay_text_path() {
+fn host_bracketed_paste_inserts_text_through_overlay_text_path() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
         title: "rename pane",
@@ -156,14 +114,7 @@ fn modal_paste_inserts_clipboard_text_through_overlay_text_path() {
             pane_id: "pane_1".into(),
         },
     }));
-    let mut outcome = ClientShellInput::default();
-    let key = crate::input::TerminalKey::new(KeyCode::Char('v'), KeyModifiers::CONTROL);
-
-    assert!(
-        state.handle_modal_paste_shortcut_with(&key, &mut outcome, || {
-            Some("feature/pasted".into())
-        })
-    );
+    let outcome = state.handle_input_bytes(b"\x1b[200~feature/pasted\x1b[201~");
     assert!(outcome.repaint);
     assert!(matches!(
         state.overlay,
@@ -285,7 +236,7 @@ fn delayed_link_fallback_does_not_replay_against_changed_geometry() {
             let (_, actions) = state.handle_endpoint_result(
                 "boot-1",
                 &request.id,
-                Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+                Ok(crate::actions::ActionResult::PaneLinkActivated {
                     url: url.map(str::to_owned),
                     handled: false,
                 }),
@@ -571,13 +522,13 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
         &mut enter,
     );
     let matches = vec![
-        crate::api::schema::PaneTextRange {
-            start: crate::api::schema::PaneTextPoint { row: 5, col: 2 },
-            end: crate::api::schema::PaneTextPoint { row: 5, col: 7 },
+        crate::actions::PaneTextRange {
+            start: crate::actions::PaneTextPoint { row: 5, col: 2 },
+            end: crate::actions::PaneTextPoint { row: 5, col: 7 },
         },
-        crate::api::schema::PaneTextRange {
-            start: crate::api::schema::PaneTextPoint { row: 15, col: 1 },
-            end: crate::api::schema::PaneTextPoint { row: 15, col: 6 },
+        crate::actions::PaneTextRange {
+            start: crate::actions::PaneTextPoint { row: 15, col: 1 },
+            end: crate::actions::PaneTextPoint { row: 15, col: 6 },
         },
     ];
 
@@ -624,10 +575,7 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
         .iter()
         .find_map(|action| match action {
             ClientShellAction::Endpoint { request, .. }
-                if matches!(
-                    request.method,
-                    crate::api::schema::Method::PaneSelectionRead(_)
-                ) =>
+                if matches!(request.action, crate::actions::Action::PaneSelectionRead(_)) =>
             {
                 Some(request.id.clone())
             }
@@ -637,7 +585,7 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
     let (_, clipboard) = state.handle_endpoint_result(
         "boot-1",
         &selection_request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::actions::ActionResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "needle".into(),
         }),
@@ -848,8 +796,8 @@ fn rename_pane_empty_value_is_preserved_as_a_clear_request() {
         panic!("pane rename should use endpoint API");
     };
     assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::PaneRename(params)
+        &request.action,
+        crate::actions::Action::PaneRename(params)
             if params.pane_id == "pane_1" && params.label.as_deref() == Some("")
     ));
 }
@@ -1021,8 +969,8 @@ fn plain_text_in_navigate_mode_runs_the_navigate_binding_on_a_report_all_host() 
             action,
             ClientShellAction::Endpoint { request, .. }
                 if matches!(
-                    &request.method,
-                    crate::api::schema::Method::WorkspaceFocus(target)
+                    &request.action,
+                    crate::actions::Action::WorkspaceFocus(target)
                         if target.workspace_id == "ws_2"
                 )
         )),

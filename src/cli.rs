@@ -118,10 +118,7 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
     std::fs::write(&path, updated)?;
 
     println!("Created backup: {}", backup_path.display());
-    println!(
-        "Removed [keys], [keys.indexed], and [[keys.command]] from {}.",
-        path.display()
-    );
+    println!("Removed [keys] and [keys.indexed] from {}.", path.display());
     println!("Built-in v2 keybindings will apply after Herdr restarts or reloads config.");
     println!("If a Herdr server is running, run `herdr server reload-config` to apply this now.");
     println!(

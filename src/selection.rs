@@ -13,7 +13,7 @@
 //! coordinates. That keeps selection stable while the pane scrolls.
 
 use ratatui::layout::Rect;
-use std::{ffi::OsStr, io::Write};
+use std::io::Write;
 
 use crate::{layout::PaneId, pane::ScrollMetrics};
 
@@ -302,102 +302,24 @@ fn osc52_sequence(bytes: &[u8]) -> String {
     format!("\x1b]52;c;{encoded}\x07")
 }
 
-fn contains_wsl_marker(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    lower.contains("microsoft") || lower.contains("wsl2") || lower.contains("-wsl")
-}
-
-fn is_wsl_for_env(
-    os_release: Option<&str>,
-    proc_version: Option<&str>,
-    wsl_distro_name: Option<&OsStr>,
-    wsl_interop: Option<&OsStr>,
-    runtime_marker_exists: bool,
-) -> bool {
-    wsl_distro_name.is_some()
-        || wsl_interop.is_some()
-        || os_release.is_some_and(contains_wsl_marker)
-        || proc_version.is_some_and(contains_wsl_marker)
-        || runtime_marker_exists
-}
-
-fn is_wsl() -> bool {
-    let os_release = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok();
-    let proc_version = std::fs::read_to_string("/proc/version").ok();
-    is_wsl_for_env(
-        os_release.as_deref(),
-        proc_version.as_deref(),
-        std::env::var_os("WSL_DISTRO_NAME").as_deref(),
-        std::env::var_os("WSL_INTEROP").as_deref(),
-        std::path::Path::new("/run/WSL").exists()
-            || std::path::Path::new("/proc/sys/fs/binfmt_misc/WSLInterop").exists(),
-    )
-}
-
-fn should_prefer_osc52_for_env(
-    ssh_connection: Option<&OsStr>,
-    ssh_tty: Option<&OsStr>,
-    vscode_ipc_hook_cli: Option<&OsStr>,
-    wsl: bool,
-) -> bool {
-    ssh_connection.is_some() || ssh_tty.is_some() || vscode_ipc_hook_cli.is_some() || wsl
-}
-
-fn should_prefer_osc52() -> bool {
-    should_prefer_osc52_for_env(
-        std::env::var_os("SSH_CONNECTION").as_deref(),
-        std::env::var_os("SSH_TTY").as_deref(),
-        std::env::var_os("VSCODE_IPC_HOOK_CLI").as_deref(),
-        is_wsl(),
-    )
-}
-
-/// Write clipboard bytes to the system clipboard via native platform tools or OSC 52.
+/// Write clipboard bytes to the host terminal via OSC 52.
 ///
 /// OSC 52 format: `ESC ] 52 ; c ; <base64> BEL`
 ///
 /// Some terminals still only honor BEL-terminated OSC 52 writes, so herdr
 /// emits BEL here even though ST works in newer emulators.
 ///
-/// Returns true when the text already matches or a clipboard write is dispatched.
+/// Returns true when the sequence was written and flushed, not confirmation
+/// that the host terminal accepted the clipboard update.
 pub fn write_osc52_bytes(bytes: &[u8]) -> bool {
-    write_osc52_bytes_with_match(
-        bytes,
-        should_prefer_osc52(),
-        crate::platform::clipboard_text_matches,
-    )
-}
-
-fn write_osc52_bytes_with_match(
-    bytes: &[u8],
-    prefer_osc52: bool,
-    clipboard_text_matches: impl FnOnce(&[u8]) -> Option<bool>,
-) -> bool {
-    if !prefer_osc52 && clipboard_text_matches(bytes) == Some(true) {
-        tracing::debug!(bytes = bytes.len(), "suppressed duplicate clipboard write");
-        return true;
-    }
-
-    if !prefer_osc52 && crate::platform::write_clipboard(bytes) {
-        true
-    } else {
-        let sequence = osc52_sequence(bytes);
-        let mut stdout = std::io::stdout();
-        stdout.write_all(sequence.as_bytes()).is_ok() && stdout.flush().is_ok()
-    }
+    let sequence = osc52_sequence(bytes);
+    let mut stdout = std::io::stdout();
+    stdout.write_all(sequence.as_bytes()).is_ok() && stdout.flush().is_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn duplicate_clipboard_copy_reports_success() {
-        assert!(write_osc52_bytes_with_match(b"same text", false, |bytes| {
-            assert_eq!(bytes, b"same text");
-            Some(true)
-        }));
-    }
 
     #[test]
     fn visible_rects_match_selection_cells_when_scrolled_and_reversed() {
@@ -443,92 +365,6 @@ mod tests {
     #[test]
     fn osc52_sequence_uses_bel_terminator() {
         assert_eq!(osc52_sequence(b"hello"), "\x1b]52;c;aGVsbG8=\x07");
-    }
-
-    #[test]
-    fn ssh_sessions_prefer_osc52() {
-        assert!(should_prefer_osc52_for_env(
-            Some(OsStr::new("1 2 3 4")),
-            None,
-            None,
-            false
-        ));
-        assert!(should_prefer_osc52_for_env(
-            None,
-            Some(OsStr::new("/dev/ttys001")),
-            None,
-            false
-        ));
-        assert!(!should_prefer_osc52_for_env(None, None, None, false));
-    }
-
-    #[test]
-    fn wsl_sessions_prefer_osc52() {
-        assert!(should_prefer_osc52_for_env(None, None, None, true));
-    }
-
-    #[test]
-    fn vscode_remote_sessions_prefer_osc52() {
-        assert!(should_prefer_osc52_for_env(
-            None,
-            None,
-            Some(OsStr::new("/tmp/vscode-remote-cli.sock")),
-            false
-        ));
-    }
-
-    #[test]
-    fn wsl_detection_uses_env_vars() {
-        assert!(is_wsl_for_env(
-            None,
-            None,
-            Some(OsStr::new("Ubuntu")),
-            None,
-            false
-        ));
-        assert!(is_wsl_for_env(
-            None,
-            None,
-            None,
-            Some(OsStr::new("/run/WSL/123_interop")),
-            false
-        ));
-    }
-
-    #[test]
-    fn wsl_detection_uses_kernel_markers() {
-        assert!(is_wsl_for_env(
-            Some("5.15.167.4-microsoft-standard-WSL2"),
-            None,
-            None,
-            None,
-            false
-        ));
-        assert!(is_wsl_for_env(
-            None,
-            Some("Linux version 5.15.167.4-microsoft-standard-WSL2"),
-            None,
-            None,
-            false
-        ));
-    }
-
-    #[test]
-    fn wsl_detection_ignores_non_wsl_kernel_strings() {
-        assert!(!contains_wsl_marker("notwsl-kernel"));
-        assert!(!is_wsl_for_env(
-            Some("6.8.0-31-generic"),
-            Some("Linux version 6.8.0-31-generic"),
-            None,
-            None,
-            false
-        ));
-    }
-
-    #[test]
-    fn wsl_detection_uses_wsl_runtime_markers() {
-        assert!(is_wsl_for_env(None, None, None, None, true));
-        assert!(!is_wsl_for_env(None, None, None, None, false));
     }
 
     #[test]

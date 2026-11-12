@@ -107,47 +107,6 @@ impl BindingConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum CommandKeybindType {
-    #[default]
-    Shell,
-    Pane,
-    PluginAction,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct CommandKeybindConfig {
-    /// Key that runs a command. Use `prefix+g` for prefix mode or a modified chord for direct mode.
-    pub key: BindingConfig,
-    /// Command executed either in the background shell or inside a pane.
-    pub command: String,
-    /// Command execution mode. Default: "shell".
-    #[serde(rename = "type")]
-    pub action_type: CommandKeybindType,
-    /// Optional user-defined description for this custom command.
-    pub description: Option<String>,
-}
-
-impl Default for CommandKeybindConfig {
-    fn default() -> Self {
-        Self {
-            key: BindingConfig::empty(),
-            command: String::new(),
-            action_type: CommandKeybindType::Shell,
-            description: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CustomCommandAction {
-    Shell,
-    Pane,
-    PluginAction,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingTrigger {
     Direct(KeyCombo),
@@ -193,18 +152,6 @@ pub struct ActionKeybinds {
 }
 
 impl ActionKeybinds {
-    pub(crate) fn from_labels(labels: &[String]) -> Result<Self, String> {
-        let mut bindings = Vec::new();
-        for label in labels {
-            match parse_binding_string(label) {
-                Some(ParsedBinding::Single(binding)) => bindings.push(binding),
-                Some(ParsedBinding::Range(range)) => bindings.extend(range),
-                None => return Err(format!("invalid endpoint command binding: {label}")),
-            }
-        }
-        Ok(Self { bindings })
-    }
-
     #[cfg(test)]
     pub fn prefix(label: &str) -> Self {
         let raw = if label.starts_with("prefix+") {
@@ -316,15 +263,6 @@ impl IndexedKeybind {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CustomCommandKeybind {
-    pub bindings: ActionKeybinds,
-    pub label: String,
-    pub command: String,
-    pub action: CustomCommandAction,
-    pub description: Option<String>,
-}
-
 /// Parsed keybinds for Herdr actions.
 #[derive(Debug, Clone)]
 pub struct NavigateKeybinds {
@@ -389,7 +327,6 @@ pub struct Keybinds {
     pub resize_pane_up: ActionKeybinds,
     pub resize_pane_right: ActionKeybinds,
     pub toggle_sidebar: ActionKeybinds,
-    pub custom_commands: Vec<CustomCommandKeybind>,
 }
 
 impl Default for Keybinds {
@@ -569,7 +506,6 @@ impl Config {
             resize_pane_up: empty_action!(),
             resize_pane_right: empty_action!(),
             toggle_sidebar: empty_action!(),
-            custom_commands: Vec::new(),
         };
 
         macro_rules! field_source {
@@ -741,15 +677,6 @@ impl Config {
                     source,
                 );
             }
-
-            if source == BindingSource::User {
-                append_custom_command_bindings(
-                    self,
-                    &mut keybinds,
-                    &mut registry,
-                    &mut diagnostics,
-                );
-            }
         }
 
         (prefix_diag, prefix, diagnostics, keybinds)
@@ -775,50 +702,6 @@ fn reserve_navigate_runtime_keys(registry: &mut BindingRegistry) {
             "navigate reserved keys",
             BindingSource::Default,
         );
-    }
-}
-
-fn append_custom_command_bindings(
-    config: &Config,
-    keybinds: &mut Keybinds,
-    registry: &mut BindingRegistry,
-    diagnostics: &mut Vec<String>,
-) {
-    for (index, command) in config.keys.command.iter().enumerate() {
-        let key_field = format!("keys.command[{index}].key");
-        let command_field = format!("keys.command[{index}].command");
-
-        if command.command.trim().is_empty() {
-            let diag = format!("empty custom command: {command_field}; disabling custom command");
-            warn!(message = %diag, "config diagnostic");
-            diagnostics.push(diag);
-            continue;
-        }
-
-        let bindings = parse_action_bindings(
-            &key_field,
-            &command.key,
-            registry,
-            diagnostics,
-            BindingSource::User,
-        );
-        if bindings.bindings.is_empty() {
-            continue;
-        }
-
-        let action = match command.action_type {
-            CommandKeybindType::Shell => CustomCommandAction::Shell,
-            CommandKeybindType::Pane => CustomCommandAction::Pane,
-            CommandKeybindType::PluginAction => CustomCommandAction::PluginAction,
-        };
-        let label = bindings.label().unwrap_or_else(|| "unset".to_string());
-        keybinds.custom_commands.push(CustomCommandKeybind {
-            bindings,
-            label,
-            command: command.command.clone(),
-            action,
-            description: command.description.clone(),
-        });
     }
 }
 
@@ -1245,7 +1128,7 @@ fn parse_modifier_combo(s: &str) -> Option<KeyModifiers> {
 
 pub(crate) fn parse_key_combo(s: &str) -> Option<KeyCombo> {
     let s = s.trim();
-    // Labels are also used in endpoint profiles and command manifests. A literal
+    // Labels must round-trip through the local binding parser. A literal
     // plus is the key after the final separator, not an empty key token.
     if s == "+" {
         return Some((KeyCode::Char('+'), KeyModifiers::empty()));
@@ -2092,10 +1975,6 @@ navigate_workspace_up = ["esc", "alt+esc", "enter", "1", "tab", "shift+tab", "le
             r#"
 [keys]
 navigate_workspace_down = ["n", "f"]
-
-[[keys.command]]
-key = "prefix+f"
-command = "echo hi"
 "#,
         )
         .unwrap();
@@ -2110,10 +1989,8 @@ command = "echo hi"
             .navigate
             .workspace_down
             .matches_direct_key(&TerminalKey::new(KeyCode::Char('f'), KeyModifiers::empty())));
-        assert!(!keybinds.custom_commands.is_empty());
         assert!(!diagnostics.iter().any(|diag| {
-            diag.contains("disabled keys.navigate_workspace_down")
-                && (diag.contains("keys.next_tab") || diag.contains("keys.command"))
+            diag.contains("disabled keys.navigate_workspace_down") && diag.contains("keys.next_tab")
         }));
     }
 
@@ -2156,67 +2033,6 @@ navigate_workspace_down = "ctrl+a"
         }));
         assert!(diagnostics.iter().any(|diag| {
             diag.contains("kept keys.prefix") && diag.contains("keys.navigate_workspace_down")
-        }));
-    }
-
-    #[test]
-    fn custom_command_prefix_rhs_equal_to_configured_prefix_is_rejected() {
-        let config: Config = toml::from_str(
-            r#"
-[keys]
-prefix = "ctrl+b"
-
-[[keys.command]]
-key = "prefix+ctrl+b"
-command = "echo no"
-"#,
-        )
-        .unwrap();
-        let diagnostics = config.collect_diagnostics();
-        assert!(config.keybinds().custom_commands.is_empty());
-        assert!(diagnostics.iter().any(|diag| {
-            diag.contains("reserved keybinding") && diag.contains("keys.command[0].key")
-        }));
-    }
-
-    #[test]
-    fn direct_custom_printable_binding_is_rejected_as_unsafe() {
-        let config: Config = toml::from_str(
-            r#"
-[keys]
-
-[[keys.command]]
-key = "g"
-command = "echo no"
-"#,
-        )
-        .unwrap();
-        let diagnostics = config.collect_diagnostics();
-        assert!(config.keybinds().custom_commands.is_empty());
-        assert!(diagnostics.iter().any(|diag| {
-            diag.contains("unsafe direct keybinding") && diag.contains("keys.command[0].key")
-        }));
-    }
-
-    #[test]
-    fn direct_custom_binding_conflicting_with_builtin_is_disabled() {
-        let config: Config = toml::from_str(
-            r#"
-[keys]
-new_tab = "ctrl+alt+g"
-
-[[keys.command]]
-key = "ctrl+alt+g"
-command = "echo no"
-"#,
-        )
-        .unwrap();
-        let diagnostics = config.collect_diagnostics();
-        let keybinds = config.keybinds();
-        assert!(!keybinds.new_tab.bindings.is_empty());
-        assert!(keybinds.custom_commands.is_empty());
-        assert!(diagnostics.iter().any(|diag| {
-            diag.contains("kept keys.new_tab") && diag.contains("disabled keys.command[0].key")
         }));
     }
 
@@ -2450,24 +2266,5 @@ swap_pane_right = "prefix+shift+l"
             diag.contains("kept keys.previous_workspace")
                 && diag.contains("disabled keys.swap_pane_right")
         }));
-    }
-
-    #[test]
-    fn custom_command_with_description_parses() {
-        let config: Config = toml::from_str(
-            r#"
-[[keys.command]]
-key = "prefix+y"
-command = "echo hello"
-description = "say hello"
-"#,
-        )
-        .unwrap();
-        let keybinds = config.keybinds();
-        assert_eq!(keybinds.custom_commands.len(), 1);
-        assert_eq!(
-            keybinds.custom_commands[0].description,
-            Some("say hello".to_string())
-        );
     }
 }

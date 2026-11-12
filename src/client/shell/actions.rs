@@ -58,17 +58,6 @@ impl ClientShellState {
                     return;
                 }
                 if action == crate::input::KeybindAction::ReloadConfig {
-                    if self.supports_endpoint_method(
-                        &crate::api::schema::Method::ServerReloadConfig(Default::default()),
-                    ) {
-                        self.push_endpoint_method_with_kind(
-                            crate::api::schema::Method::ServerReloadConfig(
-                                crate::api::schema::EmptyParams::default(),
-                            ),
-                            PendingEndpointKind::ReloadConfig,
-                            outcome,
-                        );
-                    }
                     self.reload_client_config();
                     self.invalidate_pane_surface();
                     outcome.repaint = true;
@@ -80,8 +69,8 @@ impl ClientShellState {
                         self.open_new_workspace_overlay();
                     } else {
                         self.push_endpoint_method(
-                            crate::api::schema::Method::WorkspaceCreate(
-                                crate::api::schema::WorkspaceCreateParams {
+                            crate::actions::Action::WorkspaceCreate(
+                                crate::actions::WorkspaceCreateParams {
                                     source_workspace_id: self.workspace_action_id(),
                                     cwd: None,
                                     focus: true,
@@ -170,81 +159,6 @@ impl ClientShellState {
                 }
                 outcome.actions.push(ClientShellAction::Keybind(action));
             }
-            crate::input::KeybindMatch::Command(command) => {
-                let action = command.action.into();
-                let resolved_labels = command.bindings.labels();
-                let command_id = self.snapshot.as_deref().and_then(|snapshot| {
-                    if let Some(candidate) = snapshot.commands.iter().find(|candidate| {
-                        candidate.command_id == command.command && candidate.action == action
-                    }) {
-                        return Some(candidate.command_id.clone());
-                    }
-                    let mut candidates = snapshot.commands.iter().filter(|candidate| {
-                        candidate.action == action
-                            && !resolved_labels.is_empty()
-                            && resolved_labels
-                                .iter()
-                                .all(|label| candidate.binding_labels.contains(label))
-                    });
-                    let candidate = candidates.next()?;
-                    candidates
-                        .next()
-                        .is_none()
-                        .then(|| candidate.command_id.clone())
-                });
-                let Some(command_id) = command_id else {
-                    self.set_endpoint_error(
-                        "custom command is not available on this endpoint; reload configuration",
-                    );
-                    outcome.repaint = true;
-                    return;
-                };
-                let Some(snapshot) = self.snapshot.as_deref() else {
-                    return;
-                };
-                let selection = (action == crate::protocol::ClientShellCommandAction::PluginAction)
-                    .then(|| {
-                        let selection = self.selection.as_ref()?;
-                        if !selection.is_visible() {
-                            return None;
-                        }
-                        if snapshot.focused_pane_id.as_deref() != Some(selection.pane_id.as_str()) {
-                            return None;
-                        }
-                        let content_revision = self
-                            .pane_surface
-                            .as_ref()?
-                            .panes
-                            .iter()
-                            .find(|pane| pane.pane_id == selection.pane_id)?
-                            .content_revision;
-                        let (anchor, cursor) = selection.ordered_cells();
-                        Some(crate::api::schema::PaneSelectionReadParams {
-                            pane_id: selection.pane_id.clone(),
-                            anchor: crate::api::schema::PaneTextPoint {
-                                row: anchor.0,
-                                col: anchor.1,
-                            },
-                            cursor: crate::api::schema::PaneTextPoint {
-                                row: cursor.0,
-                                col: cursor.1,
-                            },
-                            content_revision: Some(content_revision),
-                        })
-                    })
-                    .flatten();
-                let params = crate::api::schema::CommandInvokeParams {
-                    command_id,
-                    workspace_id: snapshot.focused_workspace_id.clone(),
-                    tab_id: snapshot.focused_tab_id.clone(),
-                    pane_id: snapshot.focused_pane_id.clone(),
-                    selection,
-                };
-                self.push_endpoint_method(
-                    crate::api::schema::Method::CommandInvoke(params),
-                    outcome,
-                );
-            }
         }
     }
 
@@ -263,20 +177,18 @@ impl ClientShellState {
             .filter(|_| !live);
         let (anchor, cursor) = selection.ordered_cells();
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneSelectionRead(
-                crate::api::schema::PaneSelectionReadParams {
-                    pane_id,
-                    anchor: crate::api::schema::PaneTextPoint {
-                        row: anchor.0,
-                        col: anchor.1,
-                    },
-                    cursor: crate::api::schema::PaneTextPoint {
-                        row: cursor.0,
-                        col: cursor.1,
-                    },
-                    content_revision,
+            crate::actions::Action::PaneSelectionRead(crate::actions::PaneSelectionReadParams {
+                pane_id,
+                anchor: crate::actions::PaneTextPoint {
+                    row: anchor.0,
+                    col: anchor.1,
                 },
-            ),
+                cursor: crate::actions::PaneTextPoint {
+                    row: cursor.0,
+                    col: cursor.1,
+                },
+                content_revision,
+            }),
             PendingEndpointKind::SelectionCopy,
             outcome,
         );
@@ -284,7 +196,7 @@ impl ClientShellState {
 
     pub(super) fn push_endpoint_method(
         &mut self,
-        method: crate::api::schema::Method,
+        method: crate::actions::Action,
         outcome: &mut ClientShellInput,
     ) {
         self.push_endpoint_method_with_kind(method, PendingEndpointKind::Generic, outcome);
@@ -337,18 +249,18 @@ impl ClientShellState {
 
     pub(super) fn push_endpoint_method_with_kind(
         &mut self,
-        method: crate::api::schema::Method,
+        method: crate::actions::Action,
         kind: PendingEndpointKind,
         outcome: &mut ClientShellInput,
     ) -> bool {
         let changes_focus = match &method {
-            crate::api::schema::Method::WorkspaceFocus(_)
-            | crate::api::schema::Method::TabFocus(_)
-            | crate::api::schema::Method::PaneFocus(_)
-            | crate::api::schema::Method::PaneFocusDirection(_) => true,
-            crate::api::schema::Method::WorkspaceCreate(params) => params.focus,
-            crate::api::schema::Method::TabCreate(params) => params.focus,
-            crate::api::schema::Method::PaneSplit(params) => params.focus,
+            crate::actions::Action::WorkspaceFocus(_)
+            | crate::actions::Action::TabFocus(_)
+            | crate::actions::Action::PaneFocus(_)
+            | crate::actions::Action::PaneFocusDirection(_) => true,
+            crate::actions::Action::WorkspaceCreate(params) => params.focus,
+            crate::actions::Action::TabCreate(params) => params.focus,
+            crate::actions::Action::PaneSplit(params) => params.focus,
             _ => false,
         };
         if changes_focus {
@@ -359,7 +271,7 @@ impl ClientShellState {
             outcome.repaint |= self.receive_endpoint_unavailable(format!("{label} is not ready"));
             return false;
         }
-        let method_name = crate::api::api_method_name(&method).to_owned();
+        let method_name = method.name().to_owned();
         if !self.supports_endpoint_method(&method) {
             outcome.repaint |= self.push_endpoint_notice(
                 ClientEndpointNoticeKind::Unsupported,
@@ -375,12 +287,12 @@ impl ClientShellState {
             return false;
         };
         let confirmation_workspace_id = match &method {
-            crate::api::schema::Method::TabClose(target) => snapshot
+            crate::actions::Action::TabClose(target) => snapshot
                 .tabs
                 .iter()
                 .find(|tab| tab.tab_id == target.tab_id)
                 .map(|tab| tab.workspace_id.clone()),
-            crate::api::schema::Method::PaneClose(target) => snapshot
+            crate::actions::Action::PaneClose(target) => snapshot
                 .panes
                 .iter()
                 .find(|pane| pane.pane_id == target.pane_id)
@@ -401,9 +313,9 @@ impl ClientShellState {
         );
         outcome.actions.push(ClientShellAction::Endpoint {
             boot_id: snapshot.boot_id.clone(),
-            request: Box::new(crate::api::schema::Request {
+            request: Box::new(crate::actions::ActionRequest {
                 id: request_id,
-                method,
+                action: method,
             }),
         });
         true
@@ -434,15 +346,15 @@ impl ClientShellState {
     ) -> Vec<ClientShellAction> {
         let method = match target {
             ClientEndpointFocusTarget::Workspace(workspace_id) => {
-                crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+                crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
                     workspace_id,
                 })
             }
             ClientEndpointFocusTarget::Tab(tab_id) => {
-                crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id })
+                crate::actions::Action::TabFocus(crate::actions::TabTarget { tab_id })
             }
             ClientEndpointFocusTarget::Pane(pane_id) => {
-                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
+                crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id })
             }
         };
         let mut outcome = ClientShellInput::default();
@@ -475,7 +387,7 @@ impl ClientShellState {
         &mut self,
         boot_id: &str,
         request_id: &str,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::actions::ActionResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
         let Some(pending) = self.pending_requests.remove(request_id) else {
             return (false, Vec::new());
@@ -544,25 +456,6 @@ impl ClientShellState {
         match pending.kind {
             PendingEndpointKind::Generic => {}
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
-            PendingEndpointKind::ReleaseNotesDismiss => {
-                return match result {
-                    Ok(_) => (false, Vec::new()),
-                    Err(_) => {
-                        if self.overlay.is_none() {
-                            if let Some(notes) = self
-                                .snapshot
-                                .as_deref()
-                                .and_then(|snapshot| snapshot.release_notes.as_ref())
-                            {
-                                self.overlay = Some(ClientShellOverlay::ReleaseNotes(
-                                    release_notes_state(notes),
-                                ));
-                            }
-                        }
-                        (true, Vec::new())
-                    }
-                };
-            }
             PendingEndpointKind::PaneScroll { pane_id, serial } => {
                 let mut outcome = ClientShellInput::default();
                 let repaint = self.complete_pane_scroll(pane_id, serial, result, &mut outcome);
@@ -570,7 +463,7 @@ impl ClientShellState {
             }
             PendingEndpointKind::SelectionCopy => {
                 return match result {
-                    Ok(crate::api::schema::ResponseResult::PaneSelection { text, .. })
+                    Ok(crate::actions::ActionResult::PaneSelection { text, .. })
                         if !text.is_empty() =>
                     {
                         (
@@ -578,9 +471,7 @@ impl ClientShellState {
                             vec![ClientShellAction::ClipboardWrite(text.into_bytes())],
                         )
                     }
-                    Ok(crate::api::schema::ResponseResult::PaneSelection { .. }) => {
-                        (false, Vec::new())
-                    }
+                    Ok(crate::actions::ActionResult::PaneSelection { .. }) => (false, Vec::new()),
                     Ok(_) => {
                         self.set_endpoint_error("endpoint returned an unexpected selection result");
                         (true, Vec::new())
@@ -623,21 +514,20 @@ impl ClientShellState {
                         .collect()
                 };
                 return match result {
-                    Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
-                        handled: true,
-                        ..
+                    Ok(crate::actions::ActionResult::PaneLinkActivated {
+                        handled: true, ..
                     }) => {
                         self.url_click_consumes_until_up = completed_before_release;
                         (false, Vec::new())
                     }
-                    Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+                    Ok(crate::actions::ActionResult::PaneLinkActivated {
                         url: Some(url),
                         handled: false,
                     }) if crate::app::actions::safe_web_url(&url).is_some() && replay.is_some() => {
                         self.url_click_consumes_until_up = completed_before_release;
                         (false, vec![ClientShellAction::OpenSafeWebUrl(url)])
                     }
-                    Ok(crate::api::schema::ResponseResult::PaneLinkActivated { .. }) => {
+                    Ok(crate::actions::ActionResult::PaneLinkActivated { .. }) => {
                         (false, replay_action(replay))
                     }
                     Ok(_) => {
@@ -667,7 +557,7 @@ impl ClientShellState {
             } => {
                 let mut outcome = ClientShellInput::default();
                 let (repaint, continue_queue) = match result {
-                    Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+                    Ok(crate::actions::ActionResult::PaneCopyMotion {
                         pane_id: returned_pane_id,
                         cursor,
                         content_revision,
@@ -681,7 +571,7 @@ impl ClientShellState {
                         ),
                         true,
                     ),
-                    Ok(crate::api::schema::ResponseResult::PaneCopyMotion { .. }) => (false, false),
+                    Ok(crate::actions::ActionResult::PaneCopyMotion { .. }) => (false, false),
                     Ok(_) => {
                         self.set_endpoint_error(
                             "endpoint returned an unexpected copy-motion result",
@@ -704,7 +594,7 @@ impl ClientShellState {
             } => {
                 let mut outcome = ClientShellInput::default();
                 let (repaint, continue_queue) = match result {
-                    Ok(crate::api::schema::ResponseResult::PaneCopySearch {
+                    Ok(crate::actions::ActionResult::PaneCopySearch {
                         pane_id: returned_pane_id,
                         content_revision,
                         matches,
@@ -733,7 +623,7 @@ impl ClientShellState {
                         }
                         (repaint, repaint)
                     }
-                    Ok(crate::api::schema::ResponseResult::PaneCopySearch { .. }) => {
+                    Ok(crate::actions::ActionResult::PaneCopySearch { .. }) => {
                         self.cancel_deferred_copy_after_search(generation);
                         (false, false)
                     }
@@ -751,19 +641,6 @@ impl ClientShellState {
                 };
                 self.complete_copy_operation(session_generation, continue_queue, &mut outcome);
                 return (repaint || outcome.repaint, outcome.actions);
-            }
-            PendingEndpointKind::ReloadConfig => {
-                let repaint = match result {
-                    Ok(crate::api::schema::ResponseResult::ConfigReload { .. }) => false,
-                    Ok(_) => {
-                        self.set_endpoint_error(
-                            "endpoint returned an unexpected config reload result",
-                        );
-                        true
-                    }
-                    Err(_) => true,
-                };
-                return (repaint, Vec::new());
             }
         }
         let repaint = match result {
@@ -786,9 +663,9 @@ impl ClientShellState {
     pub(super) fn endpoint_method_for_action(
         &mut self,
         action: crate::input::KeybindAction,
-    ) -> Option<crate::api::schema::Method> {
-        use crate::api::schema::{
-            Method, PaneDirection, PaneFocusDirectionParams, PaneResizeParams, PaneSplitParams,
+    ) -> Option<crate::actions::Action> {
+        use crate::actions::{
+            Action, PaneDirection, PaneFocusDirectionParams, PaneResizeParams, PaneSplitParams,
             PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
             TabCreateParams, TabMoveParams, TabTarget, WorkspaceTarget,
         };
@@ -820,7 +697,7 @@ impl ClientShellState {
                     snapshot,
                     self.config.agent_panel_sort,
                 );
-                Some(Method::PaneFocus(PaneTarget {
+                Some(Action::PaneFocus(PaneTarget {
                     pane_id: agents.get(index)?.clone(),
                 }))
             }
@@ -853,7 +730,7 @@ impl ClientShellState {
                 {
                     self.agent_scroll = next.min(self.hits.agent_max_scroll);
                 }
-                Some(Method::PaneFocus(PaneTarget { pane_id }))
+                Some(Action::PaneFocus(PaneTarget { pane_id }))
             }
             KeybindAction::SwitchWorkspace(index) => {
                 let entries = self.navigation_workspace_entries(snapshot);
@@ -863,7 +740,7 @@ impl ClientShellState {
                     .workspace_id
                     .clone();
                 self.reveal_workspace(&workspace_id);
-                Some(Method::WorkspaceFocus(WorkspaceTarget { workspace_id }))
+                Some(Action::WorkspaceFocus(WorkspaceTarget { workspace_id }))
             }
             KeybindAction::PreviousWorkspace | KeybindAction::NextWorkspace => {
                 let entries = self.navigation_workspace_entries(snapshot);
@@ -886,7 +763,7 @@ impl ClientShellState {
                     .workspace_id
                     .clone();
                 self.reveal_workspace(&workspace_id);
-                Some(Method::WorkspaceFocus(WorkspaceTarget { workspace_id }))
+                Some(Action::WorkspaceFocus(WorkspaceTarget { workspace_id }))
             }
             KeybindAction::SwitchTab(index) => {
                 let tabs = snapshot
@@ -894,7 +771,7 @@ impl ClientShellState {
                     .iter()
                     .filter(|tab| tab.workspace_id == focused_workspace)
                     .collect::<Vec<_>>();
-                Some(Method::TabFocus(TabTarget {
+                Some(Action::TabFocus(TabTarget {
                     tab_id: tabs.get(index)?.tab_id.clone(),
                 }))
             }
@@ -912,7 +789,7 @@ impl ClientShellState {
                     1
                 };
                 let next = (current as isize + delta).rem_euclid(tabs.len() as isize) as usize;
-                Some(Method::TabFocus(TabTarget {
+                Some(Action::TabFocus(TabTarget {
                     tab_id: tabs[next].tab_id.clone(),
                 }))
             }
@@ -938,13 +815,13 @@ impl ClientShellState {
                 } else {
                     source - 1
                 };
-                Some(Method::TabMove(TabMoveParams {
+                Some(Action::TabMove(TabMoveParams {
                     tab_id: focused_tab,
                     insert_index,
                 }))
             }
             KeybindAction::NewTab if !self.config.prompt_new_tab_name => {
-                Some(Method::TabCreate(TabCreateParams {
+                Some(Action::TabCreate(TabCreateParams {
                     workspace_id: Some(focused_workspace),
                     cwd: None,
                     focus: true,
@@ -956,7 +833,7 @@ impl ClientShellState {
             | KeybindAction::FocusPaneDown
             | KeybindAction::FocusPaneUp
             | KeybindAction::FocusPaneRight => {
-                Some(Method::PaneFocusDirection(PaneFocusDirectionParams {
+                Some(Action::PaneFocusDirection(PaneFocusDirectionParams {
                     pane_id: focused_pane,
                     direction: direction(action)?,
                 }))
@@ -964,14 +841,14 @@ impl ClientShellState {
             KeybindAction::SwapPaneLeft
             | KeybindAction::SwapPaneDown
             | KeybindAction::SwapPaneUp
-            | KeybindAction::SwapPaneRight => Some(Method::PaneSwap(PaneSwapParams {
+            | KeybindAction::SwapPaneRight => Some(Action::PaneSwap(PaneSwapParams {
                 pane_id: focused_pane,
                 direction: Some(direction(action)?),
                 source_pane_id: None,
                 target_pane_id: None,
             })),
             KeybindAction::SplitVertical | KeybindAction::SplitHorizontal => {
-                Some(Method::PaneSplit(PaneSplitParams {
+                Some(Action::PaneSplit(PaneSplitParams {
                     workspace_id: Some(focused_workspace),
                     target_pane_id: focused_pane,
                     direction: if action == KeybindAction::SplitVertical {
@@ -1006,7 +883,7 @@ impl ClientShellState {
                 } else {
                     (current + 1) % panes.len()
                 };
-                Some(Method::PaneFocus(PaneTarget {
+                Some(Action::PaneFocus(PaneTarget {
                     pane_id: panes[next].pane_id.clone(),
                 }))
             }
@@ -1017,24 +894,24 @@ impl ClientShellState {
                 {
                     return None;
                 }
-                Some(Method::PaneFocus(PaneTarget {
+                Some(Action::PaneFocus(PaneTarget {
                     pane_id: pane_id.clone(),
                 }))
             }
-            KeybindAction::Zoom => Some(Method::PaneZoom(PaneZoomParams {
+            KeybindAction::Zoom => Some(Action::PaneZoom(PaneZoomParams {
                 pane_id: focused_pane,
                 mode: PaneZoomMode::Toggle,
             })),
-            KeybindAction::ClearPane => Some(Method::PaneClear(PaneTarget {
+            KeybindAction::ClearPane => Some(Action::PaneClear(PaneTarget {
                 pane_id: focused_pane?,
             })),
-            KeybindAction::EditScrollback => Some(Method::PaneEditScrollback(PaneTarget {
+            KeybindAction::EditScrollback => Some(Action::PaneEditScrollback(PaneTarget {
                 pane_id: focused_pane?,
             })),
             KeybindAction::ResizePaneLeft
             | KeybindAction::ResizePaneDown
             | KeybindAction::ResizePaneUp
-            | KeybindAction::ResizePaneRight => Some(Method::PaneResize(PaneResizeParams {
+            | KeybindAction::ResizePaneRight => Some(Action::PaneResize(PaneResizeParams {
                 pane_id: focused_pane,
                 direction: direction(action)?,
                 amount: None,

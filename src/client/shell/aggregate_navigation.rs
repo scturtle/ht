@@ -89,10 +89,10 @@ pub(super) fn navigator_rows(
 ) -> Vec<ClientNavigatorRow> {
     let query = navigator.query.trim().to_lowercase();
     let filter = |status| match navigator.filter {
-        Some(ClientNavigatorFilter::Blocked) => status == crate::api::schema::AgentStatus::Blocked,
-        Some(ClientNavigatorFilter::Working) => status == crate::api::schema::AgentStatus::Working,
-        Some(ClientNavigatorFilter::Idle) => status == crate::api::schema::AgentStatus::Idle,
-        Some(ClientNavigatorFilter::Done) => status == crate::api::schema::AgentStatus::Done,
+        Some(ClientNavigatorFilter::Blocked) => status == crate::actions::AgentStatus::Blocked,
+        Some(ClientNavigatorFilter::Working) => status == crate::actions::AgentStatus::Working,
+        Some(ClientNavigatorFilter::Idle) => status == crate::actions::AgentStatus::Idle,
+        Some(ClientNavigatorFilter::Done) => status == crate::actions::AgentStatus::Done,
         None => true,
     };
     let words = query.split_whitespace().collect::<Vec<_>>();
@@ -150,10 +150,9 @@ pub(super) fn navigator_rows(
                         .unwrap_or_default();
                     for (index, pane) in tab_panes.iter().enumerate() {
                         let agent = agents.get(pane.pane_id.as_str()).copied();
-                        let status = agent
-                            .map_or(crate::api::schema::AgentStatus::Unknown, |agent| {
-                                agent.agent_status
-                            });
+                        let status = agent.map_or(crate::actions::AgentStatus::Unknown, |agent| {
+                            agent.agent_status
+                        });
                         let agent_kind = agent.and_then(|agent| {
                             agent.agent.as_deref().or(agent.display_agent.as_deref())
                         });

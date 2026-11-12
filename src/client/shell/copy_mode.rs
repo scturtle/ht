@@ -56,12 +56,12 @@ impl ClientShellState {
                     && cursor.x < inner.x.saturating_add(inner.width)
                     && cursor.y >= inner.y
                     && cursor.y < inner.y.saturating_add(inner.height))
-                .then_some(crate::api::schema::PaneTextPoint {
+                .then_some(crate::actions::PaneTextPoint {
                     row: viewport_top.saturating_add(u32::from(cursor.y - inner.y)),
                     col: cursor.x - inner.x,
                 })
             })
-            .unwrap_or(crate::api::schema::PaneTextPoint {
+            .unwrap_or(crate::actions::PaneTextPoint {
                 row: viewport_top
                     .saturating_add(u32::from(hit.inner_rect.height.saturating_sub(1))),
                 col: 0,
@@ -173,7 +173,7 @@ impl ClientShellState {
                 return;
             }
             KeyCode::End => {
-                self.request_copy_motion(crate::api::schema::PaneCopyMotion::LineEnd, outcome);
+                self.request_copy_motion(crate::actions::PaneCopyMotion::LineEnd, outcome);
                 return;
             }
             _ => {}
@@ -222,41 +222,31 @@ impl ClientShellState {
                 self.sync_copy_selection();
                 outcome.repaint = true;
             }
-            '$' => self.request_copy_motion(crate::api::schema::PaneCopyMotion::LineEnd, outcome),
-            '^' => {
-                self.request_copy_motion(crate::api::schema::PaneCopyMotion::FirstNonBlank, outcome)
-            }
-            '/' => self.open_copy_search(crate::api::schema::PaneCopySearchDirection::Forward),
-            '?' => self.open_copy_search(crate::api::schema::PaneCopySearchDirection::Backward),
+            '$' => self.request_copy_motion(crate::actions::PaneCopyMotion::LineEnd, outcome),
+            '^' => self.request_copy_motion(crate::actions::PaneCopyMotion::FirstNonBlank, outcome),
+            '/' => self.open_copy_search(crate::actions::PaneCopySearchDirection::Forward),
+            '?' => self.open_copy_search(crate::actions::PaneCopySearchDirection::Backward),
             'n' => self.repeat_copy_search(false, outcome),
             'N' => self.repeat_copy_search(true, outcome),
-            'w' => {
-                self.request_copy_motion(crate::api::schema::PaneCopyMotion::NextWordStart, outcome)
+            'w' => self.request_copy_motion(crate::actions::PaneCopyMotion::NextWordStart, outcome),
+            'b' => {
+                self.request_copy_motion(crate::actions::PaneCopyMotion::PreviousWordStart, outcome)
             }
-            'b' => self.request_copy_motion(
-                crate::api::schema::PaneCopyMotion::PreviousWordStart,
-                outcome,
-            ),
-            'e' => {
-                self.request_copy_motion(crate::api::schema::PaneCopyMotion::NextWordEnd, outcome)
+            'e' => self.request_copy_motion(crate::actions::PaneCopyMotion::NextWordEnd, outcome),
+            'W' => {
+                self.request_copy_motion(crate::actions::PaneCopyMotion::NextBigWordStart, outcome)
             }
-            'W' => self.request_copy_motion(
-                crate::api::schema::PaneCopyMotion::NextBigWordStart,
-                outcome,
-            ),
             'B' => self.request_copy_motion(
-                crate::api::schema::PaneCopyMotion::PreviousBigWordStart,
+                crate::actions::PaneCopyMotion::PreviousBigWordStart,
                 outcome,
             ),
-            'E' => self
-                .request_copy_motion(crate::api::schema::PaneCopyMotion::NextBigWordEnd, outcome),
-            '{' => self.request_copy_motion(
-                crate::api::schema::PaneCopyMotion::PreviousParagraph,
-                outcome,
-            ),
-            '}' => {
-                self.request_copy_motion(crate::api::schema::PaneCopyMotion::NextParagraph, outcome)
+            'E' => {
+                self.request_copy_motion(crate::actions::PaneCopyMotion::NextBigWordEnd, outcome)
             }
+            '{' => {
+                self.request_copy_motion(crate::actions::PaneCopyMotion::PreviousParagraph, outcome)
+            }
+            '}' => self.request_copy_motion(crate::actions::PaneCopyMotion::NextParagraph, outcome),
             _ => return,
         }
         outcome.repaint = true;
@@ -319,7 +309,7 @@ impl ClientShellState {
         true
     }
 
-    fn open_copy_search(&mut self, direction: crate::api::schema::PaneCopySearchDirection) {
+    fn open_copy_search(&mut self, direction: crate::actions::PaneCopySearchDirection) {
         let Some(copy_mode) = self.copy_mode.as_mut() else {
             return;
         };
@@ -341,11 +331,11 @@ impl ClientShellState {
         };
         let direction = if reverse {
             match direction {
-                crate::api::schema::PaneCopySearchDirection::Forward => {
-                    crate::api::schema::PaneCopySearchDirection::Backward
+                crate::actions::PaneCopySearchDirection::Forward => {
+                    crate::actions::PaneCopySearchDirection::Backward
                 }
-                crate::api::schema::PaneCopySearchDirection::Backward => {
-                    crate::api::schema::PaneCopySearchDirection::Forward
+                crate::actions::PaneCopySearchDirection::Backward => {
+                    crate::actions::PaneCopySearchDirection::Forward
                 }
             }
         } else {
@@ -384,7 +374,7 @@ impl ClientShellState {
     fn request_copy_search(
         &mut self,
         query: String,
-        direction: crate::api::schema::PaneCopySearchDirection,
+        direction: crate::actions::PaneCopySearchDirection,
         repeat: bool,
         outcome: &mut ClientShellInput,
     ) {
@@ -403,9 +393,9 @@ impl ClientShellState {
     pub(super) fn apply_copy_search_result(
         &mut self,
         pane_id: &str,
-        origin: crate::api::schema::PaneTextPoint,
+        origin: crate::actions::PaneTextPoint,
         query: String,
-        direction: crate::api::schema::PaneCopySearchDirection,
+        direction: crate::actions::PaneCopySearchDirection,
         repeat: bool,
         generation: u64,
         result: ClientCopySearchResult,
@@ -693,7 +683,7 @@ impl ClientShellState {
 
     fn request_copy_motion(
         &mut self,
-        motion: crate::api::schema::PaneCopyMotion,
+        motion: crate::actions::PaneCopyMotion,
         outcome: &mut ClientShellInput,
     ) {
         if self.copy_mode.is_none() {
@@ -719,14 +709,12 @@ impl ClientShellState {
             let origin = copy_mode.cursor;
             let (method, kind) = match operation {
                 ClientCopyOperation::Motion(motion) => (
-                    crate::api::schema::Method::PaneCopyMotion(
-                        crate::api::schema::PaneCopyMotionParams {
-                            pane_id: pane_id.clone(),
-                            cursor: origin,
-                            motion,
-                            content_revision: Some(copy_mode.content_revision),
-                        },
-                    ),
+                    crate::actions::Action::PaneCopyMotion(crate::actions::PaneCopyMotionParams {
+                        pane_id: pane_id.clone(),
+                        cursor: origin,
+                        motion,
+                        content_revision: Some(copy_mode.content_revision),
+                    }),
                     PendingEndpointKind::CopyMotion {
                         pane_id,
                         origin,
@@ -752,8 +740,8 @@ impl ClientShellState {
                         })
                         .flatten();
                     (
-                        crate::api::schema::Method::PaneCopySearch(
-                            crate::api::schema::PaneCopySearchParams {
+                        crate::actions::Action::PaneCopySearch(
+                            crate::actions::PaneCopySearchParams {
                                 pane_id: pane_id.clone(),
                                 query: query.clone(),
                                 direction,
@@ -785,8 +773,8 @@ impl ClientShellState {
     pub(super) fn apply_copy_motion_target(
         &mut self,
         pane_id: &str,
-        origin: crate::api::schema::PaneTextPoint,
-        cursor: crate::api::schema::PaneTextPoint,
+        origin: crate::actions::PaneTextPoint,
+        cursor: crate::actions::PaneTextPoint,
         content_revision: u64,
         outcome: &mut ClientShellInput,
     ) -> bool {

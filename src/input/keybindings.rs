@@ -1,6 +1,6 @@
 use crossterm::event::KeyCode;
 
-use crate::config::{CustomCommandKeybind, Keybinds};
+use crate::config::Keybinds;
 
 use super::TerminalKey;
 
@@ -13,7 +13,6 @@ pub(crate) enum KeybindDispatch {
 #[derive(Debug, Clone)]
 pub(crate) enum KeybindMatch {
     Action(KeybindAction),
-    Command(CustomCommandKeybind),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,21 +155,6 @@ pub(crate) fn resolve_non_indexed_action(
     None
 }
 
-pub(crate) fn resolve_custom_command(
-    keybinds: &Keybinds,
-    key: &TerminalKey,
-    dispatch: KeybindDispatch,
-) -> Option<CustomCommandKeybind> {
-    keybinds
-        .custom_commands
-        .iter()
-        .find(|binding| match dispatch {
-            KeybindDispatch::Direct => binding.bindings.matches_direct_key(key),
-            KeybindDispatch::Prefix => binding.bindings.matches_prefix_key(key),
-        })
-        .cloned()
-}
-
 pub(crate) fn resolve_indexed_action(
     keybinds: &Keybinds,
     key: &TerminalKey,
@@ -221,7 +205,6 @@ fn resolve_exact_binding(
 ) -> Option<KeybindMatch> {
     resolve_non_indexed_action(keybinds, key, dispatch)
         .map(KeybindMatch::Action)
-        .or_else(|| resolve_custom_command(keybinds, key, dispatch).map(KeybindMatch::Command))
         .or_else(|| resolve_indexed_action(keybinds, key, dispatch).map(KeybindMatch::Action))
 }
 

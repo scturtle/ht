@@ -12,7 +12,7 @@ use super::*;
 
 pub(super) struct AgentRow {
     pub(super) pane_id: String,
-    pub(super) status: crate::api::schema::AgentStatus,
+    pub(super) status: crate::actions::AgentStatus,
     pub(super) focused: bool,
     pub(super) rows: Vec<Vec<crate::ui::ResolvedToken>>,
 }
@@ -385,8 +385,8 @@ fn display_width(text: &str) -> usize {
     unicode_width::UnicodeWidthStr::width(text)
 }
 
-fn sidebar_status_text(status: crate::api::schema::AgentStatus) -> &'static str {
-    use crate::api::schema::AgentStatus;
+fn sidebar_status_text(status: crate::actions::AgentStatus) -> &'static str {
+    use crate::actions::AgentStatus;
     match status {
         AgentStatus::Blocked => "blocked",
         AgentStatus::Done => "done",

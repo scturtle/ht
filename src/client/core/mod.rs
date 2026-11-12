@@ -148,8 +148,8 @@ pub(super) fn prepare(
     // Explicit user startup, NOT connection/recovery: reuse the normal creation
     // action when the previous session was fully closed. Never adopt old programs.
     if session.model.records.is_empty() {
-        session.organization_action(crate::api::schema::Method::WorkspaceCreate(
-            crate::api::schema::WorkspaceCreateParams {
+        session.organization_action(crate::actions::Action::WorkspaceCreate(
+            crate::actions::WorkspaceCreateParams {
                 source_workspace_id: None,
                 cwd: None,
                 focus: true,

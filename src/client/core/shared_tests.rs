@@ -275,17 +275,17 @@ fn semantic_noop_does_not_publish_or_dirty_the_client() {
 
 #[test]
 fn directional_swap_rebases_against_new_bsp_without_replaying_any_external_effect() {
-    use crate::api::schema as api;
+    use crate::actions;
     let mut model = initial();
     model.insert(fact("second")).unwrap();
     model.insert(fact("third")).unwrap();
     let base = model.id("base").unwrap();
     model.focus(base).unwrap();
-    model.zoom_pane(base, api::PaneZoomMode::On).unwrap();
+    model.zoom_pane(base, actions::PaneZoomMode::On).unwrap();
     let params = super::super::swap::pin_source(
         &model,
-        api::PaneSwapParams {
-            direction: Some(api::PaneDirection::Right),
+        actions::PaneSwapParams {
+            direction: Some(actions::PaneDirection::Right),
             ..Default::default()
         },
     )
@@ -324,16 +324,16 @@ fn directional_swap_rebases_against_new_bsp_without_replaying_any_external_effec
 
 #[test]
 fn concurrent_neighbor_retirement_makes_swap_a_noop_without_publishing_identical_document() {
-    use crate::api::schema as api;
+    use crate::actions;
     let mut model = initial();
     let neighbor = model.insert(fact("neighbor")).unwrap();
     let mut winner = model.clone();
     winner.retire(neighbor).unwrap();
     let mut core = Store::new(&model);
     core.winners.push_back(winner.shared().unwrap());
-    let params = api::PaneSwapParams {
+    let params = actions::PaneSwapParams {
         pane_id: Some("base".into()),
-        direction: Some(api::PaneDirection::Right),
+        direction: Some(actions::PaneDirection::Right),
         ..Default::default()
     };
     let mut version = 1;
@@ -342,7 +342,7 @@ fn concurrent_neighbor_retirement_makes_swap_a_noop_without_publishing_identical
     })
     .unwrap();
     assert!(!result.changed);
-    assert_eq!(result.reason, Some(api::PaneSwapReason::NoNeighbor));
+    assert_eq!(result.reason, Some(actions::PaneSwapReason::NoNeighbor));
     assert_eq!(version, 2);
     assert_eq!(core.calls.iter().filter(|m| *m == "doc.set").count(), 1);
     assert!(model.id("neighbor").is_none());
@@ -350,15 +350,15 @@ fn concurrent_neighbor_retirement_makes_swap_a_noop_without_publishing_identical
 
 #[test]
 fn concurrent_source_retirement_never_redirects_a_pinned_swap_to_the_survivor() {
-    use crate::api::schema as api;
+    use crate::actions;
     let mut model = initial();
     model.insert(fact("neighbor")).unwrap();
     let base = model.id("base").unwrap();
     model.focus(base).unwrap();
     let params = super::super::swap::pin_source(
         &model,
-        api::PaneSwapParams {
-            direction: Some(api::PaneDirection::Right),
+        actions::PaneSwapParams {
+            direction: Some(actions::PaneDirection::Right),
             ..Default::default()
         },
     )
@@ -522,7 +522,7 @@ fn explicit_terminal_absence_retains_unknown_nonrunning_placeholder() {
     assert_eq!(record.facts["reason"], "removed");
     assert_eq!(
         super::super::model::status(&record.facts),
-        crate::api::schema::AgentStatus::Unknown
+        crate::actions::AgentStatus::Unknown
     );
     assert_ne!(record.facts["state"], "live");
 }

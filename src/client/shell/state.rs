@@ -29,7 +29,6 @@ pub(crate) struct ClientShellConfig {
     pub(super) theme_runtime: crate::app::state::ThemeRuntimeConfig,
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
-    pub(super) local_keys: crate::config::KeysConfig,
     pub(super) prompt_new_tab_name: bool,
     pub(super) prompt_new_workspace_name: bool,
     pub(super) confirm_close: bool,
@@ -106,9 +105,6 @@ pub(super) struct ShellHitMap {
     pub(super) settings_popup: Rect,
     pub(super) settings_tabs: Vec<(Rect, ClientSettingsSection)>,
     pub(super) settings_choices: Vec<(Rect, usize)>,
-    pub(super) release_notes_scrollbar: Rect,
-    pub(super) release_notes_scroll_metrics: Option<crate::pane::ScrollMetrics>,
-    pub(super) release_notes_max_scroll: usize,
 }
 
 #[derive(Clone)]
@@ -170,9 +166,6 @@ pub(super) enum ClientChromeDrag {
     NavigatorScrollbar {
         grab_row_offset: u16,
     },
-    ReleaseNotesScrollbar {
-        grab_row_offset: u16,
-    },
     Tab {
         tab_id: String,
         workspace_id: String,
@@ -208,7 +201,7 @@ pub(super) struct WorkspaceHit {
 pub(crate) enum ClientShellAction {
     Endpoint {
         boot_id: String,
-        request: Box<crate::api::schema::Request>,
+        request: Box<crate::actions::ActionRequest>,
     },
     DumpPaneDiagnostics {
         pane_id: String,
@@ -242,7 +235,6 @@ pub(super) enum ClientShellMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientShellOverlayKind {
-    ReleaseNotes,
     Rename,
     ConfirmClose,
     Help,
@@ -304,7 +296,7 @@ pub(super) struct ClientNavigatorRow {
     pub(super) meta: String,
     pub(super) detail: String,
     pub(super) agent: Option<String>,
-    pub(super) status: Option<crate::api::schema::AgentStatus>,
+    pub(super) status: Option<crate::actions::AgentStatus>,
     pub(super) stale: bool,
     pub(super) current: bool,
     pub(super) target: ClientNavigatorTarget,
@@ -433,7 +425,6 @@ pub(super) struct ClientConfirmCloseOverlay {
 
 #[derive(Debug)]
 pub(super) enum ClientShellOverlay {
-    ReleaseNotes(crate::app::state::ReleaseNotesState),
     Rename(ClientRenameOverlay),
     ConfirmClose(ClientConfirmCloseOverlay),
     Help(ClientHelpOverlay),
@@ -446,7 +437,6 @@ pub(super) enum ClientShellOverlay {
 impl ClientShellOverlay {
     pub(super) fn kind(&self) -> ClientShellOverlayKind {
         match self {
-            Self::ReleaseNotes(_) => ClientShellOverlayKind::ReleaseNotes,
             Self::Rename(_) => ClientShellOverlayKind::Rename,
             Self::ConfirmClose(_) => ClientShellOverlayKind::ConfirmClose,
             Self::Help(_) => ClientShellOverlayKind::Help,
@@ -461,8 +451,6 @@ impl ClientShellOverlay {
 #[derive(Debug)]
 pub(super) enum PendingEndpointKind {
     Generic,
-    ReleaseNotesDismiss,
-    ReloadConfig,
     SelectionCopy,
     PaneScroll {
         pane_id: String,
@@ -483,14 +471,14 @@ pub(super) enum PendingEndpointKind {
     },
     CopyMotion {
         pane_id: String,
-        origin: crate::api::schema::PaneTextPoint,
+        origin: crate::actions::PaneTextPoint,
         session_generation: u64,
     },
     CopySearch {
         pane_id: String,
-        origin: crate::api::schema::PaneTextPoint,
+        origin: crate::actions::PaneTextPoint,
         query: String,
-        direction: crate::api::schema::PaneCopySearchDirection,
+        direction: crate::actions::PaneCopySearchDirection,
         repeat: bool,
         generation: u64,
         session_generation: u64,
@@ -610,7 +598,7 @@ pub(super) struct ClientSelectionAutoscroll {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientCopySelection {
     Character {
-        anchor: crate::api::schema::PaneTextPoint,
+        anchor: crate::actions::PaneTextPoint,
     },
     Linewise {
         anchor_row: u32,
@@ -619,23 +607,23 @@ pub(super) enum ClientCopySelection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ClientCopySearchPrompt {
-    pub(super) direction: crate::api::schema::PaneCopySearchDirection,
+    pub(super) direction: crate::actions::PaneCopySearchDirection,
     pub(super) query: TextEditor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ClientCopyOperation {
-    Motion(crate::api::schema::PaneCopyMotion),
+    Motion(crate::actions::PaneCopyMotion),
     Search {
         query: String,
-        direction: crate::api::schema::PaneCopySearchDirection,
+        direction: crate::actions::PaneCopySearchDirection,
         repeat: bool,
     },
 }
 
 pub(super) struct ClientCopySearchResult {
     pub(super) content_revision: u64,
-    pub(super) matches: Vec<crate::api::schema::PaneTextRange>,
+    pub(super) matches: Vec<crate::actions::PaneTextRange>,
     pub(super) total: u64,
     pub(super) current: Option<usize>,
     pub(super) current_global: Option<u64>,
@@ -647,15 +635,15 @@ pub(super) struct ClientCopyModeState {
     pub(super) content_revision: u64,
     pub(super) geometry: (u16, u16),
     pub(super) alternate_screen_active: bool,
-    pub(super) cursor: crate::api::schema::PaneTextPoint,
+    pub(super) cursor: crate::actions::PaneTextPoint,
     pub(super) offset_from_bottom: usize,
     pub(super) max_offset_from_bottom: usize,
     pub(super) entry_offset_from_bottom: usize,
     pub(super) selection: Option<ClientCopySelection>,
     pub(super) search_prompt: Option<ClientCopySearchPrompt>,
     pub(super) search_query: String,
-    pub(super) search_direction: Option<crate::api::schema::PaneCopySearchDirection>,
-    pub(super) search_matches: Vec<crate::api::schema::PaneTextRange>,
+    pub(super) search_direction: Option<crate::actions::PaneCopySearchDirection>,
+    pub(super) search_matches: Vec<crate::actions::PaneTextRange>,
     pub(super) search_total: u64,
     pub(super) search_current: Option<usize>,
     pub(super) search_current_global: Option<u64>,
@@ -754,17 +742,6 @@ pub(crate) struct ClientShellState {
     pub(super) config_diagnostic: Option<String>,
     pub(super) endpoint_error: Option<String>,
     pub(super) endpoint_error_deadline: Option<std::time::Instant>,
-}
-
-pub(super) fn release_notes_state(
-    notes: &crate::protocol::ClientShellReleaseNotes,
-) -> crate::app::state::ReleaseNotesState {
-    crate::app::state::ReleaseNotesState {
-        version: notes.version.clone(),
-        body: notes.body.clone(),
-        scroll: 0,
-        preview: notes.preview,
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -1026,12 +1003,9 @@ impl ClientShellState {
 
     pub(super) fn apply_active_snapshot(
         &mut self,
-        mut snapshot: Box<ClientShellSnapshot>,
+        snapshot: Box<ClientShellSnapshot>,
         generation: Option<u64>,
     ) {
-        snapshot
-            .commands
-            .retain(|command| command.action != crate::protocol::ClientShellCommandAction::Unknown);
         let graphics_scope = snapshot.boot_id.clone();
         let endpoint_boot_changed =
             self.snapshot.is_some() && self.graphics.scope() != graphics_scope;
@@ -1051,20 +1025,6 @@ impl ClientShellState {
         }
         self.active_snapshot_generation = generation;
         self.graphics.set_scope(&graphics_scope);
-        let command_bindings_changed = self.snapshot.as_ref().is_none_or(|current| {
-            current.commands.len() != snapshot.commands.len()
-                || current
-                    .commands
-                    .iter()
-                    .zip(&snapshot.commands)
-                    .any(|(left, right)| {
-                        left.binding_labels != right.binding_labels || left.action != right.action
-                    })
-        });
-        let snapshot_keybindings_changed = self
-            .snapshot
-            .as_ref()
-            .is_none_or(|current| current.commands != snapshot.commands);
         self.config_diagnostic = super::config::merged_config_diagnostic(
             self.local_config_diagnostic.as_deref(),
             snapshot.config_diagnostic.as_deref(),
@@ -1096,18 +1056,6 @@ impl ClientShellState {
             .filter(|previous| Some(previous.as_str()) != snapshot.focused_pane_id.as_deref())
         {
             self.previous_pane_id = Some(previous.clone());
-        }
-        if snapshot_keybindings_changed {
-            if let Err(err) = self.config.apply_snapshot_keybindings(&snapshot.commands) {
-                self.set_endpoint_error(err);
-            } else if command_bindings_changed
-                && matches!(
-                    self.mode,
-                    ClientShellMode::Prefix | ClientShellMode::Navigate | ClientShellMode::Resize
-                )
-            {
-                self.mode = ClientShellMode::Terminal;
-            }
         }
         let tab_layout_changed = self.snapshot.as_deref().is_none_or(|current| {
             current.tabs.len() != snapshot.tabs.len()
@@ -1231,24 +1179,6 @@ impl ClientShellState {
         self.pane_scroll_targets
             .retain(|pane_id, _| pane_exists(pane_id));
 
-        if let Some(ClientShellOverlay::ReleaseNotes(current)) = self.overlay.as_ref() {
-            match snapshot.release_notes.as_ref() {
-                Some(notes)
-                    if current.version != notes.version
-                        || current.body != notes.body
-                        || current.preview != notes.preview =>
-                {
-                    self.overlay =
-                        Some(ClientShellOverlay::ReleaseNotes(release_notes_state(notes)));
-                    self.chrome_drag = None;
-                }
-                None => {
-                    self.overlay = None;
-                    self.chrome_drag = None;
-                }
-                Some(_) => {}
-            }
-        }
         self.snapshot = Some(snapshot);
         self.reconcile_pending_workspace_highlight();
         let pending_surface = self.pending_pane_surface.take();

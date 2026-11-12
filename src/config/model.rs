@@ -4,9 +4,8 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::{
-    BindingConfig, CommandKeybindConfig, SidebarConfig, SoundConfig, TabBarRightEntryConfig,
-    ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
-    DEFAULT_SCROLLBACK_LIMIT_LINES,
+    BindingConfig, SidebarConfig, SoundConfig, TabBarRightEntryConfig, ThemeConfig,
+    DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_LINES,
 };
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
@@ -21,9 +20,7 @@ pub enum ToastDelivery {
     System,
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema, Default,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ToastHerdrPosition {
     TopLeft,
@@ -178,7 +175,7 @@ pub struct TerminalConfig {
     pub kitty_graphics: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigReloadStatus {
     Applied,
@@ -342,9 +339,6 @@ pub struct KeysConfig {
     pub toggle_sidebar: BindingConfig,
     /// Optional indexed shortcuts expanded over number keys 1-9.
     pub indexed: IndexedKeysConfig,
-    /// Prefix-mode custom command bindings.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub command: Vec<CommandKeybindConfig>,
     #[serde(skip_serializing)]
     pub(crate) user_fields: BTreeSet<&'static str>,
 }
@@ -413,7 +407,6 @@ struct KeysConfigOverlay {
     resize_pane_right: Option<BindingConfig>,
     toggle_sidebar: Option<BindingConfig>,
     indexed: Option<IndexedKeysConfig>,
-    command: Option<Vec<CommandKeybindConfig>>,
 }
 
 impl<'de> Deserialize<'de> for KeysConfig {
@@ -509,7 +502,6 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(resize_pane_right);
         apply_field!(toggle_sidebar);
         apply_field!(indexed);
-        apply_field!(command);
 
         Ok(keys)
     }
@@ -752,7 +744,6 @@ impl Default for KeysConfig {
             resize_pane_right: BindingConfig::empty(),
             toggle_sidebar: BindingConfig::one("prefix+b"),
             indexed: IndexedKeysConfig::default(),
-            command: Vec::new(),
             user_fields: BTreeSet::new(),
         }
     }

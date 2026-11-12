@@ -4,22 +4,6 @@ use ratatui::{
     style::{Color, Style},
 };
 
-pub(crate) fn release_notes_scrollbar_rect(
-    body: Rect,
-    metrics: crate::pane::ScrollMetrics,
-) -> Option<Rect> {
-    (should_show_scrollbar(metrics) && body.width > 1).then_some(Rect::new(
-        body.x + body.width - 1,
-        body.y,
-        1,
-        body.height,
-    ))
-}
-
-pub(crate) fn should_show_scrollbar(metrics: crate::pane::ScrollMetrics) -> bool {
-    metrics.max_offset_from_bottom > 0
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScrollbarThumb {
     pub top: u16,

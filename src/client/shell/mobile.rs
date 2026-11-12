@@ -186,7 +186,7 @@ fn render_header_button(
     if snapshot
         .agents
         .iter()
-        .any(|agent| agent.agent_status == crate::api::schema::AgentStatus::Blocked)
+        .any(|agent| agent.agent_status == crate::actions::AgentStatus::Blocked)
     {
         put_text(
             buffer,
@@ -194,7 +194,7 @@ fn render_header_button(
             area.y,
             1,
             status_icon(
-                crate::api::schema::AgentStatus::Blocked,
+                crate::actions::AgentStatus::Blocked,
                 config.status_indicators,
             ),
             Style::default().fg(palette.red).bg(palette.surface0),
@@ -238,7 +238,7 @@ fn render_agent_summary(
     snapshot: &ClientShellSnapshot,
     config: &ClientShellConfig,
 ) {
-    use crate::api::schema::AgentStatus;
+    use crate::actions::AgentStatus;
     let counts = [
         (AgentStatus::Blocked, "blocked"),
         (AgentStatus::Done, "done"),
@@ -637,7 +637,7 @@ fn mobile_items(
                     .find(|(key, _)| key == status_key)
                     .map(|(_, label)| label.clone())
                     .unwrap_or_else(|| {
-                        if agent.agent_status == crate::api::schema::AgentStatus::Unknown {
+                        if agent.agent_status == crate::actions::AgentStatus::Unknown {
                             "idle".to_owned()
                         } else {
                             status_key.to_owned()
@@ -883,7 +883,7 @@ fn mobile_items(
     }
 
     items.push(MobileItem::section("menu", palette));
-    for (index, (label, _)) in super::global_menu::global_menu_items(snapshot)
+    for (index, (label, _)) in super::global_menu::global_menu_items()
         .into_iter()
         .enumerate()
     {
@@ -997,14 +997,10 @@ impl ClientShellState {
                 );
             }
             Some(ClientMobileTarget::Menu(index)) => {
-                let actionable = self.snapshot.as_deref().is_some_and(|snapshot| {
-                    super::global_menu::global_menu_items(snapshot)
-                        .get(index)
-                        .is_some_and(|(_, action)| {
-                            *action != super::global_menu::ClientGlobalMenuAction::WhatsNew
-                                || snapshot.release_notes.is_some()
-                        })
-                });
+                let actionable = self
+                    .snapshot
+                    .as_deref()
+                    .is_some_and(|_| super::global_menu::global_menu_items().get(index).is_some());
                 if actionable {
                     self.mobile_switcher_suspended = true;
                     self.activate_global_menu_item(index, outcome);

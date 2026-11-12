@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::schema::Method;
+use crate::actions::Action;
 use crossterm::event::{MouseButton, MouseEventKind};
 
 fn close_state(confirm: bool, tab_count: usize) -> ClientShellState {
@@ -48,7 +48,7 @@ fn assert_no_close(outcome: &ClientShellInput) {
     assert!(outcome.requests.is_empty());
     assert!(outcome.actions.iter().all(|action| {
         !matches!(action, ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, Method::TabClose(_) | Method::WorkspaceClose(_)))
+            if matches!(request.action, Action::TabClose(_) | Action::WorkspaceClose(_)))
     }));
 }
 
@@ -57,12 +57,12 @@ fn assert_tab_close(outcome: &ClientShellInput) {
         .actions
         .iter()
         .filter_map(|action| match action {
-            ClientShellAction::Endpoint { request, .. } => Some(&request.method),
+            ClientShellAction::Endpoint { request, .. } => Some(&request.action),
             _ => None,
         })
-        .filter(|method| !matches!(method, Method::TabFocus(_)))
+        .filter(|method| !matches!(method, Action::TabFocus(_)))
         .collect::<Vec<_>>();
-    assert!(matches!(methods.as_slice(), [Method::TabClose(target)] if target.tab_id == "tab_1"));
+    assert!(matches!(methods.as_slice(), [Action::TabClose(target)] if target.tab_id == "tab_1"));
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn last_tab_close_preserves_parent_group_and_linked_workspace_scope() {
             let accepted = state.handle_input_bytes(b"\r");
             assert!(matches!(accepted.actions.as_slice(),
                 [ClientShellAction::Endpoint { request, .. }]
-                    if matches!(&request.method, Method::WorkspaceClose(params)
+                    if matches!(&request.action, Action::WorkspaceClose(params)
                         if params.workspace_id == "ws_1" && params.close_group)));
         }
     }

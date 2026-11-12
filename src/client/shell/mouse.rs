@@ -80,7 +80,7 @@ impl ClientShellState {
             .insert(pane_id.clone(), offset_from_bottom);
         self.pane_scroll_in_flight.insert(pane_id.clone(), serial);
         if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneScroll(crate::api::schema::PaneScrollParams {
+            crate::actions::Action::PaneScroll(crate::actions::PaneScrollParams {
                 pane_id: pane_id.clone(),
                 offset_from_bottom: offset_from_bottom as u64,
             }),
@@ -99,7 +99,7 @@ impl ClientShellState {
         &mut self,
         pane_id: String,
         serial: u64,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::actions::ActionResult, ClientShellEndpointError>,
         outcome: &mut ClientShellInput,
     ) -> bool {
         if self.pane_scroll_in_flight.get(&pane_id).copied() != Some(serial) {
@@ -107,9 +107,7 @@ impl ClientShellState {
         }
         self.pane_scroll_in_flight.remove(&pane_id);
         let repaint = match result {
-            Ok(crate::api::schema::ResponseResult::PaneInfo { pane })
-                if pane.pane_id == pane_id =>
-            {
+            Ok(crate::actions::ActionResult::PaneInfo { pane }) if pane.pane_id == pane_id => {
                 if let Some(scroll) = pane.scroll {
                     if self.pane_scroll_targets.contains_key(&pane_id) {
                         self.pane_scroll_targets.insert(
@@ -576,7 +574,7 @@ impl ClientShellState {
         &self,
         source_workspace_id: &str,
         before_workspace_id: Option<&str>,
-    ) -> Option<crate::api::schema::Method> {
+    ) -> Option<crate::actions::Action> {
         let snapshot = self.snapshot.as_deref()?;
         let source = snapshot
             .workspaces
@@ -640,8 +638,8 @@ impl ClientShellState {
             {
                 return None;
             }
-            Some(crate::api::schema::Method::WorkspaceMoveBlock(
-                crate::api::schema::WorkspaceMoveBlockParams {
+            Some(crate::actions::Action::WorkspaceMoveBlock(
+                crate::actions::WorkspaceMoveBlockParams {
                     workspace_ids,
                     before_workspace_id: before_workspace_id.map(str::to_owned),
                 },
@@ -655,8 +653,8 @@ impl ClientShellState {
                         .position(|workspace| workspace.workspace_id == target)
                 })
                 .unwrap_or(snapshot.workspaces.len());
-            Some(crate::api::schema::Method::WorkspaceMove(
-                crate::api::schema::WorkspaceMoveParams {
+            Some(crate::actions::Action::WorkspaceMove(
+                crate::actions::WorkspaceMoveParams {
                     workspace_id: source.workspace_id.clone(),
                     insert_index,
                 },
@@ -680,69 +678,6 @@ impl ClientShellState {
             self.mode = self.copy_or_terminal_mode();
             self.navigate_workspace_id = None;
             outcome.repaint = true;
-        }
-        if matches!(self.overlay, Some(ClientShellOverlay::ReleaseNotes(_))) {
-            let (close, track, metrics) = self
-                .current_release_notes_input_geometry()
-                .map(|(close, track, metrics)| (close, track, Some(metrics)))
-                .unwrap_or((
-                    self.hits.overlay_primary,
-                    (!self.hits.release_notes_scrollbar.is_empty())
-                        .then_some(self.hits.release_notes_scrollbar),
-                    self.hits.release_notes_scroll_metrics,
-                ));
-            match mouse.kind {
-                MouseEventKind::Down(MouseButton::Left) if super::contains(close, point) => {
-                    self.dismiss_release_notes(outcome);
-                }
-                MouseEventKind::Down(MouseButton::Left)
-                    if track.is_some_and(|track| super::contains(track, point)) =>
-                {
-                    if let (Some(track), Some(metrics)) = (track, metrics) {
-                        if let Some(grab_row_offset) =
-                            crate::ui::scrollbar_thumb_grab_offset(metrics, track, mouse.row)
-                        {
-                            self.chrome_drag =
-                                Some(ClientChromeDrag::ReleaseNotesScrollbar { grab_row_offset });
-                        } else {
-                            let offset =
-                                crate::ui::scrollbar_offset_from_row(metrics, track, mouse.row);
-                            self.set_release_notes_offset_from_bottom(offset);
-                            outcome.repaint = true;
-                        }
-                    }
-                }
-                MouseEventKind::Drag(MouseButton::Left) => {
-                    if let (
-                        Some(ClientChromeDrag::ReleaseNotesScrollbar { grab_row_offset }),
-                        Some(track),
-                        Some(metrics),
-                    ) = (self.chrome_drag.as_ref(), track, metrics)
-                    {
-                        let offset = crate::ui::scrollbar_offset_from_drag_row(
-                            metrics,
-                            track,
-                            mouse.row,
-                            *grab_row_offset,
-                        );
-                        self.set_release_notes_offset_from_bottom(offset);
-                        outcome.repaint = true;
-                    }
-                }
-                MouseEventKind::Up(MouseButton::Left) => {
-                    self.chrome_drag = None;
-                }
-                MouseEventKind::ScrollUp => {
-                    self.scroll_release_notes(-3);
-                    outcome.repaint = true;
-                }
-                MouseEventKind::ScrollDown => {
-                    self.scroll_release_notes(3);
-                    outcome.repaint = true;
-                }
-                _ => {}
-            }
-            return;
         }
         if self.url_click_consumes_until_up {
             match mouse.kind {
@@ -847,8 +782,8 @@ impl ClientShellState {
                 self.last_pane_click = None;
                 let pane_id = hit.pane_id.clone();
                 self.push_endpoint_method_with_kind(
-                    crate::api::schema::Method::PaneLinkActivate(
-                        crate::api::schema::PaneLinkActivateParams {
+                    crate::actions::Action::PaneLinkActivate(
+                        crate::actions::PaneLinkActivateParams {
                             pane_id: pane_id.clone(),
                             viewport_row,
                             col,
@@ -967,10 +902,6 @@ impl ClientShellState {
                     }
                     return;
                 }
-                Some(ClientChromeDrag::ReleaseNotesScrollbar { .. }) => {
-                    self.chrome_drag = None;
-                    return;
-                }
                 Some(ClientChromeDrag::PaneScrollbar {
                     hit,
                     grab_row_offset,
@@ -1047,8 +978,8 @@ impl ClientShellState {
                     }
                     if should_send {
                         self.push_endpoint_method(
-                            crate::api::schema::Method::LayoutSetSplitRatio(
-                                crate::api::schema::LayoutSetSplitRatioParams {
+                            crate::actions::Action::LayoutSetSplitRatio(
+                                crate::actions::LayoutSetSplitRatioParams {
                                     tab_id: Some(tab_id),
                                     pane_id: None,
                                     path: hit.path,
@@ -1150,12 +1081,10 @@ impl ClientShellState {
                         });
                         if valid_drop {
                             self.push_endpoint_method(
-                                crate::api::schema::Method::TabMove(
-                                    crate::api::schema::TabMoveParams {
-                                        tab_id,
-                                        insert_index: insert_index.unwrap_or_default(),
-                                    },
-                                ),
+                                crate::actions::Action::TabMove(crate::actions::TabMoveParams {
+                                    tab_id,
+                                    insert_index: insert_index.unwrap_or_default(),
+                                }),
                                 outcome,
                             );
                         }
@@ -1213,8 +1142,8 @@ impl ClientShellState {
                                 .is_none_or(|sent| (sent - ratio).abs() > f32::EPSILON)
                         {
                             self.push_endpoint_method(
-                                crate::api::schema::Method::LayoutSetSplitRatio(
-                                    crate::api::schema::LayoutSetSplitRatioParams {
+                                crate::actions::Action::LayoutSetSplitRatio(
+                                    crate::actions::LayoutSetSplitRatioParams {
                                         tab_id: Some(tab_id),
                                         pane_id: None,
                                         path: hit.path,
@@ -1231,8 +1160,7 @@ impl ClientShellState {
                     ClientChromeDrag::WorkspaceScrollbar { .. }
                     | ClientChromeDrag::AgentScrollbar { .. }
                     | ClientChromeDrag::HelpScrollbar { .. }
-                    | ClientChromeDrag::NavigatorScrollbar { .. }
-                    | ClientChromeDrag::ReleaseNotesScrollbar { .. } => {}
+                    | ClientChromeDrag::NavigatorScrollbar { .. } => {}
                 }
                 return;
             }
@@ -1242,7 +1170,7 @@ impl ClientShellState {
             }
             if let Some(press) = self.tab_press.take() {
                 self.push_endpoint_method(
-                    crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget {
+                    crate::actions::Action::TabFocus(crate::actions::TabTarget {
                         tab_id: press.tab_id,
                     }),
                     outcome,
@@ -1598,7 +1526,7 @@ impl ClientShellState {
                             outcome,
                         );
                         self.push_endpoint_method(
-                            crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                            crate::actions::Action::PaneFocus(crate::actions::PaneTarget {
                                 pane_id: hit.pane_id.clone(),
                             }),
                             outcome,
@@ -1926,9 +1854,7 @@ impl ClientShellState {
                     .map(|(_, pane_id)| pane_id.clone());
                 if let Some(pane_id) = agent_pane_id {
                     self.push_endpoint_method(
-                        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
-                            pane_id,
-                        }),
+                        crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id }),
                         outcome,
                     );
                     return;
@@ -1948,7 +1874,7 @@ impl ClientShellState {
                 if let Some(hit) = scrollbar_hit {
                     self.mode = ClientShellMode::Terminal;
                     self.push_endpoint_method(
-                        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                        crate::actions::Action::PaneFocus(crate::actions::PaneTarget {
                             pane_id: hit.pane_id.clone(),
                         }),
                         outcome,
@@ -2045,7 +1971,7 @@ impl ClientShellState {
                         }
                     }
                     self.push_endpoint_method(
-                        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                        crate::actions::Action::PaneFocus(crate::actions::PaneTarget {
                             pane_id: hit.pane_id,
                         }),
                         outcome,
@@ -2096,7 +2022,7 @@ impl ClientShellState {
                 {
                     if self.focused_pane_id().as_deref() != Some(hit.pane_id.as_str()) {
                         self.push_endpoint_method(
-                            crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                            crate::actions::Action::PaneFocus(crate::actions::PaneTarget {
                                 pane_id: hit.pane_id.clone(),
                             }),
                             outcome,
