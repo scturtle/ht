@@ -14,7 +14,15 @@ pub(super) fn supports_rename(hello: &Value) -> bool {
 }
 
 pub(super) fn pane_label(facts: &Value) -> Option<String> {
-    crate::app::manual_pane_label(facts["labels"][DISPLAY_NAME].as_str())
+    manual_pane_label(facts["labels"][DISPLAY_NAME].as_str())
+}
+
+/// A blank manual label restores automatic presentation.
+fn manual_pane_label(label: Option<&str>) -> Option<String> {
+    label
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .map(str::to_owned)
 }
 
 impl Session {
@@ -30,7 +38,7 @@ impl Session {
         }
         let id = self.target(Some(&params.pane_id))?;
         let address = self.model.records[&id].address.clone();
-        let label = crate::app::manual_pane_label(params.label.as_deref());
+        let label = manual_pane_label(params.label.as_deref());
         // Existing Core contract: an empty value removes this key. No input,
         // program identity change, document CAS, PTY action or local persistence.
         let facts = self.core.request(
@@ -49,5 +57,25 @@ impl Session {
         Ok(actions::ActionResult::PaneInfo {
             pane: self.pane_info(id)?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blank_manual_names_restore_automatic_labels() {
+        for label in [None, Some(""), Some(" \t\n"), Some("\u{3000}")] {
+            assert_eq!(manual_pane_label(label), None);
+        }
+        assert_eq!(
+            manual_pane_label(Some("  中文 pane  ")).as_deref(),
+            Some("中文 pane")
+        );
+        assert_eq!(
+            pane_label(&json!({"labels":{DISPLAY_NAME:"  custom  "}})).as_deref(),
+            Some("custom")
+        );
     }
 }

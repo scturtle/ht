@@ -284,7 +284,7 @@ impl Model {
             custom_label: Some(label.as_ref().is_some_and(|s| !s.is_empty())),
             label: label
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| crate::app::tab_display_name(None, w.tabs.len())),
+                .unwrap_or_else(|| organization::Tab::default_label(w.tabs.len())),
             root_terminal: Some(terminal.clone()),
             root: Branch::Pane { terminal },
         });

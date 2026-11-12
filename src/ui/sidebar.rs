@@ -11,7 +11,7 @@ pub(crate) use self::tokens::{
     ResolvedToken, ResolvedTokenKind, SpaceTokenContext,
 };
 use super::text::{display_width, truncate_end};
-use crate::app::state::Palette;
+use crate::ui::Palette;
 
 fn sidebar_section_heights(total_height: u16, split_ratio: f32) -> (u16, u16) {
     if total_height == 0 {

@@ -94,8 +94,17 @@ impl Tab {
         })
     }
 
+    /// Unnamed tabs follow their current position, never the allocation counter.
+    pub fn default_label(index: usize) -> String {
+        (index + 1).to_string()
+    }
+
     pub fn display_name(&self, index: usize) -> String {
-        crate::app::tab_display_name(self.is_custom_named().then_some(&self.label), index)
+        if self.is_custom_named() {
+            self.label.clone()
+        } else {
+            Self::default_label(index)
+        }
     }
 }
 

@@ -11,8 +11,17 @@ HOT_PATH_SOURCES = (
     *sorted(p for p in (PROJECT_ROOT / "src" / "ui.rs",) if p.exists()),
     *sorted((PROJECT_ROOT / "src" / "ui").rglob("*.rs")),
 )
-APP_SERVER_SOURCES = tuple(
-    sorted(p for p in (PROJECT_ROOT / "src" / "app").rglob("*.rs") if p.exists())
+# Presentation helpers now live with their consumers, not in src/app. Keep
+# checking them (and the actual composition paths), rather than an empty legacy root.
+PRESENTATION_SOURCES = (
+    *HOT_PATH_SOURCES,
+    PROJECT_ROOT / "src/client/shell.rs",
+    *sorted(p for p in (PROJECT_ROOT / "src/client/shell").rglob("*.rs")
+            if "tests" not in p.relative_to(PROJECT_ROOT).parts),
+    PROJECT_ROOT / "src/client/core/view.rs",
+    *sorted((PROJECT_ROOT / "src/client/core/view").rglob("*.rs")),
+    PROJECT_ROOT / "src/selection.rs",
+    *sorted((PROJECT_ROOT / "src/selection").rglob("*.rs")),
 )
 TEST_MODULE = re.compile(r"(?m)^#\[cfg\(test\)\]\s*\nmod\s+\w+\s*\{")
 INPUT_STATE_CALL = re.compile(r"(?:\.|::)input_state\b")
@@ -157,14 +166,18 @@ class UiHotPathArchitectureTests(unittest.TestCase):
             + "\n".join(violations),
         )
 
-    def test_app_and_server_avoid_aggregate_terminal_state(self) -> None:
-        self.assertTrue(APP_SERVER_SOURCES, "No app/server Rust sources were discovered")
-        violations = find_violations(APP_SERVER_SOURCES, AGGREGATE_STATE_CALLS)
+    def test_client_presentation_avoids_aggregate_terminal_state(self) -> None:
+        relative_paths = {str(p.relative_to(PROJECT_ROOT)) for p in PRESENTATION_SOURCES}
+        self.assertTrue({
+            "src/client/core/view.rs", "src/client/shell/composition.rs",
+            "src/selection/word.rs", "src/ui/theme.rs",
+        }.issubset(relative_paths), "Missing client presentation sources")
+        violations = find_violations(PRESENTATION_SOURCES, AGGREGATE_STATE_CALLS)
 
         self.assertEqual(
             violations,
             [],
-            "App/server code must use narrow terminal-state accessors:\n"
+            "Client presentation must use narrow terminal-state accessors:\n"
             + "\n".join(violations),
         )
 

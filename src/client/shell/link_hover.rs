@@ -3,6 +3,11 @@ use crate::actions::{PaneLinkActivateParams, PaneLinkRegion};
 use crate::protocol::SurfaceRect;
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 
+/// Only web URLs are eligible for host opening; paths and other schemes stay local.
+pub(in crate::client) fn safe_web_url(url: &str) -> Option<&str> {
+    (url.starts_with("http://") || url.starts_with("https://")).then_some(url)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct LinkHoverTarget {
     pane_id: String,
@@ -255,7 +260,7 @@ impl ClientShellState {
         };
         let hyperlink = hyperlink_at(target.col, target.row)?;
         let uri = surface.frame.hyperlinks.get(hyperlink as usize)?;
-        if crate::app::actions::safe_web_url(uri).is_none() {
+        if crate::client::shell::safe_web_url(uri).is_none() {
             return Some(Vec::new());
         }
         let width = usize::from(rect.width);
@@ -364,4 +369,26 @@ impl ClientShellState {
 
 fn region_contains(region: &PaneLinkRegion, col: u16, row: u16) -> bool {
     region.row == row && col >= region.start_col && col <= region.end_col
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_web_url;
+
+    #[test]
+    fn host_opening_keeps_the_existing_http_scheme_allowlist() {
+        for url in ["https://example.com/a?q=1", "http://localhost:8080/"] {
+            assert_eq!(safe_web_url(url), Some(url));
+        }
+        for other in [
+            "/tmp/file",
+            "file:///tmp/file",
+            "javascript:alert(1)",
+            "ftp://example.com",
+            "HTTPS://example.com",
+            "",
+        ] {
+            assert_eq!(safe_web_url(other), None);
+        }
+    }
 }

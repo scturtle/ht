@@ -1,7 +1,49 @@
 //! Original zoom transition, owned by each client's presentation, not Core BSP.
 use super::model::{invalid, Model};
-use crate::{actions, app::actions::PaneZoomOutcome, layout::PaneId};
+use crate::{actions, layout::PaneId};
 use std::io;
+
+/// Pure transition extracted from the original AppState::apply_pane_zoom.
+/// Focus is resolved by the client before single-pane/idempotence checks.
+pub(super) struct PaneZoomOutcome {
+    pub changed: bool,
+    pub focus_changed: bool,
+    pub reason: Option<crate::actions::PaneZoomReason>,
+    pub zoomed: bool,
+}
+
+fn pane_zoom(
+    zoomed: bool,
+    pane_count: usize,
+    command: crate::actions::PaneZoomMode,
+    focus_changed: bool,
+) -> PaneZoomOutcome {
+    use crate::actions::{PaneZoomMode as Command, PaneZoomReason as Reason};
+    if pane_count <= 1 {
+        return PaneZoomOutcome {
+            changed: false,
+            focus_changed,
+            reason: Some(Reason::SinglePane),
+            zoomed,
+        };
+    }
+    let desired = match command {
+        Command::Toggle => !zoomed,
+        Command::On => true,
+        Command::Off => false,
+    };
+    let reason = match (command, zoomed) {
+        (Command::On, true) => Some(Reason::AlreadyZoomed),
+        (Command::Off, false) => Some(Reason::AlreadyUnzoomed),
+        _ => None,
+    };
+    PaneZoomOutcome {
+        changed: reason.is_none(),
+        focus_changed,
+        zoomed: if reason.is_some() { zoomed } else { desired },
+        reason,
+    }
+}
 
 impl Model {
     pub(super) fn active_zoomed(&self) -> bool {
@@ -25,7 +67,7 @@ impl Model {
             || self.active_tab() != Some(tab.id.as_str())
             || layout.focused() != id;
         let tab = tab.id.clone();
-        let outcome = crate::app::actions::pane_zoom(
+        let outcome = pane_zoom(
             self.zoomed_tabs.contains(&tab),
             layout.pane_count(),
             mode,

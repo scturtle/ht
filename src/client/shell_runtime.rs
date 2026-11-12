@@ -51,7 +51,7 @@ pub(super) fn dispatch_client_shell_actions(
                 }
             }
             shell::ClientShellAction::OpenSafeWebUrl(url) => {
-                if crate::app::actions::safe_web_url(&url).is_some() {
+                if crate::client::shell::safe_web_url(&url).is_some() {
                     match crate::platform::open_url(&url) {
                         Ok(Some(child)) => children.push(child),
                         Ok(None) => {}

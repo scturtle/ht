@@ -1,49 +1,4 @@
-/// Pure transition extracted from the original AppState::apply_pane_zoom.
-/// Focus is resolved by the client before single-pane/idempotence checks.
-pub(crate) struct PaneZoomOutcome {
-    pub changed: bool,
-    pub focus_changed: bool,
-    pub reason: Option<crate::actions::PaneZoomReason>,
-    pub zoomed: bool,
-}
-
-pub(crate) fn pane_zoom(
-    zoomed: bool,
-    pane_count: usize,
-    command: crate::actions::PaneZoomMode,
-    focus_changed: bool,
-) -> PaneZoomOutcome {
-    use crate::actions::{PaneZoomMode as Command, PaneZoomReason as Reason};
-    if pane_count <= 1 {
-        return PaneZoomOutcome {
-            changed: false,
-            focus_changed,
-            reason: Some(Reason::SinglePane),
-            zoomed,
-        };
-    }
-    let desired = match command {
-        Command::Toggle => !zoomed,
-        Command::On => true,
-        Command::Off => false,
-    };
-    let reason = match (command, zoomed) {
-        (Command::On, true) => Some(Reason::AlreadyZoomed),
-        (Command::Off, false) => Some(Reason::AlreadyUnzoomed),
-        _ => None,
-    };
-    PaneZoomOutcome {
-        changed: reason.is_none(),
-        focus_changed,
-        zoomed: if reason.is_some() { zoomed } else { desired },
-        reason,
-    }
-}
-
-pub(crate) fn safe_web_url(url: &str) -> Option<&str> {
-    (url.starts_with("http://") || url.starts_with("https://")).then_some(url)
-}
-
+//! Display-column token boundaries for terminal double-click selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TextCell {
     ch: char,
@@ -293,4 +248,48 @@ fn is_trailing_token_wrapper(ch: char) -> bool {
         ch,
         ')' | ']' | '}' | '>' | '"' | '\'' | '`' | '.' | ',' | ';' | ':' | '!' | '?'
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::word_bounds_at_column;
+
+    #[test]
+    fn bounds_use_display_columns_including_wide_and_zero_width_characters() {
+        for (row, col, expected) in [
+            ("hello world", 2, Some((0, 4))),
+            ("hello world", 5, None),
+            ("中文 abc", 0, Some((0, 3))),
+            ("中文 abc", 3, Some((0, 3))),
+            ("中文 abc", 5, Some((5, 7))),
+            ("e\u{301}cho next", 2, Some((0, 3))),
+            ("", 0, None),
+            ("short", 20, None),
+        ] {
+            assert_eq!(
+                word_bounds_at_column(row, col),
+                expected,
+                "{row:?} at {col}"
+            );
+        }
+    }
+
+    #[test]
+    fn urls_and_quoted_paths_keep_internal_punctuation_and_spaces() {
+        let url = "https://ex.test/a_(b)";
+        let row = format!("go {url}.");
+        assert_eq!(
+            word_bounds_at_column(&row, 10),
+            Some((3, (3 + url.len() - 1) as u16))
+        );
+        assert_eq!(
+            word_bounds_at_column("cp \"/tmp/a b.txt\"", 10),
+            Some((4, 15))
+        );
+        let token = "`src/main.rs:42`";
+        assert_eq!(
+            word_bounds_at_column(token, 3),
+            Some((1, token.len() as u16 - 2))
+        );
+    }
 }

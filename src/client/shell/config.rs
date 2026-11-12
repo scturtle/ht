@@ -61,10 +61,8 @@ impl ClientShellState {
                     &loaded.invalid_sections,
                 );
                 if let Some(appearance) = self.host_appearance {
-                    self.config.palette = crate::app::client_palette_for_appearance(
-                        &self.config.theme_runtime,
-                        appearance,
-                    );
+                    self.config.palette =
+                        self.config.theme_runtime.palette_for_appearance(appearance);
                 }
                 if !self.sidebar_width_manual {
                     self.sidebar_width = self.config.sidebar_width;
@@ -87,7 +85,7 @@ impl ClientShellState {
 
 impl ClientShellConfig {
     pub(crate) fn from_config(config: &Config) -> Self {
-        let theme_runtime = crate::app::client_theme_runtime_from_config(config);
+        let theme_runtime = crate::ui::ThemeRuntimeConfig::from_config(config);
         let keybinds = config
             .live_keybinds_with_diagnostics()
             .map(|(keybinds, _diagnostics)| keybinds)
@@ -116,8 +114,8 @@ impl ClientShellConfig {
             clipboard_toast_enabled: config.ui.toast.clipboard.enabled,
             clipboard_toast_position: config.ui.toast.clipboard.position,
             theme_name: theme_runtime.manual_name.clone(),
+            palette: theme_runtime.palette(),
             theme_runtime,
-            palette: crate::app::client_palette_from_config(config),
             keybinds,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
@@ -210,9 +208,9 @@ impl ClientShellConfig {
         }
 
         if !invalid_section("theme") {
-            self.theme_runtime = crate::app::client_theme_runtime_from_config(config);
+            self.theme_runtime = crate::ui::ThemeRuntimeConfig::from_config(config);
             self.theme_name = self.theme_runtime.manual_name.clone();
-            self.palette = crate::app::client_palette_from_config(config);
+            self.palette = self.theme_runtime.palette();
         }
 
         diagnostics

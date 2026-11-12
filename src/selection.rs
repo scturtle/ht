@@ -17,6 +17,9 @@ use std::io::Write;
 
 use crate::{layout::PaneId, pane::ScrollMetrics};
 
+mod word;
+pub(crate) use word::word_bounds_at_column;
+
 /// Current phase of a selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {

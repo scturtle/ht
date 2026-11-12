@@ -19,6 +19,7 @@ mod global_menu;
 mod graphics;
 mod input;
 mod link_hover;
+pub(super) use link_hover::safe_web_url;
 mod mobile;
 mod mouse;
 mod notification_policy;
@@ -48,7 +49,6 @@ use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::endpoint::ClientEndpointStatus;
-use crate::app::state::Palette;
 use crate::config::{
     Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,
     TabBarPositionConfig,
@@ -60,6 +60,7 @@ use crate::protocol::{
 };
 #[cfg(test)]
 use crate::raw_input::RawInputEvent;
+use crate::ui::Palette;
 
 fn target_event_message(target: ClientInputTarget, event: ClientPaneInputEvent) -> ClientMessage {
     match target {

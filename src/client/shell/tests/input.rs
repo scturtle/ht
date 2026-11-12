@@ -5,14 +5,14 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.config.theme_runtime.auto_switch = true;
 
-    let light = crate::app::client_palette_for_appearance(
-        &state.config.theme_runtime,
-        crate::terminal_theme::HostAppearance::Light,
-    );
-    let dark = crate::app::client_palette_for_appearance(
-        &state.config.theme_runtime,
-        crate::terminal_theme::HostAppearance::Dark,
-    );
+    let light = state
+        .config
+        .theme_runtime
+        .palette_for_appearance(crate::terminal_theme::HostAppearance::Light);
+    let dark = state
+        .config
+        .theme_runtime
+        .palette_for_appearance(crate::terminal_theme::HostAppearance::Dark);
 
     let inferred = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
         kind: crate::terminal_theme::DefaultColorKind::Background,

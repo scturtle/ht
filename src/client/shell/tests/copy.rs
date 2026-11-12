@@ -222,13 +222,7 @@ fn clipboard_feedback_is_client_local_and_respects_config() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let now = std::time::Instant::now();
     assert!(state.show_copy_feedback(now));
-    assert_eq!(
-        state
-            .copy_feedback
-            .as_ref()
-            .map(|feedback| feedback.message.as_str()),
-        Some("copied to clipboard")
-    );
+    assert_eq!(state.copy_feedback.as_deref(), Some("copied to clipboard"));
     assert_eq!(
         state.copy_feedback_deadline,
         Some(now + std::time::Duration::from_secs(2))

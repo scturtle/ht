@@ -26,7 +26,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) clipboard_toast_enabled: bool,
     pub(super) clipboard_toast_position: crate::config::ToastClipboardPosition,
     pub(super) theme_name: String,
-    pub(super) theme_runtime: crate::app::state::ThemeRuntimeConfig,
+    pub(super) theme_runtime: crate::ui::ThemeRuntimeConfig,
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
     pub(super) prompt_new_tab_name: bool,
@@ -723,7 +723,7 @@ pub(crate) struct ClientShellState {
     pub(super) pane_scroll_in_flight: HashMap<String, u64>,
     pub(super) pane_scroll_queued: HashMap<String, usize>,
     pub(super) pane_scroll_targets: HashMap<String, usize>,
-    pub(super) copy_feedback: Option<crate::app::state::CopyFeedback>,
+    pub(super) copy_feedback: Option<String>,
     pub(super) copy_feedback_deadline: Option<std::time::Instant>,
     pub(super) host_mouse_pixels: Option<crate::input::mouse::HostPixels>,
     pub(super) input_leases: ClientInputLeases,
@@ -1351,9 +1351,7 @@ impl ClientShellState {
         if !self.config.clipboard_toast_enabled {
             return false;
         }
-        self.copy_feedback = Some(crate::app::state::CopyFeedback {
-            message: "copied to clipboard".to_owned(),
-        });
+        self.copy_feedback = Some("copied to clipboard".to_owned());
         self.copy_feedback_deadline = Some(now + std::time::Duration::from_secs(2));
         true
     }

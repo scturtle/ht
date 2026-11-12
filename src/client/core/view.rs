@@ -24,7 +24,7 @@ pub(super) struct ChromeConfig {
     pub pane_borders: crate::config::PaneBordersConfig,
     pub pane_gaps: bool,
     pub pane_outer_borders: bool,
-    pub palette: crate::app::state::Palette,
+    pub palette: crate::ui::Palette,
 }
 impl ChromeConfig {
     pub fn from_config(config: &crate::config::Config) -> Self {
@@ -32,7 +32,7 @@ impl ChromeConfig {
             pane_borders: config.ui.pane_borders,
             pane_gaps: config.ui.pane_gaps,
             pane_outer_borders: config.ui.pane_outer_borders,
-            palette: crate::app::client_palette_from_config(config),
+            palette: crate::ui::ThemeRuntimeConfig::from_config(config).palette(),
         }
     }
 }

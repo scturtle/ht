@@ -3,7 +3,6 @@ use ghostty_vt::pane_graphics_files;
 use std::io;
 use std::path::PathBuf;
 mod actions;
-mod app;
 mod build_info;
 mod cli;
 mod client;

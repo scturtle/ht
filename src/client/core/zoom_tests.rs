@@ -22,12 +22,12 @@ fn original_zoom_transition_preserves_single_pane_and_idempotence_reasons() {
     for current in [false, true] {
         for mode in [Mode::Toggle, Mode::On, Mode::Off] {
             for focus_changed in [false, true] {
-                let single = crate::app::actions::pane_zoom(current, 1, mode, focus_changed);
+                let single = pane_zoom(current, 1, mode, focus_changed);
                 assert!(!single.changed);
                 assert_eq!(single.zoomed, current);
                 assert_eq!(single.focus_changed, focus_changed);
                 assert_eq!(single.reason, Some(Reason::SinglePane));
-                let outcome = crate::app::actions::pane_zoom(current, 2, mode, focus_changed);
+                let outcome = pane_zoom(current, 2, mode, focus_changed);
                 let expected_reason = match (&mode, current) {
                     (Mode::On, true) => Some(Reason::AlreadyZoomed),
                     (Mode::Off, false) => Some(Reason::AlreadyUnzoomed),

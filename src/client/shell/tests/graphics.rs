@@ -182,9 +182,7 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
             state.config.clipboard_toast_position = position;
             state.set_snapshot(Box::new(snapshot()));
             state.set_pane_surface(surface());
-            state.copy_feedback = Some(crate::app::state::CopyFeedback {
-                message: "copied".into(),
-            });
+            state.copy_feedback = Some("copied".into());
             let layout = state.layout(cols, rows);
             let area = if layout.mobile_header.is_empty() {
                 layout.pane_surface

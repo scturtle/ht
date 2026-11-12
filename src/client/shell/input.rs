@@ -282,10 +282,8 @@ impl ClientShellState {
                     self.host_appearance_explicit = true;
                     outcome.query_host_theme = true;
                     if self.config.theme_runtime.auto_switch {
-                        self.config.palette = crate::app::client_palette_for_appearance(
-                            &self.config.theme_runtime,
-                            appearance,
-                        );
+                        self.config.palette =
+                            self.config.theme_runtime.palette_for_appearance(appearance);
                         outcome.repaint = true;
                     }
                 }
@@ -301,10 +299,8 @@ impl ClientShellState {
                         let appearance = color.inferred_appearance();
                         self.host_appearance = Some(appearance);
                         if self.config.theme_runtime.auto_switch {
-                            self.config.palette = crate::app::client_palette_for_appearance(
-                                &self.config.theme_runtime,
-                                appearance,
-                            );
+                            self.config.palette =
+                                self.config.theme_runtime.palette_for_appearance(appearance);
                             outcome.repaint = true;
                         }
                     }

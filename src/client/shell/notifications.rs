@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn mobile_notification_is_a_bottom_banner_with_released_title() {
-        let palette = crate::app::client_palette_from_config(&Config::default());
+        let palette = crate::ui::ThemeRuntimeConfig::from_config(&Config::default()).palette();
         let mut notification = notification();
         notification.event.kind = SemanticNotificationKind::NeedsAttention;
         notification.event.title = "pi needs attention".into();
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn notification_rect_stays_inside_short_nonzero_area() {
-        let palette = crate::app::client_palette_from_config(&Config::default());
+        let palette = crate::ui::ThemeRuntimeConfig::from_config(&Config::default()).palette();
         for height in [1, 2] {
             let area = Rect::new(3, 4, 8, height);
             for position in [

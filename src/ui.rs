@@ -1,4 +1,8 @@
 //! Pure client-side drawing and geometry.
+mod palette;
+mod theme;
+pub(crate) use palette::Palette;
+pub(crate) use theme::ThemeRuntimeConfig;
 mod panes;
 mod scrollbar;
 mod sidebar;
@@ -24,7 +28,7 @@ use ratatui::layout::Rect;
 use status::copy_feedback_rect;
 pub(crate) fn copy_feedback_offset_for_toast(
     area: Rect,
-    feedback: &crate::app::state::CopyFeedback,
+    feedback: &str,
     base_offset: u16,
     position: crate::config::ToastClipboardPosition,
     toast_rect: Rect,

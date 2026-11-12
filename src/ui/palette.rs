@@ -1,11 +1,10 @@
-//! Pure TUI theme and overlay state, independent of runtime facts.
+//! Resolved UI colors and built-in palettes, independent of terminal runtime.
 use ratatui::style::Color;
 // ---------------------------------------------------------------------------
 // Theme palette — all UI colors in one place, ready for theming
 // ---------------------------------------------------------------------------
 
-/// All colors used by the UI. Derived from a base accent color for now,
-/// but structured so a full theme system can replace it later.
+/// UI colors resolved from a built-in palette and optional configuration overrides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Palette {
     /// Primary accent (highlight, active borders).
@@ -648,19 +647,4 @@ impl Palette {
         }
         self
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ThemeRuntimeConfig {
-    pub manual_name: String,
-    pub dark_name: String,
-    pub light_name: String,
-    pub auto_switch: bool,
-    pub custom: Option<crate::config::CustomThemeColors>,
-    pub legacy_accent: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CopyFeedback {
-    pub message: String,
 }
