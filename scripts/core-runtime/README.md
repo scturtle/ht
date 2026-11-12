@@ -38,15 +38,16 @@ Tests use their own disposable runtimes.
 The full Core source pin, not just the query-reply changes, moved from `de97ea5`
 to `f0828f1`. Ghostty's submodule pin is unchanged. This includes the upstream
 `1c22a51` / `f0828f1` image-answer/DA1 ordering fixes, hidden-primary-screen replay,
-waiter cleanup, and Linux login-environment fixes. All three local patches below
-are rebased on that source; there is no extra local image-answer patch.
+waiter cleanup, and Linux login-environment fixes. The original three local
+patches are rebased on that source; patch `0006` adds automatic image-answer
+arbitration on top of the upstream ordering fix.
 
-The image fix holds only DA1 behind a complete correlated viewer image answer,
-with a default 100 ms deadline and one shared timer task. Cursor/status replies
-remain immediate. It does **not** deduplicate image answers from multiple viewers:
-private two-TUI testing still observes `image answer → DA1 → second image answer`.
-Thus the single-viewer ordering fix must not be presented as a complete
-multi-client Emacs fix.
+Upstream holds only DA1 behind a complete correlated viewer image answer,
+with a default 100 ms deadline and one shared timer task. Alone, it still permits
+`image answer → DA1 → second image answer` with two viewers, and a probe answer
+after DA1 when the viewer takes longer than the deadline. Patch `0006` consumes
+these correlated duplicate/expired automatic answers. Cursor/status replies
+remain immediate; normal image-upload ACKs are not expired with capability probes.
 
 Building atomically replaces the executable used for **new** Core processes; it
 does not replace a running Core. A fresh ht connection to an existing socket also
@@ -120,6 +121,46 @@ socket reappears.
 Removal condition: the pinned upstream Core advertises `existing_connect` with
 the same never-start semantics, and the reconnect path keeps passing.
 
+### 0006 — single-winner automatic image answers
+
+Base: Core `f0828f1e40fac656a5bac077e20c605d38760164`, after patches `0001`–`0003`.
+Touches `src/relay.rs`, `src/relay/graphics.rs`, `src/viewers.rs`, runtime tests,
+and `tests/viewer_activity.rs` in `crates/herdr-core`.
+
+One queried program has one reply stream even when several ht clients view it.
+The first complete correlated `AUTOMATIC_INPUT` image reply wins per query
+sequence number, not permanently per image ID. Other viewers' matching replies
+are consumed. An unanswered `a=q` capability probe retires when its following
+DA1 barrier is released, so its late reply cannot escape into Emacs's command
+input. A probe without a following DA1, or after an earlier DA1 in the same output
+chunk, stays answerable beyond the timer. Real upload replies also remain
+eligible for their first ACK after that deadline.
+
+Only explicit automatic input is framed/filtered. Fragmented graphics responses
+use at most 512 retained bytes per viewer; oversized/unknown replies pass through
+without guessed correlation. Legacy mixed DATA remains byte-transparent, so this
+is not a deduplication guarantee for clients sending automatic replies as DATA.
+Human keys/Escape/paste are never held by an unfinished automatic response and
+automatic replies still cannot claim focus, size or display leadership. Existing
+per-viewer query histories and new single-winner history are bounded at 4096;
+a viewer whose correlation history saturates cannot answer further automatic
+image queries until reattached. Other replies and human DATA remain unaffected.
+No wire kind, PTY input gate, timer task, image payload or renderer is added.
+
+Verification: a deterministic two-viewer regression fails on the old reducer;
+new tests cover both winner orders, all response splits, interleaved human keys,
+probe expiry, delayed old replies after ID reuse, late real-upload ACKs, absent/
+preceding/following DA1 barriers including one-chunk boundaries, unknown and
+malformed replies, bounded framing/history, paste and unchanged leadership.
+`just core-image-answers-smoke` uses the actual ht/Core/PTY and Emacs's PNG probe,
+including a deliberately delayed **owned** client. It requires no model or Emacs
+installation. Full Core tests and existing graphics/keyboard/multiclient gates
+must continue to pass.
+
+Removal condition: the pinned Core offers equivalent single-winner automatic
+reply and late-probe retirement semantics, and these tests pass without it.
+This does not alter Emacs's own query timeout or promise arbitrary WAN latency.
+
 ### Retired on 2026-11-10 (B+ cutover)
 
 Two patches are still dropped from the bundle; their files are kept for reference
@@ -137,8 +178,8 @@ under `.local/core-only/retired-patches/` and are never applied again.
   added three undocumented methods to a live Core. `herdr-app` shows a client
   VT over plain attach is viable without it.
 
-Evidence that the reduced bundle is sufficient: `build.py prepare` applies
-`0001`, `0002`, then `0003` with zero fuzz, and the prepared `hello` advertises
+The current `build.py prepare` applies `0001`, `0002`, `0003`, then the independent
+`0006` image-answer patch with zero fuzz, and the prepared `hello` advertises
 `ordered_attach` + `keyboard_stacks_v1` with no attach_painted/attach_cells.
 
 ## Geometry policy: `latest`

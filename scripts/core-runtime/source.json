@@ -12,6 +12,7 @@
   "patches": [
     "0001-ordered-interactive-attach.patch",
     "0002-keyboard-stack-replay.patch",
-    "0003-existing-connect.patch"
+    "0003-existing-connect.patch",
+    "0006-single-winner-image-answers.patch"
   ]
 }

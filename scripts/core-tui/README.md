@@ -122,6 +122,22 @@ CORE_UI_BASELINE=/absolute/path/to/old-ht just core-scheduling-smoke
 发送输入，不更改 Core 的 PTY。正常路径不额外复制画面，只有合成与未完成同步相遇时
 才懒捕获该窗格；关闭、换 attach channel、隐藏或连接恢复会清理相应缓存。
 
+## 多客户端图片探测应答
+
+`just core-image-answers-smoke` 在私有 Core/PTY 中发送 Emacs 同样的 `i=31`
+PNG 能力查询、cell-size 查询和 DA1，不需要安装 Emacs，也不调用模型。覆盖单客户端、
+双客户端、单客户端迟到，以及一快一慢两个客户端。迟到控制只对本次创建并持有 PID 的
+测试 ht 暂停 250ms，随后恢复并清理；不是实际 SSH/WAN 延迟测量。
+
+按程序实际收到的原始 PTY 字节检查：正常查询只有一个图片回复且在 DA1 前；探测超时
+释放 DA1 后，匹配的迟到自动回复不再注入程序。普通图片上传 ACK 不套用探测超时；
+按键、Escape、粘贴、未知回复和 leadership 不变，分片及边界由 Core 单元测试覆盖。
+测试使用 `AUTOMATIC_INPUT`；混合键盘与回复的旧 DATA 客户端仍保留原始字节语义，
+不能据此宣称所有旧客户端也已去重。
+
+这是 **Core 侧** 修复，仅重启 ht 不会更换仍在运行的 Core。构建只原子发布供新进程
+使用的二进制，不自动重启或接管用户会话。测试用私有会话，实际 Core 切换另行明确安排。
+
 ## 客户端 scrollback
 
 `[advanced] scrollback_limit_lines` 默认 `1000`，按物理历史行计数；例如设为

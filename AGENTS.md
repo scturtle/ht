@@ -109,7 +109,7 @@ just core-network-smoke
 ```
 
 Build the pinned Core runtime with `just core-source-build`; `source.json` lists
-the three applied patches, documented in `scripts/core-runtime/README.md`.
+the applied patches, documented in `scripts/core-runtime/README.md`.
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). New adapter
 behavior should be testable with `Model::new(...)` and `Organization` without

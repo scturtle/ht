@@ -1,0 +1,602 @@
+--- a/crates/herdr-core/src/relay.rs
++++ b/crates/herdr-core/src/relay.rs
+@@ -8,7 +8,7 @@
+ //! DA1 after an image waits for the viewer's answer, briefly.
+ 
+ use ghostty_vt::Terminal as Screen;
+-use std::time::Duration;
++use std::{collections::BTreeMap, time::Duration};
+ 
+ mod graphics;
+ pub(crate) use graphics::Answers;
+@@ -39,6 +39,8 @@
+     behind_from: Option<usize>,
+     /// The screen's replies waiting for a viewer's answer.
+     behind: Vec<u8>,
++    /// Only probes preceding a DA1 barrier can retire when it is released.
++    behind_probe_cutoff: Option<u64>,
+     /// Counts waits, so a deadline only ends the wait it was set for.
+     wait: u64,
+     wait_started: bool,
+@@ -46,6 +48,9 @@
+     query: u64,
+     queries: Vec<(graphics::Key, u64)>,
+     unanswered: Vec<u64>,
++    /// First correlated automatic answer wins across viewers. Probe entries
++    /// retire behind their DA1 barrier; real uploads may legitimately finish later.
++    pending_answers: BTreeMap<u64, bool>,
+ }
+ 
+ enum Seq {
+@@ -105,8 +110,17 @@
+ 
+     /// Only complete, correlated answers can end this wait.
+     pub(crate) fn answered(&mut self, queries: &[(usize, u64)]) -> Vec<u8> {
++        for (_, query) in queries {
++            self.pending_answers.remove(query);
++        }
+         self.unanswered.retain(|query| !queries.iter().any(|(_, answer)| query == answer));
+         if self.waiting && self.unanswered.is_empty() { self.end_wait() } else { Vec::new() }
++    }
++
++    /// Known duplicate/expired responses are consumed, not sent as program input.
++    pub(crate) fn claim_answer(&mut self, query: u64) -> Option<Vec<u8>> {
++        self.pending_answers.remove(&query)?;
++        Some(self.answered(&[(0, query)]))
+     }
+ 
+     /// Ends `wait` if it is still going: no viewer answered in time.
+@@ -114,7 +128,14 @@
+         if self.wait == wait && self.waiting { self.end_wait() } else { Vec::new() }
+     }
+ 
++    fn retire_probes(&mut self, through: u64) {
++        self.pending_answers.retain(|query, probe| !*probe || *query > through);
++    }
++
+     pub(crate) fn end_wait(&mut self) -> Vec<u8> {
++        if let Some(through) = self.behind_probe_cutoff.take() {
++            self.retire_probes(through);
++        }
+         self.unanswered.clear();
+         self.waiting = false;
+         self.behind_from = None;
+@@ -141,6 +162,15 @@
+                 if maybe_query {
+                     let before = screen.pending_responses();
+                     screen.write(&seq);
++                    if screen.pending_responses() > before && primary_da_query(&seq) {
++                        if self.waiting {
++                            self.behind_probe_cutoff = Some(self.query);
++                        } else {
++                            // An earlier probe's wait ended without DA1. It was
++                            // still eligible until this actual response barrier.
++                            self.retire_probes(self.query);
++                        }
++                    }
+                     if screen.pending_responses() == before {
+                         out.extend_from_slice(&seq); // not answered here: the viewer may
+                     }
+@@ -162,6 +192,12 @@
+                             && let Some(key) = graphics::key(&image)
+                         {
+                             self.query += 1;
++                            self.pending_answers.insert(self.query, graphics::is_probe(&image));
++                            // Same bound as per-viewer correlation. Evicted history
++                            // cannot claim a new answer or allocate without limit.
++                            if self.pending_answers.len() > 4096 {
++                                self.pending_answers.pop_first();
++                            }
+                             self.queries.push((key, self.query));
+                             self.unanswered.push(self.query);
+                             if !self.waiting {
+@@ -235,6 +271,13 @@
+     }
+ }
+ 
++fn primary_da_query(sequence: &[u8]) -> bool {
++    sequence
++        .strip_prefix(b"\x1b[")
++        .and_then(|s| s.strip_suffix(b"c"))
++        .is_some_and(|params| params.iter().all(|b| b.is_ascii_digit() || *b == b';'))
++}
++
+ pub(crate) fn da1_len(bytes: &[u8]) -> Option<usize> {
+     let rest = bytes.strip_prefix(b"\x1b[?")?;
+     let n = rest.iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
+@@ -282,6 +325,27 @@
+ 
+     fn feed_bytewise(relay: &mut Relay, screen: &mut Screen, input: &[u8]) -> Vec<u8> {
+         input.iter().flat_map(|b| relay.feed(screen, std::slice::from_ref(b))).collect()
++    }
++
++    #[test]
++    fn single_winner_history_is_bounded_and_does_not_mute_reused_ids() {
++        let mut screen = Screen::new(80, 24, 1 << 20);
++        let mut relay = Relay::default();
++        let query = b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
++        for _ in 0..4100 {
++            relay.feed(&mut screen, query);
++            relay.queries.clear();
++            assert!(relay.pending_answers.len() <= 4096);
++        }
++        assert!(relay.claim_answer(1).is_none(), "evicted replies cannot claim new waits");
++        assert!(relay.claim_answer(4100).is_some());
++        assert!(relay.claim_answer(4100).is_none());
++        relay.feed(&mut screen, b"\x1b[c");
++        relay.take_replies(&mut screen, true);
++        relay.end_wait();
++        assert!(relay.pending_answers.is_empty());
++        relay.feed(&mut screen, query);
++        assert!(relay.claim_answer(4101).is_some(), "query IDs, not image IDs, are retired");
+     }
+ 
+     #[test]
+--- a/crates/herdr-core/src/relay/graphics.rs
++++ b/crates/herdr-core/src/relay/graphics.rs
+@@ -19,6 +19,61 @@
+         assert!(answers.saturated);
+         assert!(answers.pending.is_empty());
+         assert!(answers.feed(b"\x1b_Gi=31;OK\x1b\\").is_empty(), "uncertain history cannot release a newer wait");
++        assert!(answers.automatic(b"\x1b_Gi=31;OK\x1b\\").is_empty());
++        let other = b"\x1b[1;1Rplain";
++        assert_eq!(answers.automatic(other).into_iter().flat_map(|part| part.bytes).collect::<Vec<_>>(), other);
++    }
++
++    #[test]
++    fn automatic_framing_preserves_other_bytes_at_every_split() {
++        let bytes = b"\x1b[1;1R\x1b\x1b_Gi=99;OK\x1b\\\x1b_Gi=31;E2BIG: too big\x1b\\tail";
++        for split in 0..=bytes.len() {
++            let mut answers = Answers::default();
++            answers.expect(key(b"\x1b_Gi=31,a=q;data\x1b\\").unwrap(), 7);
++            let mut parts = answers.automatic(&bytes[..split]);
++            parts.extend(answers.automatic(&bytes[split..]));
++            assert_eq!(parts.iter().filter_map(|p| p.query).collect::<Vec<_>>(), [7]);
++            assert_eq!(parts.into_iter().flat_map(|p| p.bytes).collect::<Vec<_>>(), bytes, "split={split}");
++        }
++    }
++
++    #[test]
++    fn malformed_or_unrelated_replies_cannot_claim_an_expected_answer() {
++        let mut answers = Answers::default();
++        answers.expect(key(b"\x1b_Gi=31,a=q;data\x1b\\").unwrap(), 7);
++        for bytes in [
++            b"\x1b_Gi=99;OK\x1b\\".as_slice(),
++            b"\x1b_Gi=31,i=31;OK\x1b\\",
++            b"\x1b_Gi=+31;OK\x1b\\",
++            b"\x1b_Gi=31,z=0;OK\x1b\\",
++            b"\x1b_Gi=31;not a response\x1b\\",
++        ] {
++            let parts = answers.automatic(bytes);
++            assert!(parts.iter().all(|part| part.query.is_none()));
++            assert_eq!(parts.into_iter().flat_map(|p| p.bytes).collect::<Vec<_>>(), bytes);
++        }
++        let parts = answers.automatic(b"\x1b_Gi=31,p=2;OK\x1b\\");
++        assert_eq!(parts.iter().filter_map(|p| p.query).collect::<Vec<_>>(), [7]);
++    }
++
++    #[test]
++    fn oversized_automatic_apcs_pass_through_with_bounded_memory() {
++        let mut bytes = b"\x1b_Gi=31;".to_vec();
++        bytes.extend(std::iter::repeat_n(b'x', 4096));
++        bytes.extend_from_slice(b"\x1b_Gi=31;OK\x1b\\after");
++        for chunk in [1, 2, 7, 511, 1024] {
++            let mut answers = Answers::default();
++            answers.expect(key(b"\x1b_Gi=31;OK\x1b\\").unwrap(), 7);
++            let mut output = Vec::new();
++            for input in bytes.chunks(chunk) {
++                for part in answers.automatic(input) {
++                    assert_eq!(part.query, None);
++                    output.extend(part.bytes);
++                }
++                assert!(answers.automatic.held.len() <= 512);
++            }
++            assert_eq!(output, bytes);
++        }
+     }
+ }
+ 
+@@ -125,9 +180,108 @@
+     !fields.contains(&b"q=2".as_slice()) && !feature
+ }
+ 
++/// Explicit AUTOMATIC_INPUT is framed independently of human/legacy DATA.
++/// A fragmented response is atomic; it never holds a person's Escape or paste.
++#[derive(Default)]
++struct Automatic {
++    held: Vec<u8>,
++    opaque: bool,
++    previous: u8,
++}
++
++pub(crate) struct AutomaticInput {
++    pub(crate) bytes: Vec<u8>,
++    pub(crate) query: Option<u64>,
++}
++
++impl Automatic {
++    fn feed(&mut self, input: &[u8]) -> Vec<(bool, Vec<u8>)> {
++        const PREFIX: &[u8] = b"\x1b_G";
++        const LIMIT: usize = 512;
++        let mut output = Vec::new();
++        let mut plain = Vec::new();
++        for &byte in input {
++            if self.opaque {
++                plain.push(byte);
++                if self.previous == 0x1b && byte == b'\\' {
++                    self.opaque = false;
++                }
++                self.previous = byte;
++                continue;
++            }
++            if self.held.is_empty() && byte != 0x1b {
++                plain.push(byte);
++                continue;
++            }
++            self.held.push(byte);
++            if self.held.len() <= PREFIX.len() && !PREFIX.starts_with(&self.held) {
++                // ESC ESC can end one sequence and begin the next.
++                if byte == 0x1b {
++                    plain.extend_from_slice(&self.held[..self.held.len() - 1]);
++                    self.held.clear();
++                    self.held.push(byte);
++                } else {
++                    plain.append(&mut self.held);
++                }
++            } else if self.held.len() > PREFIX.len() && self.held.ends_with(b"\x1b\\") {
++                if !plain.is_empty() {
++                    output.push((false, std::mem::take(&mut plain)));
++                }
++                output.push((true, std::mem::take(&mut self.held)));
++            } else if self.held.len() == LIMIT {
++                // Do not guess about oversized/malformed replies, nor buffer an
++                // unbounded body. Pass it unchanged through its terminator.
++                plain.append(&mut self.held);
++                self.opaque = true;
++                self.previous = byte;
++            }
++        }
++        if !plain.is_empty() {
++            output.push((false, plain));
++        }
++        output
++    }
++}
++
++fn response_key(sequence: &[u8]) -> Option<Key> {
++    let original = sequence;
++    let sequence = sequence.strip_prefix(b"\x1b_G")?.strip_suffix(b"\x1b\\")?;
++    let at = sequence.iter().position(|b| *b == b';')?;
++    let (header, body) = (&sequence[..at], &sequence[at + 1..]);
++    let error = body.iter().position(|b| *b == b':').is_some_and(|at| {
++        at > 1 && body[0] == b'E' && body[..at].iter().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
++    });
++    if body != b"OK" && !error {
++        return None;
++    }
++    let mut seen = 0u8;
++    for field in header.split(|b| *b == b',') {
++        let bit = match field.first()? {
++            b'i' => 1,
++            b'I' => 2,
++            b'p' => 4,
++            _ => return None,
++        };
++        if seen & bit != 0
++            || field.get(1) != Some(&b'=')
++            || field.len() < 3
++            || !field[2..].iter().all(u8::is_ascii_digit)
++        {
++            return None;
++        }
++        seen |= bit;
++    }
++    key(original)
++}
++
++pub(super) fn is_probe(sequence: &[u8]) -> bool {
++    header(sequence).is_some_and(|header| header.split(|b| *b == b',').any(|field| field == b"a=q"))
++}
++
+ #[derive(Default)]
+ pub(crate) struct Answers {
+     parser: Parser,
++    automatic: Automatic,
+     pending: VecDeque<(Key, u64)>,
+     saturated: bool,
+ }
+@@ -147,6 +301,26 @@
+         }
+     }
+ 
++    fn correlate(&mut self, key: &Key) -> Option<u64> {
++        let at = self.pending.iter().position(|(expected, _)| expected.0.iter().all(|id| key.0.contains(id)))?;
++        self.pending.remove(at).map(|(_, query)| query)
++    }
++
++    pub(crate) fn automatic(&mut self, input: &[u8]) -> Vec<AutomaticInput> {
++        let mut output = Vec::new();
++        for (image, bytes) in self.automatic.feed(input) {
++            let key = image.then(|| response_key(&bytes)).flatten();
++            if key.is_some() && self.saturated {
++                // History is ambiguous: this viewer can no longer answer image
++                // queries until reattached. Other replies and DATA still pass.
++                continue;
++            }
++            let query = key.and_then(|key| self.correlate(&key));
++            output.push(AutomaticInput { bytes, query });
++        }
++        output
++    }
++
+     pub(crate) fn feed(&mut self, input: &[u8]) -> Vec<(usize, u64)> {
+         let mut answered = Vec::new();
+         for (at, &byte) in input.iter().enumerate() {
+@@ -154,27 +328,8 @@
+             if self.parser.overflow {
+                 continue;
+             }
+-            let Some(body) =
+-                sequence.strip_suffix(b"\x1b\\").and_then(|s| s.iter().position(|b| *b == b';').map(|at| &s[at + 1..]))
+-            else {
+-                continue;
+-            };
+-            let error = body
+-                .iter()
+-                .position(|b| *b == b':')
+-                .is_some_and(|at| at > 1 && body[..at].iter().all(u8::is_ascii_uppercase) && body[0] == b'E');
+-            if body != b"OK" && !error {
+-                continue;
+-            }
+-            let header = &sequence[3..sequence.iter().position(|b| *b == b';').unwrap()];
+-            if header.split(|b| *b == b',').any(|f| !matches!(f.first(), Some(b'i' | b'I' | b'p'))) {
+-                continue;
+-            }
+-            let Some(key) = key(&sequence) else { continue };
+-            if let Some(pending) =
+-                self.pending.iter().position(|(expected, _)| expected.0.iter().all(|id| key.0.contains(id)))
+-            {
+-                answered.push((at + 1, self.pending.remove(pending).unwrap().1));
++            if let Some(query) = response_key(&sequence).and_then(|key| self.correlate(&key)) {
++                answered.push((at + 1, query));
+             }
+         }
+         answered
+--- a/crates/herdr-core/src/viewers.rs
++++ b/crates/herdr-core/src/viewers.rs
+@@ -323,6 +323,30 @@
+             self.touch(&mut st, conn, channel, |_| {})
+         };
+         if let Some(id) = id {
++            if automatic {
++                let Some((_, viewer)) = Self::viewer(&mut st, conn, channel) else { return };
++                let replies = viewer.answers.automatic(bytes);
++                let mut now = Vec::new();
++                for input in replies {
++                    let waited = if let Some(query) = input.query {
++                        let Some(waited) = st.relays.get_mut(&id).and_then(|r| r.claim_answer(query)) else { continue };
++                        waited
++                    } else {
++                        Vec::new()
++                    };
++                    let gate = st.gates.entry(id).or_default();
++                    now.extend(gate.viewer(&input.bytes, false));
++                    now.extend(gate.viewer(&waited, false));
++                }
++                if !now.is_empty()
++                    && let Some(link) = st.link(id)
++                {
++                    link.input(id, &now);
++                }
++                return;
++            }
++            // Legacy DATA stays byte-transparent: it may be actual human input,
++            // including a literal Escape or pasted protocol-looking strings.
+             let answered = Self::viewer(&mut st, conn, channel).unwrap().1.answers.feed(bytes);
+             let mut now = Vec::new();
+             let mut from = 0;
+--- a/crates/herdr-core/src/runtime/tests.rs
++++ b/crates/herdr-core/src/runtime/tests.rs
+@@ -57,7 +57,7 @@
+     assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b[?62;22c"));
+     assert!(core.lock().image_deadlines.is_empty());
+     core.viewer_input(&viewer, channel, b"\x1b_Gi=31;OK\x1b\\", true);
+-    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b_Gi=31;OK\x1b\\"));
++    assert!(frames.try_recv().is_err(), "a late probe answer cannot follow its DA1");
+     // A complete answer received while input is gated owns its following DA1.
+     for expire_before_release in [false, true] {
+         core.lock().gates.entry(id).or_default().set_busy(true);
+@@ -92,12 +92,9 @@
+     assert_eq!(held, b"\x1b_Gi=31;OK\x1b\\\x1b[?62;22c\x1b[?62;22c");
+     core.output(&mut core.lock(), id, probe);
+     core.viewer_input(&viewer, channel, b"\x1b_Gi=31;OK\x1b\\\x1b_Gi=99;O", true);
+-    assert_eq!(
+-        frames.try_recv().unwrap(),
+-        proto::frame(proto::INPUT, id, b"\x1b_Gi=31;OK\x1b\\\x1b[?62;22c\x1b_Gi=99;O")
+-    );
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b_Gi=31;OK\x1b\\\x1b[?62;22c"));
+     core.viewer_input(&viewer, channel, b"K\x1b\\", true);
+-    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"K\x1b\\"));
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b_Gi=99;OK\x1b\\"));
+     core.lock().gates.entry(id).or_default().set_busy(true);
+     core.output(&mut core.lock(), id, probe);
+     core.viewer_input(&viewer, channel, b"\x1b_Gi=31;OK\x1b\\", true);
+@@ -108,6 +105,165 @@
+     }
+     let held = core.lock().gates.get_mut(&id).unwrap().set_busy(false);
+     assert_eq!(held, b"\x1b_Gi=31;OK\x1b\\\x1b[?62;22c\x1b[?62;22c");
++    timer.abort();
++    let _ = timer.await;
++    drop(core);
++    remove_root(&root);
++}
++
++#[tokio::test(start_paused = true)]
++async fn automatic_image_answers_are_single_winner_and_expired_probes_stay_retired() {
++    use crate::viewers::{AttachRequest, Display};
++    let (core, root) = test_core();
++    let (writer, frames) = mpsc::channel();
++    let (bye, _) = mpsc::channel();
++    let id = {
++        let mut st = core.lock();
++        let id =
++            st.reg.create(crate::terminals::NewTerminal { argv: vec!["sh".into()], ..Default::default() }, 0).unwrap();
++        st.reg.terminals.get_mut(&id).unwrap().holder = Some("fake".into());
++        st.screens.insert(id, Screen::new(80, 24, 1 << 20));
++        st.holders.push(Link { writer, pid: 0, instance: "fake".into(), current: true, bye, bye_rx: None });
++        id
++    };
++    let viewers: Vec<_> = (0..2)
++        .map(|_| {
++            let conn = Arc::new(crate::wire::Conn::default());
++            let channel = core
++                .attach(
++                    &conn,
++                    id,
++                    AttachRequest {
++                        observe: false,
++                        resize_notifications: false,
++                        history: 0,
++                        size: (80, 24),
++                        display: Display::default(),
++                        resumed: false,
++                    },
++                )
++                .unwrap();
++            (conn, channel)
++        })
++        .collect();
++    while frames.try_recv().is_ok() {}
++    let timer = tokio::spawn(core.clone().expire_image_answers());
++    let query = b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";
++    let reply = b"\x1b_Gi=31;OK\x1b\\";
++    let ordered = b"\x1b_Gi=31;OK\x1b\\\x1b[?62;22c";
++    for first in [0, 1] {
++        core.output(&mut core.lock(), id, query);
++        let (conn, channel) = &viewers[first];
++        core.viewer_input(conn, *channel, reply, true);
++        assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, ordered));
++        let (conn, channel) = &viewers[1 - first];
++        core.viewer_input(conn, *channel, reply, true);
++        assert!(frames.try_recv().is_err(), "a second viewer cannot answer the same query twice");
++    }
++    // Every split, including ESC/ST boundaries; human keys never wait for framing.
++    for split in 1..reply.len() {
++        core.output(&mut core.lock(), id, query);
++        core.viewer_input(&viewers[0].0, viewers[0].1, &reply[..split], true);
++        assert!(frames.try_recv().is_err(), "partial automatic replies cannot leak prefixes");
++        core.viewer_input(&viewers[0].0, viewers[0].1, b"x", false);
++        assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"x"));
++        core.viewer_input(&viewers[0].0, viewers[0].1, &reply[split..], true);
++        assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, ordered));
++        core.viewer_input(&viewers[1].0, viewers[1].1, reply, true);
++        assert!(frames.try_recv().is_err());
++    }
++    core.output(&mut core.lock(), id, query);
++    tokio::task::yield_now().await;
++    tokio::time::advance(crate::relay::image_answer_wait() * 2).await;
++    tokio::task::yield_now().await;
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b[?62;22c"));
++    // A newer probe may already reuse i=31 before either old answer arrives.
++    core.output(&mut core.lock(), id, query);
++    for (conn, channel) in &viewers {
++        for byte in reply {
++            core.viewer_input(conn, *channel, &[*byte], true);
++            assert!(frames.try_recv().is_err(), "an expired probe's late answer must not become input");
++        }
++    }
++    // The old replies did not release the newer wait or permanently mute i=31.
++    core.viewer_input(&viewers[0].0, viewers[0].1, reply, true);
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, ordered));
++    core.viewer_input(&viewers[1].0, viewers[1].1, reply, true);
++    assert!(frames.try_recv().is_err());
++    // A real upload can need longer than the probe/DA deadline. Its first ACK
++    // remains deliverable; only capability probes retire when DA1 is released.
++    core.output(&mut core.lock(), id, b"\x1b_Gi=32,s=1,v=1,a=T,t=d,f=24;AAAA\x1b\\\x1b[c");
++    tokio::task::yield_now().await;
++    tokio::time::advance(crate::relay::image_answer_wait() * 2).await;
++    tokio::task::yield_now().await;
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b[?62;22c"));
++    let upload_reply = b"\x1b_Gi=32;OK\x1b\\";
++    core.viewer_input(&viewers[0].0, viewers[0].1, upload_reply, true);
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, upload_reply));
++    core.viewer_input(&viewers[1].0, viewers[1].1, upload_reply, true);
++    assert!(frames.try_recv().is_err());
++    // Unrelated automatic replies and pasted response-looking text are not filtered.
++    let unrelated = b"\x1b[1;1R\x1b_Gi=99;OK\x1b\\";
++    core.viewer_input(&viewers[0].0, viewers[0].1, unrelated, true);
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, unrelated));
++    core.output(&mut core.lock(), id, query);
++    let paste = b"\x1b[200~\x1b_Gi=31;OK\x1b\\\x1b[201~";
++    core.viewer_input(&viewers[0].0, viewers[0].1, paste, false);
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, paste));
++    core.viewer_input(&viewers[0].0, viewers[0].1, reply, true);
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, ordered));
++    core.viewer_input(&viewers[1].0, viewers[1].1, reply, true);
++    assert!(frames.try_recv().is_err());
++    // The timer bounds DA1 waiting, not the lifetime of arbitrary a=q requests.
++    // No DA1, or DA1 preceding this query, must leave a delayed probe answerable.
++    let probe_only = &query[..query.len() - 3];
++    for da_before in [false, true] {
++        let mut output = Vec::new();
++        if da_before {
++            output.extend_from_slice(b"\x1b[c");
++        }
++        output.extend_from_slice(probe_only);
++        core.output(&mut core.lock(), id, &output);
++        if da_before {
++            assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b[?62;22c"));
++        }
++        tokio::task::yield_now().await;
++        tokio::time::advance(crate::relay::image_answer_wait() * 2).await;
++        tokio::task::yield_now().await;
++        assert!(frames.try_recv().is_err());
++        core.viewer_input(&viewers[0].0, viewers[0].1, reply, true);
++        assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, reply));
++        core.viewer_input(&viewers[1].0, viewers[1].1, reply, true);
++        assert!(frames.try_recv().is_err());
++    }
++    // A DA1 sent after the wait expired still closes only preceding probes.
++    core.output(&mut core.lock(), id, probe_only);
++    tokio::task::yield_now().await;
++    tokio::time::advance(crate::relay::image_answer_wait() * 2).await;
++    tokio::task::yield_now().await;
++    assert!(frames.try_recv().is_err());
++    core.output(&mut core.lock(), id, b"\x1b[0c");
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b[?62;22c"));
++    for (conn, channel) in &viewers {
++        core.viewer_input(conn, *channel, reply, true);
++        assert!(frames.try_recv().is_err());
++    }
++    // One output chunk may contain a probe on each side of a DA1 barrier.
++    let mut output = query.to_vec();
++    output.extend_from_slice(b"\x1b_Gi=32,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\");
++    core.output(&mut core.lock(), id, &output);
++    tokio::task::yield_now().await;
++    tokio::time::advance(crate::relay::image_answer_wait() * 2).await;
++    tokio::task::yield_now().await;
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, b"\x1b[?62;22c"));
++    for (conn, channel) in &viewers {
++        core.viewer_input(conn, *channel, reply, true);
++        assert!(frames.try_recv().is_err());
++    }
++    core.viewer_input(&viewers[0].0, viewers[0].1, upload_reply, true);
++    assert_eq!(frames.try_recv().unwrap(), proto::frame(proto::INPUT, id, upload_reply));
++    core.viewer_input(&viewers[1].0, viewers[1].1, upload_reply, true);
++    assert!(frames.try_recv().is_err());
+     timer.abort();
+     let _ = timer.await;
+     drop(core);
+--- a/crates/herdr-core/tests/viewer_activity.rs
++++ b/crates/herdr-core/tests/viewer_activity.rs
+@@ -37,8 +37,8 @@
+             assert_eq!(get(&s, &t)["cols"], 100);
+         }
+     }
+-    wait_until("program received both viewers replies", || {
+-        std::fs::read(&log).is_ok_and(|bytes| bytes.windows(3).filter(|w| *w == b";OK").count() == 6)
++    wait_until("program received one answer per query, not per viewer", || {
++        std::fs::read(&log).is_ok_and(|bytes| bytes.windows(3).filter(|w| *w == b";OK").count() == 3)
+     });
+     // Every possible frame boundary is safe, including a delayed lone ESC.
+     for byte in b"\x1bP1+r544e=787465726d\x1b\\\x1b[48;24;80;384;640t" {
