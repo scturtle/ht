@@ -169,69 +169,13 @@ pub struct ClipboardToastConfig {
     pub position: ToastClipboardPosition,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum NewTerminalCwdConfig {
-    #[default]
-    Follow,
-    Home,
-    Current,
-    Path(String),
-}
-
-impl<'de> Deserialize<'de> for NewTerminalCwdConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        match value.trim() {
-            "" | "follow" => Ok(Self::Follow),
-            "home" => Ok(Self::Home),
-            "current" => Ok(Self::Current),
-            _ => Ok(Self::Path(value)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShellModeConfig {
-    #[default]
-    Auto,
-    Login,
-    NonLogin,
-}
-
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct TerminalConfig {
     /// Executable used for new interactive panes. Empty means SHELL, then /bin/sh.
     pub default_shell: String,
-    /// Startup mode for new interactive pane shells.
-    pub shell_mode: ShellModeConfig,
-    /// CWD policy for new interactive panes, tabs, and workspaces.
-    pub new_cwd: NewTerminalCwdConfig,
     /// Render Kitty graphics in compatible outer terminals. Default: true.
     pub kitty_graphics: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct SessionConfig {
-    /// Resume supported AI-agent panes into their native conversation sessions
-    /// when restoring a Herdr session. Default: true.
-    pub resume_agents_on_restore: bool,
-    /// Milliseconds between automatic agent restores. Zero disables spacing.
-    pub startup_per_agent_delay_ms: u32,
-}
-
-impl Default for SessionConfig {
-    fn default() -> Self {
-        Self {
-            resume_agents_on_restore: true,
-            startup_per_agent_delay_ms: 100,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
@@ -267,13 +211,10 @@ pub struct Config {
     pub onboarding: Option<bool>,
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
-    pub session: SessionConfig,
-    pub server: ServerConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
     pub experimental: ExperimentalConfig,
-    pub remote: RemoteConfig,
 }
 
 #[derive(Debug)]
@@ -935,43 +876,6 @@ pub struct UiConfig {
     pub sound: SoundConfig,
 }
 
-/// Cursor shape (DECSCUSR) used for the forced IME anchor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ImeCursorShape {
-    Block,
-    #[default]
-    SteadyBlock,
-    Underline,
-    SteadyUnderline,
-    Bar,
-    SteadyBar,
-}
-
-impl ImeCursorShape {
-    /// Convert to DECSCUSR parameter (1–6).
-    pub fn to_decscusr(self) -> u8 {
-        match self {
-            Self::Block => 1,
-            Self::SteadyBlock => 2,
-            Self::Underline => 3,
-            Self::SteadyUnderline => 4,
-            Self::Bar => 5,
-            Self::SteadyBar => 6,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct ServerConfig {
-    /// Windows: allow ordinary same-account clients to control an elevated server. Default: false.
-    /// Virtual terminal width used when no client is attached. Default: 120.
-    pub headless_cols: u16,
-    /// Virtual terminal height used when no client is attached. Default: 40.
-    pub headless_rows: u16,
-}
-
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct AdvancedConfig {
@@ -985,22 +889,6 @@ pub struct AdvancedConfig {
     pub scrollback_limit_bytes: Option<usize>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct RemoteConfig {
-    /// Add keepalive fallbacks and private connection reuse for `herdr --remote`.
-    /// Set false to run plain ssh unchanged. Default: true.
-    pub manage_ssh_config: bool,
-}
-
-impl Default for RemoteConfig {
-    fn default() -> Self {
-        Self {
-            manage_ssh_config: true,
-        }
-    }
-}
-
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct ExperimentalConfig {
@@ -1008,32 +896,6 @@ pub struct ExperimentalConfig {
     pub allow_nested: bool,
     /// Deprecated compatibility key for `terminal.kitty_graphics`.
     pub kitty_graphics: Option<bool>,
-    /// Persist pane screen history to session-history.json. Default: false.
-    pub pane_history: bool,
-    /// Expose the focused pane's cursor anchor to the outer terminal even when
-    /// the pane requested `?25l`, so macOS native input methods keep tracking
-    /// the candidate window when TUIs paint their own cursor (Claude Code, pi,
-    /// codex, etc.). Default: false.
-    ///
-    /// When the pane reports no cursor position, falls back to the pane's
-    /// top-left so a stable IME anchor is always available.
-    ///
-    /// Trade-off when enabled: an extra hardware cursor will be visible in the
-    /// outer terminal for apps that hide the cursor without painting a
-    /// replacement (vim normal mode, etc.). See #149.
-    pub reveal_hidden_cursor_for_cjk_ime: bool,
-    /// Restrict `reveal_hidden_cursor_for_cjk_ime` to focused panes whose
-    /// detected agent matches one of these names (case-insensitive). Empty
-    /// list means apply to any focused pane. Unknown agent names are ignored;
-    /// if the list contains no valid names, the reveal does not apply.
-    /// Accepted names: pi, claude, codex, gemini, cursor, devin, cline,
-    /// opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo,
-    /// qodercli, qoder, qwen, qwen-code, letta, letta-code, maki.
-    /// Default: empty.
-    pub cjk_ime_agents: Vec<String>,
-    /// Cursor shape rendered for the IME anchor when
-    /// `reveal_hidden_cursor_for_cjk_ime` is enabled. Default: "steady_block".
-    pub cjk_ime_cursor_shape: ImeCursorShape,
 }
 
 impl Default for KeysConfig {
@@ -1219,15 +1081,6 @@ impl<'de> Deserialize<'de> for ToastConfig {
     }
 }
 
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            headless_cols: crate::config::DEFAULT_HEADLESS_COLS,
-            headless_rows: crate::config::DEFAULT_HEADLESS_ROWS,
-        }
-    }
-}
-
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
@@ -1243,64 +1096,9 @@ mod tests {
 
     #[test]
     fn terminal_default_shell_defaults_empty_and_parses() {
-        let default_config = Config::default();
-        assert!(default_config.terminal.default_shell.is_empty());
-        assert_eq!(default_config.terminal.shell_mode, ShellModeConfig::Auto);
-
-        let toml = r#"
-[terminal]
-default_shell = "nu"
-shell_mode = "non_login"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
+        assert!(Config::default().terminal.default_shell.is_empty());
+        let config: Config = toml::from_str("[terminal]\ndefault_shell = \"nu\"").unwrap();
         assert_eq!(config.terminal.default_shell, "nu");
-        assert_eq!(config.terminal.shell_mode, ShellModeConfig::NonLogin);
-    }
-
-    #[test]
-    fn terminal_new_cwd_defaults_follow_and_parses() {
-        let default_config = Config::default();
-        assert_eq!(
-            default_config.terminal.new_cwd,
-            NewTerminalCwdConfig::Follow
-        );
-
-        let config: Config = toml::from_str(
-            r#"
-[terminal]
-new_cwd = "home"
-"#,
-        )
-        .unwrap();
-        assert_eq!(config.terminal.new_cwd, NewTerminalCwdConfig::Home);
-
-        let config: Config = toml::from_str(
-            r#"
-[terminal]
-new_cwd = "~/Projects"
-"#,
-        )
-        .unwrap();
-        assert_eq!(
-            config.terminal.new_cwd,
-            NewTerminalCwdConfig::Path("~/Projects".into())
-        );
-    }
-
-    #[test]
-    fn resume_agents_on_restore_defaults_on_and_parses() {
-        let default_config = Config::default();
-        assert!(default_config.session.resume_agents_on_restore);
-        assert_eq!(default_config.session.startup_per_agent_delay_ms, 100);
-
-        let toml = r#"
-[session]
-resume_agents_on_restore = false
-startup_per_agent_delay_ms = 0
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.session.resume_agents_on_restore);
-        assert_eq!(config.session.startup_per_agent_delay_ms, 0);
     }
 
     #[test]
@@ -1448,54 +1246,6 @@ prompt_new_workspace_name = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.ui.prompt_new_workspace_name);
-    }
-
-    #[test]
-    fn reveal_hidden_cursor_for_cjk_ime_default_off_and_parse() {
-        let default_config = Config::default();
-        assert!(!default_config.experimental.reveal_hidden_cursor_for_cjk_ime);
-
-        let toml = r#"
-[experimental]
-reveal_hidden_cursor_for_cjk_ime = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.experimental.reveal_hidden_cursor_for_cjk_ime);
-    }
-
-    #[test]
-    fn cjk_ime_cursor_shape_default_steady_block_and_parse() {
-        let default_config = Config::default();
-        assert_eq!(
-            default_config.experimental.cjk_ime_cursor_shape,
-            ImeCursorShape::SteadyBlock
-        );
-
-        let toml = r#"
-[experimental]
-cjk_ime_cursor_shape = "bar"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(
-            config.experimental.cjk_ime_cursor_shape,
-            ImeCursorShape::Bar
-        );
-    }
-
-    #[test]
-    fn cjk_ime_agents_default_empty_and_parse() {
-        let default_config = Config::default();
-        assert!(default_config.experimental.cjk_ime_agents.is_empty());
-
-        let toml = r#"
-[experimental]
-cjk_ime_agents = ["claude", "codex"]
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(
-            config.experimental.cjk_ime_agents,
-            vec!["claude".to_string(), "codex".to_string()]
-        );
     }
 
     #[test]
@@ -1807,62 +1557,10 @@ delay_seconds = {}
     }
 
     #[test]
-    fn server_headless_size_defaults_and_parses() {
-        let default_config = Config::default();
-        assert_eq!(
-            default_config.server.headless_cols,
-            crate::config::DEFAULT_HEADLESS_COLS
-        );
-        assert_eq!(
-            default_config.server.headless_rows,
-            crate::config::DEFAULT_HEADLESS_ROWS
-        );
-
-        let config: Config = toml::from_str(
-            r#"[server]
-headless_cols = 160
-headless_rows = 50
-"#,
-        )
-        .unwrap();
-        assert_eq!(config.server.headless_cols, 160);
-        assert_eq!(config.server.headless_rows, 50);
-
-        let invalid: Config = toml::from_str(
-            r#"[server]
-headless_cols = 0
-headless_rows = 50
-"#,
-        )
-        .unwrap();
-        assert!(invalid.invalid_headless_size_diagnostic().is_some());
-        assert_eq!(
-            invalid.headless_size(),
-            (
-                crate::config::DEFAULT_HEADLESS_COLS,
-                crate::config::DEFAULT_HEADLESS_ROWS
-            )
-        );
-    }
-
-    #[test]
     fn advanced_defaults_keep_one_thousand_rows_without_a_smaller_byte_limit() {
         let config = Config::default();
         assert_eq!(config.advanced.scrollback_limit_lines, 1000);
         assert_eq!(config.advanced.scrollback_limit_bytes, None);
-    }
-
-    #[test]
-    fn pane_history_persistence_is_opt_in() {
-        assert!(!Config::default().experimental.pane_history);
-
-        let toml = r#"
-[experimental]
-pane_history = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-
-        assert!(config.experimental.pane_history);
     }
 
     #[test]
@@ -1905,17 +1603,11 @@ kitty_graphics = true
 
     #[test]
     fn experimental_config_parses() {
-        let toml = r#"
-[experimental]
-allow_nested = true
-kitty_graphics = true
-pane_history = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
+        let config: Config =
+            toml::from_str("[experimental]\nallow_nested = true\nkitty_graphics = true").unwrap();
         assert!(config.experimental.allow_nested);
         assert_eq!(config.experimental.kitty_graphics, Some(true));
         assert!(config.kitty_graphics_enabled());
-        assert!(config.experimental.pane_history);
     }
 
     #[test]

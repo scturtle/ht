@@ -96,15 +96,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Empty means $SHELL, then /bin/sh.
 # default_shell = ""
 
-# Startup mode for new interactive pane shells: "auto", "login", or "non_login".
-# "auto" uses login shells on macOS and keeps the current behavior elsewhere.
-# shell_mode = "auto"
-
-# CWD policy for new panes, tabs, and workspaces when no explicit --cwd is provided.
-# Use "follow" to inherit the source pane/workspace, "home" for $HOME,
-# "current" for Herdr's process directory, or a fixed path such as "~/Projects".
-# new_cwd = "follow"
-
 # Render pane images in Kitty graphics-compatible outer terminals.
 # kitty_graphics = true
 
@@ -189,15 +180,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # tabs = ""       # e.g. "ctrl" makes ctrl+1..9 switch tabs directly
 # workspaces = "" # e.g. "ctrl+shift" makes ctrl+shift+1..9 switch workspaces directly
 # agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows directly
-
-# Size of the virtual terminal used when no client is attached.
-# Attached clients always use their own terminal size.
-[server]
-# Windows only: allow ordinary same-account clients to control an elevated server.
-# Requires a server restart.
-# allow_unelevated_clients = false
-# headless_cols = 120
-# headless_rows = 40
 
 [ui]
 # Sidebar width (auto-scaled based on workspace names, this sets the default)
@@ -359,45 +341,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # [ui.sound.agents]
 # droid = "off"
 
-[session]
-# Resume supported AI-agent panes into their native conversation sessions after
-# a Herdr server restart. Requires official integrations that report session refs.
-# resume_agents_on_restore = true
-# Milliseconds between automatic agent restores; 0 starts them without spacing.
-# startup_per_agent_delay_ms = 100
-
-[remote]
-# Whether herdr manages the ssh config used for `herdr --remote`.
-# When true (default), herdr runs remote ssh through a generated config that
-# includes your ~/.ssh/config first and adds ServerAliveInterval/
-# ServerAliveCountMax as fallbacks (so any keepalive values you set yourself
-# still win) to survive idle network/NAT timeouts. Herdr also uses a private
-# per-attach OpenSSH control socket to reuse the first authenticated connection.
-# Set false to run plain ssh against your ssh config unchanged — this does not
-# force keepalive or multiplexing off, it only stops herdr from adding its own.
-# manage_ssh_config = true
-
 [experimental]
 # Allow launching herdr from inside a herdr-managed pane.
 # allow_nested = false
-# Save recent pane screen history across full server restarts.
-pane_history = false
-# Expose the focused pane's cursor to the outer terminal so macOS input
-# methods keep tracking the candidate window when TUIs paint their own
-# cursor (Claude Code, pi, codex). Trade-off: extra cursor visible for
-# apps that hide it without painting a replacement (vim normal mode, etc.).
-# reveal_hidden_cursor_for_cjk_ime = false
-# Optional allow-list: only reveal for focused panes whose detected agent
-# matches one of these names. Empty means apply to any focused pane.
-# If the list contains no valid names, the reveal does not apply.
-# Accepted: pi, claude, codex, gemini, cursor, devin, cline, opencode,
-# copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder, qwen,
-# qwen-code, letta, letta-code, maki.
-# cjk_ime_agents = []
-# Cursor shape rendered when reveal_hidden_cursor_for_cjk_ime is true.
-# Values: block, steady_block (default), underline, steady_underline, bar, steady_bar.
-# cjk_ime_cursor_shape = "steady_block"
-
 [advanced]
 # Physical scrollback rows retained per client pane (default: 1000; 0 disables).
 # Applied on client startup; Ghostty prunes whole pages, so counts are approximate.

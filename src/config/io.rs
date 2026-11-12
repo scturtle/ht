@@ -9,9 +9,6 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "experimental",
     "keys",
     "onboarding",
-    "remote",
-    "server",
-    "session",
     "terminal",
     "theme",
     "ui",
@@ -276,22 +273,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
     );
     load_live_section(
         table,
-        "session",
-        "session config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.session = section,
-    );
-    load_live_section(
-        table,
-        "server",
-        "server config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.server = section,
-    );
-    load_live_section(
-        table,
         "ui",
         "ui config",
         &mut diagnostics,
@@ -314,15 +295,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.experimental = section,
     );
-    load_live_section(
-        table,
-        "remote",
-        "remote config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.remote = section,
-    );
-
     diagnostics.extend(config.theme.diagnostics());
 
     Ok(LoadedConfig {
@@ -833,18 +805,95 @@ mod tests {
     }
 
     #[test]
-    fn load_live_config_parses_session_section() {
-        let loaded = load_live_config_from_str(
-            r#"
+    fn retired_runtime_settings_are_ignored_without_losing_active_config_or_rewriting() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "ht-retired-runtime-config-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // Even obsolete values of the wrong type must be ignored, not invalidate
+        // neighboring active settings. Both startup and live parsing are covered.
+        let content = r#"
+[remote]
+manage_ssh_config = "unused"
+[server]
+headless_cols = 0
+headless_rows = "unused"
 [session]
-resume_agents_on_restore = true
-"#,
-        )
-        .unwrap();
+resume_agents_on_restore = "unused"
+startup_per_agent_delay_ms = -1
+[terminal]
+default_shell = "fish"
+kitty_graphics = false
+shell_mode = ["unused"]
+new_cwd = false
+[experimental]
+allow_nested = true
+kitty_graphics = true
+pane_history = "unused"
+reveal_hidden_cursor_for_cjk_ime = "unused"
+cjk_ime_agents = false
+cjk_ime_cursor_shape = -1
+[advanced]
+scrollback_limit_lines = 5000
+[ui]
+sidebar_width = 32
+mouse_capture = false
+[keys]
+detach = "f10"
+"#;
+        std::fs::write(&path, content).unwrap();
+        let previous = std::env::var_os(CONFIG_PATH_ENV_VAR);
+        std::env::set_var(CONFIG_PATH_ENV_VAR, &path);
+        let startup = Config::load();
+        let live = load_live_config();
+        match previous {
+            Some(value) => std::env::set_var(CONFIG_PATH_ENV_VAR, value),
+            None => std::env::remove_var(CONFIG_PATH_ENV_VAR),
+        }
+        let unchanged = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(unchanged, content);
 
-        assert!(loaded.config.session.resume_agents_on_restore);
-        assert!(loaded.diagnostics.is_empty());
-        assert!(loaded.invalid_sections.is_empty());
+        let mut expected = ["remote", "server", "session"]
+            .map(|section| format!("unknown config section [{section}]; ignoring section"))
+            .to_vec();
+        expected.extend(
+            [
+                "terminal.shell_mode",
+                "terminal.new_cwd",
+                "experimental.pane_history",
+                "experimental.reveal_hidden_cursor_for_cjk_ime",
+                "experimental.cjk_ime_agents",
+                "experimental.cjk_ime_cursor_shape",
+            ]
+            .map(|key| format!("unknown config key {key}; ignoring key")),
+        );
+        expected.sort();
+        for loaded in [startup, live.unwrap()] {
+            let mut diagnostics = loaded.diagnostics;
+            diagnostics.sort();
+            assert_eq!(diagnostics, expected);
+            assert!(loaded.invalid_sections.is_empty());
+            assert_eq!(loaded.config.terminal.default_shell, "fish");
+            assert!(!loaded.config.kitty_graphics_enabled());
+            assert_eq!(loaded.config.experimental.kitty_graphics, Some(true));
+            assert!(loaded.config.experimental.allow_nested);
+            assert_eq!(loaded.config.advanced.scrollback_limit_lines, 5000);
+            assert_eq!(loaded.config.ui.sidebar_width, 32);
+            assert!(!loaded.config.ui.mouse_capture);
+            assert!(loaded
+                .config
+                .keybinds()
+                .detach
+                .bindings
+                .iter()
+                .any(|binding| binding.label == "f10"));
+        }
     }
 
     #[test]
@@ -1031,7 +1080,7 @@ sidebar_width = 32
             r#"
 [experimental]
 switch_ascii_input_source_in_prefix = true
-pane_history = true
+allow_nested = true
 kitty_graphics = true
 
 [ui]
@@ -1053,7 +1102,7 @@ new_workspace = "prefix+shift+n"
         );
         // The retired key must not stop the sibling keys in the same section from
         // parsing, nor the other live sections from applying.
-        assert!(loaded.config.experimental.pane_history);
+        assert!(loaded.config.experimental.allow_nested);
         assert_eq!(loaded.config.experimental.kitty_graphics, Some(true));
         assert!(loaded.config.kitty_graphics_enabled());
         assert_eq!(loaded.config.ui.sidebar_width, 32);
@@ -1071,7 +1120,7 @@ new_workspace = "prefix+shift+n"
         let loaded = load_live_config_from_str(
             r#"
 [experimental]
-pane_history = "yes"
+allow_nested = "yes"
 
 [ui]
 sidebar_width = 33
@@ -1092,7 +1141,7 @@ sidebar_width = 33
             loaded.diagnostics
         );
         assert!(
-            !loaded.config.experimental.pane_history,
+            !loaded.config.experimental.allow_nested,
             "the rejected section's values are not applied"
         );
         assert_eq!(loaded.config.ui.sidebar_width, 33);
