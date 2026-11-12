@@ -202,5 +202,6 @@ mod keybindings_settings;
 mod link_hover;
 mod mobile;
 mod mouse_selection;
+mod snapshots;
 mod startup_overlays;
 mod workspace_navigation;

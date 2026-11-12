@@ -20,7 +20,8 @@ impl ClientShellState {
         self.local_config_diagnostic = diagnostic;
         self.config_diagnostic = merged_config_diagnostic(
             self.local_config_diagnostic.as_deref(),
-            self.snapshot
+            self.endpoint
+                .snapshot
                 .as_deref()
                 .and_then(|snapshot| snapshot.config_diagnostic.as_deref()),
         );

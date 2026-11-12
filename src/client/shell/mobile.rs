@@ -997,10 +997,10 @@ impl ClientShellState {
                 );
             }
             Some(ClientMobileTarget::Menu(index)) => {
-                let actionable = self
-                    .snapshot
-                    .as_deref()
-                    .is_some_and(|_| super::global_menu::global_menu_items().get(index).is_some());
+                let actionable =
+                    self.endpoint.snapshot.as_deref().is_some_and(|_| {
+                        super::global_menu::global_menu_items().get(index).is_some()
+                    });
                 if actionable {
                     self.mobile_switcher_suspended = true;
                     self.activate_global_menu_item(index, outcome);

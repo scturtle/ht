@@ -111,7 +111,8 @@ impl ClientShellState {
             .filter(|target| self.navigation_target_valid(target))
             .map(|target| target.workspace_id.clone())
             .or_else(|| {
-                self.snapshot
+                self.endpoint
+                    .snapshot
                     .as_deref()
                     .and_then(|snapshot| snapshot.focused_workspace_id.clone())
             })
@@ -119,7 +120,7 @@ impl ClientShellState {
 
     pub(super) fn open_new_workspace_overlay(&mut self) {
         let source_workspace_id = self.workspace_action_id();
-        let cwd = self.snapshot.as_deref().and_then(|snapshot| {
+        let cwd = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
             let workspace_id = source_workspace_id.as_deref()?;
             snapshot
                 .workspaces
@@ -144,7 +145,7 @@ impl ClientShellState {
     }
 
     pub(super) fn open_rename_workspace_overlay(&mut self) {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(workspace_id) = self.workspace_action_id() else {
@@ -165,7 +166,7 @@ impl ClientShellState {
     }
 
     pub(super) fn open_new_tab_overlay(&mut self) {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(workspace_id) = snapshot.focused_workspace_id.clone() else {
@@ -189,7 +190,7 @@ impl ClientShellState {
     }
 
     pub(super) fn open_rename_tab_overlay(&mut self) {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(tab_id) = snapshot.focused_tab_id.as_deref() else {
@@ -210,7 +211,7 @@ impl ClientShellState {
     }
 
     pub(super) fn open_rename_pane_overlay(&mut self) {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(pane_id) = snapshot.focused_pane_id.as_deref() else {
@@ -690,7 +691,7 @@ impl ClientShellState {
             return;
         }
         let close_group = close_group.unwrap_or_else(|| {
-            self.snapshot.as_deref().is_some_and(|snapshot| {
+            self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                 snapshot.workspaces.iter().any(|workspace| {
                     workspace.workspace_id == workspace_id
                         && super::sidebar::workspace_close_is_group(snapshot, workspace)
@@ -707,7 +708,7 @@ impl ClientShellState {
     }
 
     pub(super) fn request_pane_close(&mut self, pane_id: String, outcome: &mut ClientShellInput) {
-        let target = self.snapshot.as_deref().and_then(|snapshot| {
+        let target = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
             let pane = snapshot.panes.iter().find(|pane| pane.pane_id == pane_id)?;
             let tab = snapshot
                 .tabs
@@ -741,7 +742,7 @@ impl ClientShellState {
     }
 
     pub(super) fn request_tab_close(&mut self, tab_id: String, outcome: &mut ClientShellInput) {
-        let workspace_id = self.snapshot.as_deref().and_then(|snapshot| {
+        let workspace_id = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
             let target = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id)?;
             (self.config.confirm_close
                 && !snapshot
@@ -769,14 +770,14 @@ impl ClientShellState {
         outcome.repaint = true;
         let method = if let Some(target) = confirm.tab_target {
             if !self.navigation_target_valid(&target.workspace)
-                || !self.snapshot.as_deref().is_some_and(|snapshot| {
+                || !self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                     snapshot.tabs.iter().any(|tab| {
                         tab.tab_id == target.tab_id
                             && tab.workspace_id == target.workspace.workspace_id
                     })
                 })
                 || target.pane_id.as_ref().is_some_and(|pane_id| {
-                    !self.snapshot.as_deref().is_some_and(|snapshot| {
+                    !self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                         snapshot.panes.iter().any(|pane| {
                             pane.pane_id == *pane_id
                                 && pane.tab_id == target.tab_id
@@ -816,7 +817,7 @@ impl ClientShellState {
         tab_id: Option<String>,
         close_group: Option<bool>,
     ) -> bool {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return false;
         };
         let Some(workspace) = snapshot

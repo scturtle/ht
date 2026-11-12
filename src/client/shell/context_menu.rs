@@ -128,7 +128,7 @@ impl ClientShellState {
     }
 
     pub(super) fn open_workspace_context_menu(&mut self, workspace_id: String, x: u16, y: u16) {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(workspace) = snapshot
@@ -167,6 +167,7 @@ impl ClientShellState {
 
     pub(super) fn open_tab_context_menu(&mut self, tab_id: String, x: u16, y: u16) {
         let Some(tab) = self
+            .endpoint
             .snapshot
             .as_deref()
             .and_then(|snapshot| snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id))
@@ -186,7 +187,7 @@ impl ClientShellState {
     }
 
     pub(super) fn open_pane_context_menu(&mut self, pane_id: String, x: u16, y: u16) {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(pane) = snapshot.panes.iter().find(|pane| pane.pane_id == pane_id) else {
@@ -273,6 +274,7 @@ impl ClientShellState {
         match action {
             ClientContextMenuAction::Rename => {
                 let label = self
+                    .endpoint
                     .snapshot
                     .as_deref()
                     .and_then(|snapshot| {
@@ -294,7 +296,7 @@ impl ClientShellState {
                 self.request_workspace_close(workspace_id, Some(close_group), outcome);
             }
             ClientContextMenuAction::ToggleGroup => {
-                let key = self.snapshot.as_deref().and_then(|snapshot| {
+                let key = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
                     snapshot
                         .workspaces
                         .iter()
@@ -330,6 +332,7 @@ impl ClientShellState {
             ClientContextMenuAction::NewTab => {
                 if self.config.prompt_new_tab_name {
                     let default_name = (self
+                        .endpoint
                         .snapshot
                         .as_deref()
                         .map(|snapshot| {
@@ -365,6 +368,7 @@ impl ClientShellState {
             }
             ClientContextMenuAction::Rename => {
                 let tab = self
+                    .endpoint
                     .snapshot
                     .as_deref()
                     .and_then(|snapshot| snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id));
@@ -406,7 +410,7 @@ impl ClientShellState {
                 self.dump_pane_diagnostics(pane_id, outcome)
             }
             ClientContextMenuAction::RenamePane => {
-                let label = self.snapshot.as_deref().and_then(|snapshot| {
+                let label = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
                     snapshot
                         .panes
                         .iter()

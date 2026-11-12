@@ -98,6 +98,7 @@ impl ClientShellState {
                 }
                 if action == crate::input::KeybindAction::ClosePane {
                     if let Some(pane_id) = self
+                        .endpoint
                         .snapshot
                         .as_deref()
                         .and_then(|snapshot| snapshot.focused_pane_id.clone())
@@ -108,6 +109,7 @@ impl ClientShellState {
                 }
                 if action == crate::input::KeybindAction::CloseTab {
                     if let Some(tab_id) = self
+                        .endpoint
                         .snapshot
                         .as_deref()
                         .and_then(|snapshot| snapshot.focused_tab_id.clone())
@@ -211,6 +213,7 @@ impl ClientShellState {
     ) -> bool {
         let key = ClientEndpointNoticeKey {
             boot_id: self
+                .endpoint
                 .snapshot
                 .as_deref()
                 .map(|snapshot| snapshot.boot_id.clone())
@@ -283,7 +286,7 @@ impl ClientShellState {
             );
             return false;
         }
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return false;
         };
         let confirmation_workspace_id = match &method {
@@ -394,6 +397,7 @@ impl ClientShellState {
         };
         if pending.boot_id != boot_id
             || self
+                .endpoint
                 .snapshot
                 .as_deref()
                 .is_none_or(|snapshot| snapshot.boot_id != boot_id)
@@ -673,7 +677,7 @@ impl ClientShellState {
         };
         use crate::input::KeybindAction;
 
-        let snapshot = self.snapshot.as_deref()?;
+        let snapshot = self.endpoint.snapshot.as_deref()?;
         let focused_workspace = snapshot.focused_workspace_id.clone()?;
         let focused_tab = snapshot.focused_tab_id.clone();
         let focused_pane = snapshot.focused_pane_id.clone();

@@ -3,7 +3,7 @@ use serde_json::json;
 
 impl ClientShellState {
     pub(super) fn dump_pane_diagnostics(&self, pane_id: String, outcome: &mut ClientShellInput) {
-        let snapshot = self.snapshot.as_deref();
+        let snapshot = self.endpoint.snapshot.as_deref();
         let surface = self.pane_surface.as_ref();
         let pane = surface.and_then(|s| s.panes.iter().find(|p| p.pane_id == pane_id));
         let cells = pane.zip(surface).map(|(pane, surface)| {
@@ -24,7 +24,7 @@ impl ClientShellState {
             "outer_focused":self.outer_focused, "endpoint":"local",
             "workspace_preview_blocked":self.workspace_preview_action_blocked(),
             "navigate_workspace":self.navigate_workspace_id.as_ref().map(|t| json!({"endpoint":"local","workspace":t.workspace_id,"scope_debug":format!("{t:?}")})),
-            "snapshot_generation":self.active_snapshot_generation,
+            "snapshot_generation":self.endpoint.snapshot_generation,
             "surface_generation":self.pane_surface_generation,
             "snapshot_revision":snapshot.map(|s| s.revision),
             "boot_id":snapshot.map(|s| &s.boot_id),

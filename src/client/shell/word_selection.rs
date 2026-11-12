@@ -30,6 +30,7 @@ impl ClientShellState {
         self.word_selection_gesture = Some(ClientWordSelection {
             pane_id: hit.pane_id.clone(),
             focus_confirmed: self
+                .endpoint
                 .snapshot
                 .as_deref()
                 .and_then(|snapshot| snapshot.focused_pane_id.as_deref())
@@ -173,6 +174,7 @@ impl ClientShellState {
             return (false, Vec::new());
         }
         if self
+            .endpoint
             .snapshot
             .as_deref()
             .is_none_or(|snapshot| !snapshot.panes.iter().any(|pane| pane.pane_id == pane_id))

@@ -263,7 +263,10 @@ impl ClientShellState {
                     outcome.query_host_appearance = true;
                     outcome.repaint |= self.config.redraw_on_focus_gained;
                     if let Some(surface) = self.pane_surface.clone() {
-                        outcome.repaint |= self.acknowledge_active_surface_agents(&surface);
+                        outcome.repaint |= self.acknowledge_active_surface_agents(
+                            &surface,
+                            self.pane_surface_generation,
+                        );
                     }
                     outcome
                         .requests
@@ -665,7 +668,7 @@ impl ClientShellState {
                 (KeyCode::Char(digit), KeyModifiers::empty()),
             )
         }) {
-            let valid = self.snapshot.as_deref().is_some_and(|snapshot| {
+            let valid = self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                 self.navigation_workspace_entries(snapshot)
                     .get(index)
                     .is_some()
@@ -819,13 +822,14 @@ impl ClientShellState {
 
         match binding {
             KeybindMatch::Action(KeybindAction::SwitchWorkspace(index)) => {
-                self.snapshot.as_deref().is_some_and(|snapshot| {
+                self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                     self.navigation_workspace_entries(snapshot)
                         .get(*index)
                         .is_some()
                 })
             }
             KeybindMatch::Action(KeybindAction::SwitchTab(index)) => self
+                .endpoint
                 .snapshot
                 .as_deref()
                 .and_then(|snapshot| {
@@ -838,7 +842,7 @@ impl ClientShellState {
                 })
                 .is_some(),
             KeybindMatch::Action(KeybindAction::FocusAgent(index)) => {
-                self.snapshot.as_deref().is_some_and(|snapshot| {
+                self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                     super::agent_sidebar::ordered_agent_pane_ids(
                         snapshot,
                         self.config.agent_panel_sort,
@@ -852,7 +856,7 @@ impl ClientShellState {
     }
 
     fn cycle_pane(&mut self, reverse: bool, outcome: &mut ClientShellInput) {
-        let Some(snapshot) = self.snapshot.as_deref() else {
+        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(surface) = self.pane_surface.as_ref() else {
@@ -925,7 +929,8 @@ impl ClientShellState {
     }
 
     pub(super) fn focused_pane_id(&self) -> Option<String> {
-        self.snapshot
+        self.endpoint
+            .snapshot
             .as_deref()
             .and_then(|snapshot| snapshot.focused_pane_id.clone())
     }

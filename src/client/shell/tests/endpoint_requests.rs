@@ -13,14 +13,14 @@ fn a_new_projection_epoch_accepts_restarted_revisions_but_its_stale_updates_do_n
     let mut fresh = snapshot();
     fresh.boot_id = "replacement-projection".into();
     assert!(state.set_endpoint_snapshot_for_generation(1, Box::new(fresh.clone())));
-    assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
+    assert_eq!(state.endpoint.snapshot.as_ref().unwrap().revision, 1);
     let mut paint = surface();
     paint.boot_id = fresh.boot_id.clone();
     state.set_pane_surface(paint);
     assert!(state.compose(100, 28).is_some());
     fresh.revision = 0;
     assert!(!state.set_endpoint_snapshot_for_generation(1, Box::new(fresh)));
-    assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
+    assert_eq!(state.endpoint.snapshot.as_ref().unwrap().revision, 1);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn capability_shrink_after_recovery_blocks_a_stale_close_confirmation() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.set_endpoint_methods(Some(vec!["tab.close".into()]));
-    let boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
+    let boot_id = state.endpoint.snapshot.as_ref().unwrap().boot_id.clone();
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
         crate::actions::Action::TabClose(crate::actions::TabTarget {
@@ -138,7 +138,7 @@ fn capability_refresh_preserves_pending_request_boot_fences() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.set_endpoint_methods(Some(vec!["pane.focus".into()]));
-    let boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
+    let boot_id = state.endpoint.snapshot.as_ref().unwrap().boot_id.clone();
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
         crate::actions::Action::PaneFocus(crate::actions::PaneTarget {

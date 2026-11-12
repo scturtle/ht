@@ -667,11 +667,9 @@ fn reconnect_word_selection_tracks_content_changes() {
             next_surface.panes[0].content_revision += 2;
             next_surface.frame.cells[14].symbol = " ".into();
         }
-        let snapshot = state.snapshot.as_ref().unwrap().clone();
+        let snapshot = state.endpoint.snapshot.as_ref().unwrap().clone();
         state.mark_endpoint_disconnected();
-        state.cache_endpoint_snapshot_inactive_for_generation(1, snapshot);
-        state.set_endpoint_status(crate::client::connection::ClientEndpointStatus::Online);
-        assert!(state.activate_endpoint_projection());
+        state.set_endpoint_snapshot_for_generation(1, snapshot);
         state.set_pane_surface(next_surface);
 
         assert_eq!(state.selection.is_some(), !content_changed);

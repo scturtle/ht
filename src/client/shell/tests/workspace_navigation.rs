@@ -115,6 +115,7 @@ fn local_navigation_highlight_stays_visible_with_terminal_theme() {
             }
             assert_eq!(
                 state
+                    .endpoint
                     .snapshot
                     .as_ref()
                     .unwrap()
@@ -271,6 +272,7 @@ fn accepted_local_navigation_keeps_highlight_until_authoritative_focus() {
             assert!(state.navigate_workspace_id.is_none());
             assert_eq!(
                 state
+                    .endpoint
                     .snapshot
                     .as_ref()
                     .unwrap()
@@ -379,7 +381,7 @@ fn pending_navigation_highlight_does_not_survive_identity_changes() {
         }
         assert!(state.pending_workspace_highlight.is_none(), "{change}");
         let mut frame = surface();
-        frame.boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
+        frame.boot_id = state.endpoint.snapshot.as_ref().unwrap().boot_id.clone();
         state.set_pane_surface(frame);
         assert_local_highlight(&mut state, "ws_1");
     }
@@ -409,7 +411,9 @@ fn navigation_highlight_requires_enqueued_focus_and_yields_to_new_intent() {
     let mut unrelated = ClientShellInput::default();
     state.push_endpoint_method(
         crate::actions::Action::PaneScroll(crate::actions::PaneScrollParams {
-            pane_id: state.snapshot.as_ref().unwrap().panes[0].pane_id.clone(),
+            pane_id: state.endpoint.snapshot.as_ref().unwrap().panes[0]
+                .pane_id
+                .clone(),
             offset_from_bottom: 0,
         }),
         &mut unrelated,

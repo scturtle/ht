@@ -111,7 +111,7 @@ fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
     state.compose(106, 20).expect("clamped tab scroll");
     assert!(state.tab_scroll < 7);
     let manual_scroll = state.tab_scroll;
-    let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
+    let mut replacement = (**state.endpoint.snapshot.as_ref().expect("snapshot")).clone();
     replacement.revision = 2;
     replacement.tab_bar_right[1].text = "tick".into();
     let mut replacement_surface = surface();

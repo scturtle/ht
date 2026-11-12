@@ -54,7 +54,7 @@ impl ClientShellState {
     fn link_hover_target_current(&self, target: &LinkHoverTarget) -> bool {
         self.link_hover_allowed()
             && self.pane_surface.as_ref().is_some_and(|surface| {
-                self.snapshot.as_ref().is_some_and(|snapshot| {
+                self.endpoint.snapshot.as_ref().is_some_and(|snapshot| {
                     surface.boot_id == snapshot.boot_id
                         && surface.projection_revision == snapshot.revision
                 }) && surface.panes.iter().any(|pane| {

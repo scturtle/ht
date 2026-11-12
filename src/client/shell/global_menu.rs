@@ -45,6 +45,7 @@ impl ClientShellState {
 
     pub(super) fn move_global_menu_selection(&mut self, delta: isize) {
         let item_count = self
+            .endpoint
             .snapshot
             .as_deref()
             .map(|_| global_menu_items())
@@ -62,6 +63,7 @@ impl ClientShellState {
         outcome: &mut ClientShellInput,
     ) {
         let Some(action) = self
+            .endpoint
             .snapshot
             .as_deref()
             .and_then(|_| global_menu_items().get(index).map(|(_, action)| *action))

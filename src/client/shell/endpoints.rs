@@ -1,8 +1,8 @@
 use super::*;
 
-/// Metadata for this client's sole Core connection. The projected snapshot is
-/// kept separately from the cached metadata while a replacement surface arrives.
-#[derive(Clone, Debug)]
+/// This client's sole accepted UI snapshot and its Core connection metadata.
+/// Pane surfaces are paired separately by generation, boot and projection revision.
+#[derive(Debug)]
 pub(crate) struct ClientShellEndpoint {
     pub(crate) label: String,
     pub(crate) status: ClientEndpointStatus,
@@ -51,17 +51,6 @@ impl ClientShellState {
         self.refresh_settings_sections();
         true
     }
-    #[cfg(test)]
-    pub(crate) fn activate_endpoint_projection(&mut self) -> bool {
-        if self.endpoint.status != ClientEndpointStatus::Online {
-            return false;
-        }
-        let Some(snapshot) = self.endpoint.snapshot.clone() else {
-            return false;
-        };
-        self.apply_active_snapshot(snapshot, self.endpoint.snapshot_generation);
-        true
-    }
     pub(crate) fn endpoint_status(&self) -> ClientEndpointStatus {
         self.endpoint.status
     }
@@ -79,41 +68,21 @@ impl ClientShellState {
             .is_none_or(|m| m.contains(method.name()))
     }
     pub(super) fn focused_tab_count(&self) -> usize {
-        self.snapshot.as_deref().map_or(0, |s| {
+        self.endpoint.snapshot.as_deref().map_or(0, |s| {
             s.tabs
                 .iter()
                 .filter(|t| Some(t.workspace_id.as_str()) == s.focused_workspace_id.as_deref())
                 .count()
         })
     }
-    #[cfg(test)]
-    pub(crate) fn cache_endpoint_snapshot(&mut self, snapshot: Box<ClientShellSnapshot>) {
-        self.cache_endpoint_snapshot_with_surface(None, snapshot, true);
-    }
-    pub(crate) fn cache_endpoint_snapshot_for_generation(
+    /// Admit and project a snapshot once, before changing UI state. Stale updates
+    /// cannot alter completion history, recency, or the accepted allocation.
+    fn receive_snapshot(
         &mut self,
-        generation: u64,
-        snapshot: Box<ClientShellSnapshot>,
-    ) {
-        self.cache_endpoint_snapshot_with_surface(Some(generation), snapshot, true);
-    }
-    #[cfg(test)]
-    pub(crate) fn cache_endpoint_snapshot_inactive_for_generation(
-        &mut self,
-        generation: u64,
-        snapshot: Box<ClientShellSnapshot>,
-    ) {
-        self.cache_endpoint_snapshot_with_surface(Some(generation), snapshot, false);
-    }
-    /// `acknowledge` marks the projection as the live one: receiving it means
-    /// this client's Core connection is serving, whatever it was doing before.
-    fn cache_endpoint_snapshot_with_surface(
-        &mut self,
-        generation: Option<u64>,
         mut snapshot: Box<ClientShellSnapshot>,
-        acknowledge: bool,
-    ) {
-        if acknowledge && self.endpoint.status != ClientEndpointStatus::Online {
+        generation: Option<u64>,
+    ) -> bool {
+        if self.endpoint.status != ClientEndpointStatus::Online {
             self.set_endpoint_status(ClientEndpointStatus::Online);
         }
         if self.endpoint.snapshot_generation == generation
@@ -123,8 +92,14 @@ impl ClientShellState {
                 .as_deref()
                 .is_some_and(|s| s.boot_id == snapshot.boot_id && s.revision > snapshot.revision)
         {
-            return;
+            return false;
         }
+        let epoch_changed = self.endpoint.snapshot_generation != generation
+            || self
+                .endpoint
+                .snapshot
+                .as_ref()
+                .is_none_or(|old| old.boot_id != snapshot.boot_id);
         if self
             .endpoint
             .snapshot
@@ -136,7 +111,11 @@ impl ClientShellState {
         self.endpoint
             .agent_presentation
             .project_snapshot(&mut snapshot);
-        if let Some(surface) = self.pane_surface.as_ref().filter(|_| acknowledge) {
+        if let Some(surface) = self
+            .pane_surface
+            .as_ref()
+            .filter(|_| self.pane_surface_generation == generation)
+        {
             self.endpoint.agent_presentation.acknowledge_surface(
                 &mut snapshot,
                 surface,
@@ -159,51 +138,35 @@ impl ClientShellState {
         }
         recency.retain(|id, _| snapshot.agents.iter().any(|a| &a.pane_id == id));
         self.endpoint.agent_recency = recency;
-        self.endpoint.snapshot_generation = generation;
-        self.endpoint.snapshot = Some(snapshot);
+        self.apply_snapshot(snapshot, generation);
+        epoch_changed
     }
-    pub(crate) fn acknowledge_active_surface_agents(&mut self, surface: &PaneSurfaceFrame) -> bool {
+    pub(crate) fn acknowledge_active_surface_agents(
+        &mut self,
+        surface: &PaneSurfaceFrame,
+        generation: Option<u64>,
+    ) -> bool {
+        if generation != self.endpoint.snapshot_generation {
+            return false;
+        }
         let Some(snapshot) = self.endpoint.snapshot.as_deref_mut() else {
             return false;
         };
-        let changed = self.endpoint.agent_presentation.acknowledge_surface(
-            snapshot,
-            surface,
-            self.outer_focused,
-        );
-        if changed {
-            self.snapshot = self.endpoint.snapshot.clone();
-        }
-        changed
+        self.endpoint
+            .agent_presentation
+            .acknowledge_surface(snapshot, surface, self.outer_focused)
     }
-    #[cfg(test)]
-    pub(crate) fn set_endpoint_snapshot(&mut self, snapshot: Box<ClientShellSnapshot>) {
-        self.cache_endpoint_snapshot(snapshot);
-        self.apply_cached_snapshot();
-    }
-    /// Return whether the projection scope changed and needs a full host redraw.
+    /// Return whether the accepted scope changed and needs a full host redraw.
     pub(crate) fn set_endpoint_snapshot_for_generation(
         &mut self,
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) -> bool {
-        let epoch_changed = self.active_snapshot_generation != Some(generation)
-            || self
-                .snapshot
-                .as_ref()
-                .is_none_or(|old| old.boot_id != snapshot.boot_id);
-        self.cache_endpoint_snapshot_for_generation(generation, snapshot);
-        self.apply_cached_snapshot();
-        epoch_changed
+        self.receive_snapshot(snapshot, Some(generation))
     }
     #[cfg(test)]
     pub(crate) fn set_snapshot(&mut self, snapshot: Box<ClientShellSnapshot>) {
-        self.set_endpoint_snapshot(snapshot);
-    }
-    fn apply_cached_snapshot(&mut self) {
-        if let Some(snapshot) = self.endpoint.snapshot.clone() {
-            self.apply_active_snapshot(snapshot, self.endpoint.snapshot_generation);
-        }
+        self.receive_snapshot(snapshot, None);
     }
 }
 pub(super) fn endpoint_status_presentation(

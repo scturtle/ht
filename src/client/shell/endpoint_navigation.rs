@@ -10,7 +10,8 @@ impl ClientShellState {
     }
 
     pub(super) fn endpoint_workspace_is_draggable(&self, press: &ClientWorkspacePress) -> bool {
-        self.snapshot
+        self.endpoint
+            .snapshot
             .as_deref()
             .and_then(|snapshot| {
                 snapshot

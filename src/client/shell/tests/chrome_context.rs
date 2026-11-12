@@ -30,7 +30,12 @@ fn tab_overflow_controls_scroll_the_client_owned_tab_bar() {
     assert!(outcome.repaint);
     assert_eq!(state.tab_scroll, 1);
 
-    let mut update = state.snapshot.as_deref().expect("snapshot").clone();
+    let mut update = state
+        .endpoint
+        .snapshot
+        .as_deref()
+        .expect("snapshot")
+        .clone();
     update.focused_tab_id = Some("tab_8".into());
     for tab in &mut update.tabs {
         tab.focused = tab.tab_id == "tab_8";
@@ -170,7 +175,12 @@ fn focused_workspace_change_reveals_new_workspace_in_full_sidebar() {
         .iter()
         .all(|hit| hit.workspace_id != "ws_12"));
 
-    let mut update = state.snapshot.as_deref().expect("snapshot").clone();
+    let mut update = state
+        .endpoint
+        .snapshot
+        .as_deref()
+        .expect("snapshot")
+        .clone();
     update.revision = 2;
     update.focused_workspace_id = Some("ws_12".into());
     for workspace in &mut update.workspaces {
@@ -299,7 +309,7 @@ fn diagnostic_menus_capture_only_local_state_without_focus_or_input_requests() {
         state.set_snapshot(Box::new(snapshot()));
         state.set_pane_surface(surface());
         state.compose(106, 30).unwrap();
-        let before = state.snapshot.clone();
+        let before = state.endpoint.snapshot.clone();
         let before_surface = state.pane_surface.clone();
         let mut outcome = ClientShellInput::default();
         if global {
@@ -325,7 +335,7 @@ fn diagnostic_menus_capture_only_local_state_without_focus_or_input_requests() {
         }
         assert!(outcome.requests.is_empty());
         assert!(!outcome.resize && !outcome.detach);
-        assert_eq!(state.snapshot, before);
+        assert_eq!(state.endpoint.snapshot, before);
         assert_eq!(state.pane_surface, before_surface);
         let [ClientShellAction::DumpPaneDiagnostics { pane_id, client }] = &outcome.actions[..]
         else {

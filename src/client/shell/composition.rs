@@ -46,7 +46,7 @@ impl ClientShellState {
                     && self.navigation_target_valid(&pending.target)
             });
         // A resize invalidates pane geometry, not the healthy Local workspace chrome.
-        let local_snapshot = self.snapshot.as_deref().filter(|_| {
+        let local_snapshot = self.endpoint.snapshot.as_deref().filter(|_| {
             layout.sidebar.width > 0 && self.endpoint_status() == ClientEndpointStatus::Online
         });
         let mut render_state = render::ShellRenderState {
@@ -144,14 +144,14 @@ impl ClientShellState {
                 self.mode != ClientShellMode::Navigate
                     && self.navigation_target_valid(&pending.target)
             });
-        if self.snapshot.is_none() || self.pane_surface.is_none() {
+        if self.endpoint.snapshot.is_none() || self.pane_surface.is_none() {
             return Some(self.compose_unavailable(cols, rows).into());
         }
-        let snapshot = self.snapshot.as_deref()?;
+        let snapshot = self.endpoint.snapshot.as_deref()?;
         // Do not compose a retained surface while waiting for its matching snapshot or
         // connection generation.
         if self.pending_pane_surface.is_some()
-            || self.pane_surface_generation != self.active_snapshot_generation
+            || self.pane_surface_generation != self.endpoint.snapshot_generation
         {
             return None;
         }

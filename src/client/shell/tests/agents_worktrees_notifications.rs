@@ -134,7 +134,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
     assert!(text.contains("└─"));
     assert!(text.contains("feature"));
 
-    let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
+    let mut replacement = (**state.endpoint.snapshot.as_ref().expect("snapshot")).clone();
     replacement.revision = 2;
     replacement.focused_workspace_id = Some("ws_2".into());
     replacement.workspaces[0].focused = false;
@@ -247,10 +247,10 @@ fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
                     if matches!(&request.action, crate::actions::Action::WorkspaceFocus(target)
                         if target.workspace_id == "ws_duplicate")));
         }
-        let original = state.snapshot.as_deref().unwrap().clone();
+        let original = state.endpoint.snapshot.as_deref().unwrap().clone();
         for confirm_close in [false, true] {
             let mut restored = original.clone();
-            restored.revision = state.snapshot.as_deref().unwrap().revision + 1;
+            restored.revision = state.endpoint.snapshot.as_deref().unwrap().revision + 1;
             state.set_snapshot(Box::new(restored));
             state.config.confirm_close = confirm_close;
             state.open_workspace_context_menu("ws_duplicate".into(), 0, 0);
@@ -266,7 +266,7 @@ fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
             );
             if linked_child {
                 let mut replacement = original.clone();
-                replacement.revision = state.snapshot.as_deref().unwrap().revision + 1;
+                replacement.revision = state.endpoint.snapshot.as_deref().unwrap().revision + 1;
                 replacement
                     .workspaces
                     .retain(|workspace| workspace.workspace_id != "ws_1");
@@ -510,7 +510,7 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
     assert!(dragging_child.actions.is_empty());
     assert!(state.chrome_drag.is_none());
 
-    let mut projected = state.snapshot.as_deref().unwrap().clone();
+    let mut projected = state.endpoint.snapshot.as_deref().unwrap().clone();
     let mut duplicate = projected.workspaces[0].clone();
     duplicate.workspace_id = "ws_duplicate".into();
     duplicate.focused = false;

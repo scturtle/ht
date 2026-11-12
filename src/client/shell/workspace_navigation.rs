@@ -40,7 +40,7 @@ impl ClientShellState {
             .as_ref()
             .is_some_and(|pending| {
                 !self.navigation_target_valid(&pending.target)
-                    || self.snapshot.as_deref().is_some_and(|snapshot| {
+                    || self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                         snapshot.focused_workspace_id.as_deref()
                             == Some(pending.target.workspace_id.as_str())
                     })
@@ -64,7 +64,12 @@ impl ClientShellState {
     }
 
     pub(super) fn focused_navigation_target(&self) -> Option<WorkspaceNavigationTarget> {
-        let workspace_id = self.snapshot.as_deref()?.focused_workspace_id.as_deref()?;
+        let workspace_id = self
+            .endpoint
+            .snapshot
+            .as_deref()?
+            .focused_workspace_id
+            .as_deref()?;
         self.navigation_target(workspace_id)
     }
 
@@ -87,7 +92,7 @@ impl ClientShellState {
 
     pub(super) fn move_navigate_workspace(&mut self, delta: isize) {
         let mobile = self.mobile_layout_active();
-        let surface_available = self.snapshot.is_some() && self.pane_surface.is_some();
+        let surface_available = self.endpoint.snapshot.is_some() && self.pane_surface.is_some();
         let empty_collapsed_groups = HashSet::new();
         let mut targets = Vec::new();
         let endpoint = &self.endpoint;
@@ -145,7 +150,7 @@ impl ClientShellState {
         self.navigate_workspace_id = Some(target);
         self.reveal_mobile_workspace = mobile;
         self.reveal_navigation_workspace =
-            !mobile || self.snapshot.is_none() || self.pane_surface.is_none();
+            !mobile || self.endpoint.snapshot.is_none() || self.pane_surface.is_none();
     }
 
     pub(super) fn accept_navigate_workspace(&mut self, outcome: &mut ClientShellInput) {

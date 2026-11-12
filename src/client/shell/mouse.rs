@@ -71,7 +71,7 @@ impl ClientShellState {
         offset_from_bottom: usize,
         outcome: &mut ClientShellInput,
     ) {
-        if self.snapshot.is_none() {
+        if self.endpoint.snapshot.is_none() {
             return;
         }
         self.next_scroll_serial = self.next_scroll_serial.saturating_add(1);
@@ -425,7 +425,7 @@ impl ClientShellState {
     }
 
     fn pane_split_target_is_current(&self, hit: &PaneSplitHit, tab_id: &str) -> Option<bool> {
-        let snapshot = self.snapshot.as_deref()?;
+        let snapshot = self.endpoint.snapshot.as_deref()?;
         let surface = self.pane_surface.as_ref()?;
         if snapshot.revision != surface.projection_revision {
             return None;
@@ -449,7 +449,7 @@ impl ClientShellState {
     }
 
     fn tab_drop_index_at(&self, point: (u16, u16)) -> Option<usize> {
-        let snapshot = self.snapshot.as_deref()?;
+        let snapshot = self.endpoint.snapshot.as_deref()?;
         let workspace_id = snapshot.focused_workspace_id.as_deref()?;
         let tabs = snapshot
             .tabs
@@ -513,7 +513,7 @@ impl ClientShellState {
         {
             return None;
         }
-        let snapshot = self.snapshot.as_deref()?;
+        let snapshot = self.endpoint.snapshot.as_deref()?;
         let mut slots = self
             .hits
             .workspaces
@@ -575,7 +575,7 @@ impl ClientShellState {
         source_workspace_id: &str,
         before_workspace_id: Option<&str>,
     ) -> Option<crate::actions::Action> {
-        let snapshot = self.snapshot.as_deref()?;
+        let snapshot = self.endpoint.snapshot.as_deref()?;
         let source = snapshot
             .workspaces
             .iter()
@@ -1065,20 +1065,22 @@ impl ClientShellState {
                         ..
                     } => {
                         let insert_index = self.tab_drop_index_at(point);
-                        let valid_drop = self.snapshot.as_deref().is_some_and(|snapshot| {
-                            snapshot.focused_workspace_id.as_deref() == Some(workspace_id.as_str())
-                                && snapshot.tabs.iter().any(|tab| {
-                                    tab.tab_id == tab_id && tab.workspace_id == workspace_id
-                                })
-                                && insert_index.is_some_and(|index| {
-                                    index
-                                        <= snapshot
-                                            .tabs
-                                            .iter()
-                                            .filter(|tab| tab.workspace_id == workspace_id)
-                                            .count()
-                                })
-                        });
+                        let valid_drop =
+                            self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
+                                snapshot.focused_workspace_id.as_deref()
+                                    == Some(workspace_id.as_str())
+                                    && snapshot.tabs.iter().any(|tab| {
+                                        tab.tab_id == tab_id && tab.workspace_id == workspace_id
+                                    })
+                                    && insert_index.is_some_and(|index| {
+                                        index
+                                            <= snapshot
+                                                .tabs
+                                                .iter()
+                                                .filter(|tab| tab.workspace_id == workspace_id)
+                                                .count()
+                                    })
+                            });
                         if valid_drop {
                             self.push_endpoint_method(
                                 crate::actions::Action::TabMove(crate::actions::TabMoveParams {
@@ -1500,6 +1502,7 @@ impl ClientShellState {
                     .cloned();
                 if let Some(hit) = pane_hit {
                     let pane_owns_right_click = self
+                        .endpoint
                         .snapshot
                         .as_deref()
                         .and_then(|snapshot| {
@@ -1775,6 +1778,7 @@ impl ClientShellState {
                 }
                 if super::contains(self.hits.tab_scroll_right, point) {
                     let tab_count = self
+                        .endpoint
                         .snapshot
                         .as_deref()
                         .and_then(|snapshot| {
@@ -1828,6 +1832,7 @@ impl ClientShellState {
                             .find(|(rect, _)| super::contains(*rect, point))
                             .and_then(|(_, tab_id)| {
                                 let tab = self
+                                    .endpoint
                                     .snapshot
                                     .as_deref()?
                                     .tabs
@@ -1905,6 +1910,7 @@ impl ClientShellState {
                     .cloned();
                 if let Some(hit) = split_hit {
                     let Some(tab_id) = self
+                        .endpoint
                         .snapshot
                         .as_deref()
                         .and_then(|snapshot| snapshot.focused_tab_id.clone())
