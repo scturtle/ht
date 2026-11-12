@@ -110,7 +110,7 @@ CORE_UI_BASELINE=/absolute/path/to/old-ht just core-scheduling-smoke
 
 - reload config 重新加载客户端配置；Core 未实现 `server.reload_config` 时不发送该请求。
 - pane/workspace/tab 右键菜单按实际方法表过滤；例如 Core 缺少 `terminal.label` 时不显示重命名。
-- Core 未实现 integration list/install，设置中不显示 integrations；worktree 操作也不因旧 UI 类型仍存在而获得能力。
+- Core 未实现 integration list/install 与 worktree 操作，客户端已移除对应设置页、右键/键位动作、对话框和响应分支；`api/schema` 中的相关词汇仍作为共享 schema 保留。旧配置里的 `keys.new_worktree`/`open_worktree`/`remove_worktree` 与 `[worktrees]` 仍能加载，只报告 unknown key/section 并忽略，不改写用户文件。
 - Core 转发真实终端 BEL 与 OSC 52，因此声音/剪贴板链路保留。它没有 semantic agent-notification
   事件生产者，设置中不展示对应 toasts 选项；历史配置仍可解析，但不会凭空生成通知。
   剪贴板 toast 是另一条客户端链路，不受此限制。

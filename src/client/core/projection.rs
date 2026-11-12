@@ -209,8 +209,6 @@ impl Model {
             update_install_command: String::new(),
             server_keybindings_toml: None,
             latest_release_notes_available: false,
-            integration_updates_available: false,
-            worktree_directory: String::new(),
             release_notes: None,
             focused_workspace_id: (!self.active_workspace.is_empty())
                 .then(|| self.active_workspace.clone()),

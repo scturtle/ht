@@ -16,7 +16,6 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "theme",
     "ui",
     "update",
-    "worktrees",
 ];
 
 pub fn app_dir_name() -> &'static str {
@@ -306,14 +305,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.advanced = section,
-    );
-    load_live_section(
-        table,
-        "worktrees",
-        "worktree config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.worktrees = section,
     );
     load_live_section(
         table,
@@ -977,6 +968,61 @@ agent_panel_sort = "priority"
             loaded.config.ui.agent_panel_sort,
             super::super::AgentPanelSortConfig::Priority
         );
+    }
+
+    #[test]
+    fn retired_worktree_settings_load_with_ignored_key_and_section_diagnostics() {
+        let loaded = load_live_config_from_str(
+            r#"
+[keys]
+new_workspace = "prefix+shift+n"
+new_worktree = "prefix+shift+g"
+open_worktree = "prefix+g"
+remove_worktree = "prefix+shift+d"
+
+[worktrees]
+directory = "~/Projects/herdr-worktrees"
+
+[ui]
+sidebar_width = 32
+"#,
+        )
+        .unwrap();
+
+        assert!(loaded.invalid_sections.is_empty());
+        for diagnostic in [
+            "unknown config key keys.new_worktree; ignoring key",
+            "unknown config key keys.open_worktree; ignoring key",
+            "unknown config key keys.remove_worktree; ignoring key",
+            "unknown config section [worktrees]; ignoring section",
+        ] {
+            assert!(
+                loaded.diagnostics.iter().any(|found| found == diagnostic),
+                "{diagnostic} missing from {:?}",
+                loaded.diagnostics
+            );
+        }
+        assert!(
+            loaded
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.starts_with("unknown config")),
+            "retired worktree settings must only be reported as ignored: {:?}",
+            loaded.diagnostics
+        );
+        // Live settings beside the retired keys keep applying.
+        assert_eq!(loaded.config.ui.sidebar_width, 32);
+        let keys = loaded.config.keybinds();
+        assert!(keys
+            .new_workspace
+            .bindings
+            .iter()
+            .any(|binding| binding.label == "prefix+shift+n"));
+        assert!(keys
+            .close_workspace
+            .bindings
+            .iter()
+            .any(|binding| binding.label == "prefix+shift+d"));
     }
 
     #[test]

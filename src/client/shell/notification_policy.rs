@@ -22,17 +22,10 @@ fn notification_duration(kind: SemanticNotificationKind) -> std::time::Duration 
 }
 
 impl ClientShellState {
-    pub(super) fn retire_endpoint_notifications(&mut self, endpoint_id: &ClientEndpointId) {
-        self.pending_notifications
-            .retain(|pending| &pending.endpoint_id != endpoint_id);
-        self.queued_notifications
-            .retain(|queued| &queued.endpoint_id != endpoint_id);
-        if self
-            .visible_notification
-            .as_ref()
-            .is_some_and(|visible| &visible.endpoint_id == endpoint_id)
-        {
-            self.visible_notification = None;
+    pub(super) fn retire_endpoint_notifications(&mut self) {
+        self.pending_notifications.clear();
+        self.queued_notifications.clear();
+        if self.visible_notification.take().is_some() {
             self.promote_queued_notification(std::time::Instant::now());
         }
     }
@@ -66,10 +59,8 @@ impl ClientShellState {
         let Some(notification) = self.visible_notification.as_ref() else {
             return;
         };
-        if notification.event.pane_id.is_some()
-            && !self.endpoint_is_online(&notification.endpoint_id)
-        {
-            let label = self.endpoint_label(&notification.endpoint_id).to_owned();
+        if notification.event.pane_id.is_some() && !self.endpoint_is_online() {
+            let label = self.endpoint_label().to_owned();
             self.receive_endpoint_unavailable(format!("{label} is unavailable"));
             outcome.repaint = true;
             return;

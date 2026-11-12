@@ -274,30 +274,6 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             scroll: 0,
             filter: None,
         }),
-        ClientShellOverlay::WorktreeCreate(ClientWorktreeCreateOverlay {
-            source_workspace_id: "ws_1".into(),
-            repo_name: "repo".into(),
-            branch: "branch".into(),
-            checkout_path: "path".into(),
-            error: None,
-            creating: false,
-        }),
-        ClientShellOverlay::WorktreeOpen(ClientWorktreeOpenOverlay {
-            source_workspace_id: "ws_1".into(),
-            entries: Vec::new(),
-            selected: 0,
-            query: TextEditor::default(),
-            search_focused: false,
-            error: None,
-            opening: false,
-        }),
-        ClientShellOverlay::WorktreeRemove(ClientWorktreeRemoveOverlay {
-            workspace_id: "ws_1".into(),
-            path: "path".into(),
-            error: None,
-            removing: false,
-            force_confirmation: false,
-        }),
         ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             methods: None,
             target: ClientContextMenuTarget::Tab {
@@ -315,10 +291,6 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             selected: 0,
             original_theme_name: String::new(),
             original_palette: palette,
-            integrations: Vec::new(),
-            integration_messages: Vec::new(),
-            loading_integrations: false,
-            installing_integrations: false,
         }),
     ];
     for overlay in overlays {

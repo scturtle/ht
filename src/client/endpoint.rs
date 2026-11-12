@@ -18,6 +18,7 @@ impl ClientEndpointId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClientEndpointStatus {
+    /// No projection has arrived yet.
     Connecting,
     Online,
     #[cfg(test)]

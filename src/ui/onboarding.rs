@@ -11,7 +11,7 @@ pub(crate) const ONBOARDING_PREFIX_SUFFIX: &str = " enters prefix mode · ";
 pub(crate) const ONBOARDING_HELP_LABEL: &str = "?";
 pub(crate) const ONBOARDING_HELP_SUFFIX: &str = " shows keybinds and settings";
 pub(crate) const ONBOARDING_NEXT: &str =
-    "  next: install optional agent integrations for more reliable state";
+    "  next: open settings to pick a theme and status indicators";
 
 pub(crate) fn onboarding_welcome_continue_rect(area: Rect) -> Rect {
     super::widgets::continue_button_rect(area)

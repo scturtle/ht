@@ -8,16 +8,14 @@ pub(super) enum ClientGlobalMenuAction {
 }
 
 pub(super) fn global_menu_attention(snapshot: &ClientShellSnapshot) -> bool {
-    snapshot.update_available.is_some() || snapshot.integration_updates_available
+    snapshot.update_available.is_some()
 }
 
 pub(super) fn global_menu_item_has_badge(
     snapshot: &ClientShellSnapshot,
     action: ClientGlobalMenuAction,
 ) -> bool {
-    (action == ClientGlobalMenuAction::WhatsNew && snapshot.update_available.is_some())
-        || (action == ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Settings)
-            && snapshot.integration_updates_available)
+    action == ClientGlobalMenuAction::WhatsNew && snapshot.update_available.is_some()
 }
 
 pub(super) fn global_menu_items(

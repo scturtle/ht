@@ -9,43 +9,10 @@ pub(super) struct EndpointAgentPresentation {
     acknowledged: HashMap<String, u64>,
     completed: HashMap<String, u64>,
     working: HashSet<String>,
-    pending_completions: Option<(
-        Option<u64>,
-        crate::protocol::endpoint::EndpointAgentCompletions,
-    )>,
 }
 
 impl EndpointAgentPresentation {
-    #[cfg(test)]
-    pub(super) fn receive_completions(
-        &mut self,
-        generation: Option<u64>,
-        completions: crate::protocol::endpoint::EndpointAgentCompletions,
-    ) {
-        if self
-            .pending_completions
-            .as_ref()
-            .is_some_and(|(current_generation, current)| {
-                *current_generation == generation
-                    && current.boot_id == completions.boot_id
-                    && current.revision >= completions.revision
-            })
-        {
-            return;
-        }
-        self.pending_completions = Some((generation, completions));
-    }
-
-    #[cfg(test)]
     pub(super) fn project_snapshot(&mut self, snapshot: &mut ClientShellSnapshot) {
-        self.project_snapshot_for_generation(snapshot, None);
-    }
-
-    pub(super) fn project_snapshot_for_generation(
-        &mut self,
-        snapshot: &mut ClientShellSnapshot,
-        generation: Option<u64>,
-    ) {
         if self.boot_id.as_deref() != Some(snapshot.boot_id.as_str()) {
             self.boot_id = Some(snapshot.boot_id.clone());
             self.acknowledged.clear();
@@ -69,15 +36,6 @@ impl EndpointAgentPresentation {
             .retain(|pane_id, _| pane_ids.contains(pane_id.as_str()));
         self.working
             .retain(|pane_id| pane_ids.contains(pane_id.as_str()));
-        let completions = self
-            .pending_completions
-            .take()
-            .filter(|(received_generation, projection)| {
-                *received_generation == generation
-                    && projection.boot_id == snapshot.boot_id
-                    && projection.revision == snapshot.revision
-            })
-            .map(|(_, projection)| projection.completions);
         for agent in &mut snapshot.agents {
             match agent.agent_status {
                 AgentStatus::Working => {
@@ -89,16 +47,8 @@ impl EndpointAgentPresentation {
                 }
                 AgentStatus::Idle | AgentStatus::Done => {
                     let observed_work = self.working.remove(&agent.pane_id);
-                    let completed = completions.as_ref().map_or_else(
-                        || {
-                            observed_work
-                                || self.completed.get(&agent.pane_id)
-                                    == Some(&agent.state_change_seq)
-                        },
-                        |completions| {
-                            completions.get(&agent.pane_id) == Some(&agent.state_change_seq)
-                        },
-                    );
+                    let completed = observed_work
+                        || self.completed.get(&agent.pane_id) == Some(&agent.state_change_seq);
                     if completed {
                         self.completed
                             .insert(agent.pane_id.clone(), agent.state_change_seq);
@@ -204,9 +154,7 @@ fn project_aggregate_status(snapshot: &mut ClientShellSnapshot) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{
-        endpoint::EndpointAgentCompletions, FrameData, PaneSurfacePane, SurfaceRect,
-    };
+    use crate::protocol::{FrameData, PaneSurfacePane, SurfaceRect};
 
     fn agent(status: AgentStatus, sequence: u64) -> ClientShellAgent {
         ClientShellAgent {
@@ -294,17 +242,6 @@ mod tests {
         assert_eq!(projected, AgentStatus::Idle, "{states:?}");
     }
 
-    fn completions(boot: &str, revision: u64, seq: Option<u64>) -> EndpointAgentCompletions {
-        EndpointAgentCompletions {
-            boot_id: boot.into(),
-            revision,
-            completions: seq
-                .map(|seq| ("agent-pane".into(), seq))
-                .into_iter()
-                .collect(),
-        }
-    }
-
     #[test]
     fn completion_guard_initial_unknown_to_idle_does_not_project_done() {
         assert_idle_sequence(&[(AgentStatus::Unknown, 0), (AgentStatus::Idle, 1)]);
@@ -342,67 +279,11 @@ mod tests {
     }
 
     #[test]
-    fn completion_guard_distinguishes_coalesced_work_from_rebind() {
-        for completion in [None, Some(6)] {
-            let mut presentation = EndpointAgentPresentation::default();
-            let mut baseline = snapshot(AgentStatus::Idle, 4, 1);
-            presentation.project_snapshot(&mut baseline);
-            presentation.receive_completions(None, completions(&baseline.boot_id, 2, completion));
-            let mut settled = snapshot(AgentStatus::Idle, 6, 2);
-
-            presentation.project_snapshot(&mut settled);
-
-            let expected = if completion.is_some() {
-                AgentStatus::Done
-            } else {
-                AgentStatus::Idle
-            };
-            assert_eq!(settled.agents[0].agent_status, expected);
-            presentation.project_snapshot(&mut settled);
-            assert_eq!(settled.agents[0].agent_status, expected);
-        }
-    }
-
-    #[test]
-    fn completion_guard_server_suppression_overrides_client_observed_work() {
-        let mut presentation = EndpointAgentPresentation::default();
-        let mut baseline = snapshot(AgentStatus::Working, 1, 1);
-        presentation.project_snapshot(&mut baseline);
-        presentation.receive_completions(None, completions(&baseline.boot_id, 2, None));
-        let mut settled = snapshot(AgentStatus::Idle, 2, 2);
-
-        presentation.project_snapshot(&mut settled);
-
-        assert_eq!(settled.agents[0].agent_status, AgentStatus::Idle);
-    }
-
-    #[test]
-    fn completion_guard_companion_is_scoped_to_boot_revision_and_connection() {
-        for (boot, revision, generation, seq) in [
-            ("old-boot", 2, Some(1), 6),
-            ("endpoint-boot", 1, Some(1), 6),
-            ("endpoint-boot", 2, Some(0), 6),
-            ("endpoint-boot", 2, Some(1), 5),
-        ] {
-            let mut presentation = EndpointAgentPresentation::default();
-            let mut baseline = snapshot(AgentStatus::Idle, 4, 1);
-            presentation.project_snapshot_for_generation(&mut baseline, Some(1));
-            presentation.receive_completions(generation, completions(boot, revision, Some(seq)));
-            let mut settled = snapshot(AgentStatus::Idle, 6, 2);
-
-            presentation.project_snapshot_for_generation(&mut settled, Some(1));
-
-            assert_eq!(settled.agents[0].agent_status, AgentStatus::Idle);
-        }
-    }
-
-    #[test]
-    fn completion_guard_new_boot_baselines_existing_completions() {
+    fn completion_guard_new_boot_does_not_project_prior_work_done() {
         let mut presentation = EndpointAgentPresentation::default();
         let mut old = snapshot(AgentStatus::Working, 1, 1);
         old.boot_id = "old-boot".into();
         presentation.project_snapshot(&mut old);
-        presentation.receive_completions(None, completions("endpoint-boot", 1, Some(6)));
         let mut restored = snapshot(AgentStatus::Idle, 6, 1);
 
         presentation.project_snapshot(&mut restored);

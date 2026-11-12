@@ -39,7 +39,6 @@ mod terminal_modes;
 mod terminal_notify;
 mod terminal_theme;
 mod ui;
-mod worktree;
 pub(crate) const HERDR_ENV_VAR: &str = "HERDR_ENV";
 
 pub(crate) const HERDR_ENV_VALUE: &str = "1";
@@ -129,9 +128,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # workspace_picker = "prefix+w"
 # goto = "prefix+g"
 # new_workspace = "prefix+shift+n"
-# new_worktree = "prefix+shift+g"
-# open_worktree = ""    # optional, unset by default
-# remove_worktree = ""  # optional, unset by default; opens confirmation
 # rename_workspace = "prefix+shift+w"
 # close_workspace = "prefix+shift+d"
 # previous_workspace = "" # optional, unset by default
@@ -202,9 +198,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # allow_unelevated_clients = false
 # headless_cols = 120
 # headless_rows = 40
-
-# [worktrees]
-# directory = "~/.herdr/worktrees"
 
 [ui]
 # Sidebar width (auto-scaled based on workspace names, this sets the default)

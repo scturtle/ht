@@ -1,6 +1,6 @@
 //! The one Core command lane. Correlation and retirement survive the removal of federation.
 use super::{
-    endpoint::{ClientEndpointId, EndpointRegistry, EndpointSendOutcome},
+    endpoint::{EndpointRegistry, EndpointSendOutcome},
     shell::ClientShellEndpointError,
 };
 use crate::{
@@ -25,7 +25,6 @@ struct InFlightCommand {
     sent_at: Instant,
 }
 pub(super) struct EndpointCommandResult {
-    pub(super) endpoint_id: ClientEndpointId,
     pub(super) generation: u64,
     pub(super) boot_id: String,
     pub(super) request_id: String,
@@ -38,31 +37,21 @@ pub(super) struct EndpointCommands {
     retired: VecDeque<(u64, String, String)>,
 }
 impl EndpointCommands {
-    pub(super) fn enqueue(
-        &mut self,
-        _id: ClientEndpointId,
-        generation: u64,
-        boot_id: String,
-        request: Box<Request>,
-    ) {
+    pub(super) fn enqueue(&mut self, generation: u64, boot_id: String, request: Box<Request>) {
         self.queued.push_back(QueuedCommand {
             generation,
             boot_id,
             request,
         });
     }
-    pub(super) fn send_next(
-        &mut self,
-        id: &ClientEndpointId,
-        connection: &mut EndpointRegistry,
-    ) -> Vec<String> {
+    pub(super) fn send_next(&mut self, connection: &mut EndpointRegistry) -> Vec<String> {
         let mut cancelled = Vec::new();
         if self.in_flight.is_some() {
             return cancelled;
         }
         while let Some(command) = self.queued.pop_front() {
             let request_id = command.request.id.clone();
-            if !connection.accepts(id, command.generation) {
+            if !connection.accepts(command.generation) {
                 cancelled.push(request_id);
                 continue;
             }
@@ -90,13 +79,7 @@ impl EndpointCommands {
             .is_some_and(|c| c.generation == generation && c.boot_id == boot && c.request_id == id)
     }
     #[cfg(test)]
-    pub(super) fn accepts_response(
-        &self,
-        _id: &ClientEndpointId,
-        generation: u64,
-        boot: &str,
-        id: &str,
-    ) -> bool {
+    pub(super) fn accepts_response(&self, generation: u64, boot: &str, id: &str) -> bool {
         self.matches(generation, boot, id)
     }
     pub(super) fn diagnostic_snapshot(&self) -> serde_json::Value {
@@ -151,7 +134,6 @@ impl EndpointCommands {
             command.request_id.clone(),
         ));
         vec![EndpointCommandResult {
-            endpoint_id: ClientEndpointId::Local,
             generation: command.generation,
             boot_id: command.boot_id,
             request_id: command.request_id,
@@ -165,7 +147,6 @@ impl EndpointCommands {
     }
     pub(super) fn receive_response(
         &mut self,
-        _id: &ClientEndpointId,
         generation: u64,
         boot: &str,
         id: &str,
@@ -184,7 +165,6 @@ impl EndpointCommands {
         }
         let command = self.in_flight.take()?;
         Some(EndpointCommandResult {
-            endpoint_id: ClientEndpointId::Local,
             generation: command.generation,
             boot_id: command.boot_id,
             request_id: command.request_id,
@@ -219,19 +199,12 @@ mod tests {
             (1, "boot-a", "request-b"),
         ] {
             assert!(c
-                .receive_response(
-                    &ClientEndpointId::Local,
-                    generation,
-                    boot,
-                    id,
-                    Ok(Box::new(ResponseResult::Ok {}))
-                )
+                .receive_response(generation, boot, id, Ok(Box::new(ResponseResult::Ok {})))
                 .is_none());
             assert!(c.in_flight.is_some());
         }
         assert!(c
             .receive_response(
-                &ClientEndpointId::Local,
                 1,
                 "boot-a",
                 "request-a",
@@ -246,7 +219,6 @@ mod tests {
         let selection = "selected".repeat(160_000);
         let completed = c
             .receive_response(
-                &ClientEndpointId::Local,
                 1,
                 "boot-a",
                 "request-a",
@@ -278,14 +250,13 @@ mod tests {
         });
         assert!(c
             .receive_response(
-                &ClientEndpointId::Local,
                 1,
                 "boot-a",
                 "request-a",
                 Ok(Box::new(ResponseResult::Ok {}))
             )
             .is_none());
-        assert!(c.accepts_response(&ClientEndpointId::Local, 1, "boot-a", "next"));
+        assert!(c.accepts_response(1, "boot-a", "next"));
     }
     #[test]
     fn replacement_boot_retires_uncertain_delivery_without_replaying_it() {
@@ -295,7 +266,6 @@ mod tests {
         assert!(c.observe_snapshot(1, "boot-b").is_empty());
         assert!(c
             .receive_response(
-                &ClientEndpointId::Local,
                 1,
                 "boot-a",
                 "request-a",

@@ -81,9 +81,6 @@ fn graphics_over_budget_finish_without_another_input_or_core_event() {
         first.first(),
         Some(ServerMessage::ClientShellSnapshot(_))
     ));
-    assert!(!first
-        .iter()
-        .any(|message| matches!(message, ServerMessage::EndpointControl { .. })));
     assert_eq!(assets(first), 1);
     assert!(
         !super::super::should_wait_for_work(false, &session),

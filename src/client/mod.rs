@@ -263,13 +263,10 @@ fn server_graphics_files_allowed(
 }
 
 fn graphics_owner_is_active(
-    state: &ClientState,
     endpoints: &endpoint::EndpointRegistry,
     owner: &endpoint::ClientEndpointId,
 ) -> bool {
-    endpoints.active_id() == owner
-        && endpoints.connection(owner).is_some()
-        && state.shell.endpoint_is_active(owner)
+    endpoints.active_id() == owner && endpoints.connection().is_some()
 }
 
 /// The main client event loop.
@@ -325,7 +322,7 @@ async fn run_client_loop(
         shell.set_host_reports_key_releases(config.host_escape_disambiguation_active);
         shell.set_host_erase_byte(crate::platform::terminal_erase_byte());
         shell.set_graphics_cell_size(initial_cell_width_px, initial_cell_height_px);
-        shell.set_endpoint_methods_for(&endpoint::ClientEndpointId::Local, Some(endpoint_methods));
+        shell.set_endpoint_methods(Some(endpoint_methods));
     }
     let host_mouse_capture_active = Arc::new(AtomicBool::new(state.mouse_capture_active));
     // Cell size reported by the host terminal, packed as width<<32 | height.
@@ -497,7 +494,7 @@ async fn run_client_loop(
                     continue;
                 };
                 let eligible = response.success
-                    && graphics_owner_is_active(&state, &write_stream, &owner)
+                    && graphics_owner_is_active(&write_stream, &owner)
                     && state
                         .shell
                         .accepts_direct_graphics_asset(&asset, response.image_id);
@@ -540,7 +537,7 @@ async fn run_client_loop(
                     image_id: response.image_id,
                     success: accepted,
                 };
-                write_stream.send_to(&owner, &message);
+                write_stream.send(&message);
             }
             ClientLoopEvent::PixelMouse(data, geometry) => {
                 let (outcome, frame) = {
@@ -626,7 +623,7 @@ async fn run_client_loop(
                 generation,
                 message,
             } => {
-                if !write_stream.accepts(&endpoint_id, generation) {
+                if !write_stream.accepts(generation) {
                     continue;
                 }
                 // Retirements belong to the exact live connection, even after deactivation.
@@ -640,8 +637,7 @@ async fn run_client_loop(
                         image_id,
                     } = message.as_ref()
                     {
-                        let owner_active =
-                            graphics_owner_is_active(&state, &write_stream, &endpoint_id);
+                        let owner_active = graphics_owner_is_active(&write_stream, &endpoint_id);
                         state.receive_graphics_retirement(
                             &endpoint_id,
                             generation,
@@ -652,8 +648,8 @@ async fn run_client_loop(
                     }
                     continue;
                 }
-                let endpoint_active = write_stream.active_id() == &endpoint_id
-                    && write_stream.connection(&endpoint_id).is_some();
+                let endpoint_active =
+                    write_stream.active_id() == &endpoint_id && write_stream.connection().is_some();
                 match *message {
                     ServerMessage::ClientShellSnapshot(snapshot) => {
                         for id in endpoint_commands.observe_snapshot(generation, &snapshot.boot_id)
@@ -665,7 +661,6 @@ async fn run_client_loop(
                         }
                         install_client_shell_snapshot(
                             &mut state,
-                            &endpoint_id,
                             snapshot,
                             &mut write_stream,
                             &mut prefix_input_source,
@@ -765,14 +760,11 @@ async fn run_client_loop(
                         // Never interpret an SSH server's filesystem path on this host,
                         // including legacy peers that send files without negotiation.
                         if !server_graphics_files_allowed(&endpoint_id, false) {
-                            write_stream.send_to(
-                                &endpoint_id,
-                                &ClientMessage::GraphicsTransmissionResult {
-                                    transfer_id,
-                                    image_id,
-                                    success: false,
-                                },
-                            );
+                            write_stream.send(&ClientMessage::GraphicsTransmissionResult {
+                                transfer_id,
+                                image_id,
+                                success: false,
+                            });
                             continue;
                         }
                         {
@@ -798,11 +790,7 @@ async fn run_client_loop(
                                 || surface_asset.as_ref().is_some_and(|asset| {
                                     state.disabled_native_graphics.get(&endpoint_id)
                                         != Some(&generation)
-                                        && graphics_owner_is_active(
-                                            &state,
-                                            &write_stream,
-                                            &endpoint_id,
-                                        )
+                                        && graphics_owner_is_active(&write_stream, &endpoint_id)
                                         && leading.is_empty()
                                         && asset.format
                                             == crate::protocol::SurfaceGraphicsFormat::Rgba
@@ -862,7 +850,7 @@ async fn run_client_loop(
                                     transfer_id,
                                     image_id,
                                 };
-                                write_stream.send_to(&endpoint_id, &started);
+                                write_stream.send(&started);
                             } else {
                                 state.pending_surface_graphics.remove(&(
                                     endpoint_id.clone(),
@@ -882,7 +870,7 @@ async fn run_client_loop(
                                     image_id,
                                     success: false,
                                 };
-                                write_stream.send_to(&endpoint_id, &result);
+                                write_stream.send(&result);
                             }
                         }
                     }
@@ -893,13 +881,10 @@ async fn run_client_loop(
                         if endpoint_id.is_local() {
                             return Err(ClientError::ServerShutdown { reason });
                         }
-                        write_stream.fail(
-                            &endpoint_id,
-                            io::Error::new(
-                                io::ErrorKind::ConnectionAborted,
-                                reason.unwrap_or_else(|| "server stopped".into()),
-                            ),
-                        );
+                        write_stream.fail(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            reason.unwrap_or_else(|| "server stopped".into()),
+                        ));
                     }
                     ServerMessage::Notify { .. } => {}
                     ServerMessage::SemanticNotification(event) => {
@@ -940,7 +925,6 @@ async fn run_client_loop(
                             continue;
                         }
                         let completed = endpoint_commands.receive_response(
-                            &endpoint_id,
                             generation,
                             &boot_id,
                             &request_id,
@@ -1065,25 +1049,19 @@ async fn run_client_loop(
                         state.pane_keyboard_report_all = enabled;
                         sync_client_shell_keyboard_report_all(&mut state)?;
                     }
-                    ServerMessage::EndpointControl { kind, .. } => {
-                        debug!(%kind,"ignoring unused endpoint control");
-                    }
-                    ServerMessage::Welcome { .. } => {
-                        debug!("received unexpected Welcome in main loop");
+                    ServerMessage::ClientShellEndpointMethods { methods } => {
+                        install_client_shell_methods(&mut state, methods);
                     }
                 }
             }
-            ClientLoopEvent::ServerDisconnected {
-                endpoint_id,
-                generation,
-            } => {
-                if !write_stream.accepts(&endpoint_id, generation) {
+            ClientLoopEvent::ServerDisconnected { generation } => {
+                if !write_stream.accepts(generation) {
                     continue;
                 }
-                write_stream.fail(
-                    &endpoint_id,
-                    io::Error::new(io::ErrorKind::UnexpectedEof, "connection was lost"),
-                );
+                write_stream.fail(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "connection was lost",
+                ));
             }
             ClientLoopEvent::PaneDiagnosticsFinished { path, warning } => {
                 let shell = &mut state.shell;
@@ -1103,8 +1081,8 @@ async fn run_client_loop(
                     .detached_process_children
                     .retain_mut(|child| child.try_wait().ok().flatten().is_none());
                 for failure in write_stream.take_failures() {
-                    if write_stream.connection(&failure.endpoint_id).is_some()
-                        && !write_stream.accepts(&failure.endpoint_id, failure.generation)
+                    if write_stream.connection().is_some()
+                        && !write_stream.accepts(failure.generation)
                     {
                         continue;
                     }
@@ -1122,17 +1100,12 @@ async fn run_client_loop(
                     let expired_endpoints = endpoint_commands
                         .expire(now)
                         .into_iter()
-                        .filter(|expired| {
-                            write_stream.accepts(&expired.endpoint_id, expired.generation)
-                        })
+                        .filter(|expired| write_stream.accepts(expired.generation))
                         .collect::<Vec<_>>();
                     let (effects, outcome, frame) = {
                         let shell = &mut state.shell;
                         let mut outcome = shell.tick_selection_autoscroll(now);
                         for expired in expired_endpoints {
-                            if !shell.endpoint_is_active(&expired.endpoint_id) {
-                                continue;
-                            }
                             let (repaint, actions) = shell.handle_endpoint_result(
                                 &expired.boot_id,
                                 &expired.request_id,

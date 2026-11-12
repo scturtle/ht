@@ -978,41 +978,22 @@ impl ClientShellState {
                     outcome,
                 );
             }
-            Some(ClientMobileTarget::Workspace {
-                endpoint_id,
-                workspace_id,
-            }) => {
-                if self.focus_or_activate(
-                    endpoint_id,
-                    ClientEndpointFocusTarget::Workspace(workspace_id),
-                    outcome,
-                ) {
+            Some(ClientMobileTarget::Workspace { workspace_id, .. }) => {
+                if self
+                    .focus_or_activate(ClientEndpointFocusTarget::Workspace(workspace_id), outcome)
+                {
                     self.mode = ClientShellMode::Terminal;
                     self.navigate_workspace_id = None;
                 }
             }
-            Some(ClientMobileTarget::Agent {
-                endpoint_id,
-                pane_id,
-            }) => {
-                if self.focus_or_activate(
-                    endpoint_id,
-                    ClientEndpointFocusTarget::Pane(pane_id),
-                    outcome,
-                ) {
+            Some(ClientMobileTarget::Agent { pane_id, .. }) => {
+                if self.focus_or_activate(ClientEndpointFocusTarget::Pane(pane_id), outcome) {
                     self.mode = ClientShellMode::Terminal;
                     self.navigate_workspace_id = None;
                 }
             }
-            Some(ClientMobileTarget::Tab {
-                endpoint_id,
-                tab_id,
-            }) => {
-                if self.focus_or_activate(
-                    endpoint_id,
-                    ClientEndpointFocusTarget::Tab(tab_id),
-                    outcome,
-                ) {
+            Some(ClientMobileTarget::Tab { tab_id, .. }) => {
+                if self.focus_or_activate(ClientEndpointFocusTarget::Tab(tab_id), outcome) {
                     self.mode = ClientShellMode::Terminal;
                     self.navigate_workspace_id = None;
                 }

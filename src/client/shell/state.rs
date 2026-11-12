@@ -119,8 +119,6 @@ pub(super) struct ShellHitMap {
     pub(super) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(super) navigator_scrollbar: Rect,
     pub(super) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
-    pub(super) worktree_search: Rect,
-    pub(super) worktree_rows: Vec<(Rect, usize)>,
     pub(super) help_popup: Rect,
     pub(super) help_scrollbar: Rect,
     pub(super) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -237,7 +235,6 @@ pub(super) struct WorkspaceHit {
 #[derive(Debug)]
 pub(crate) enum ClientShellAction {
     Endpoint {
-        endpoint_id: ClientEndpointId,
         boot_id: String,
         request: Box<crate::api::schema::Request>,
     },
@@ -280,9 +277,6 @@ pub(super) enum ClientShellOverlayKind {
     ConfirmClose,
     Help,
     Navigator,
-    WorktreeCreate,
-    WorktreeOpen,
-    WorktreeRemove,
     ContextMenu,
     GlobalMenu,
     Settings,
@@ -379,17 +373,10 @@ pub(super) enum ClientSettingsSection {
     Indicators,
     Sound,
     Toast,
-    Integrations,
 }
 
 impl ClientSettingsSection {
-    pub(super) const ALL: &[Self] = &[
-        Self::Theme,
-        Self::Indicators,
-        Self::Sound,
-        Self::Toast,
-        Self::Integrations,
-    ];
+    pub(super) const ALL: &[Self] = &[Self::Theme, Self::Indicators, Self::Sound, Self::Toast];
 
     pub(super) fn label(self) -> &'static str {
         match self {
@@ -397,7 +384,6 @@ impl ClientSettingsSection {
             Self::Indicators => "indicators",
             Self::Sound => "sound",
             Self::Toast => "toasts",
-            Self::Integrations => "integrations",
         }
     }
 }
@@ -409,105 +395,12 @@ pub(super) struct ClientSettingsOverlay {
     pub(super) selected: usize,
     pub(super) original_theme_name: String,
     pub(super) original_palette: Palette,
-    pub(super) integrations: Vec<crate::api::schema::IntegrationInfo>,
-    pub(super) integration_messages: Vec<String>,
-    pub(super) loading_integrations: bool,
-    pub(super) installing_integrations: bool,
-}
-
-#[derive(Debug)]
-pub(super) struct ClientWorktreeCreateOverlay {
-    pub(super) source_workspace_id: String,
-    pub(super) repo_name: String,
-    pub(super) branch: TextEditor,
-    pub(super) checkout_path: String,
-    pub(super) error: Option<String>,
-    pub(super) creating: bool,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ClientWorktreeOpenEntry {
-    pub(super) path: String,
-    pub(super) branch: Option<String>,
-    pub(super) is_linked_worktree: bool,
-    pub(super) is_detached: bool,
-    pub(super) open_workspace_id: Option<String>,
-    pub(super) label: String,
-}
-
-impl ClientWorktreeOpenEntry {
-    pub(super) fn status_label(&self) -> &'static str {
-        if self.open_workspace_id.is_some() {
-            "open"
-        } else if self.branch.is_some() {
-            ""
-        } else if self.is_detached && self.is_linked_worktree {
-            "detached"
-        } else {
-            "root"
-        }
-    }
-
-    pub(super) fn matches_query(&self, query: &str) -> bool {
-        let query = query.trim().to_lowercase();
-        query.is_empty()
-            || format!(
-                "{} {} {} {}",
-                self.label,
-                self.branch.as_deref().unwrap_or_default(),
-                self.path,
-                self.status_label()
-            )
-            .to_lowercase()
-            .contains(&query)
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct ClientWorktreeOpenOverlay {
-    pub(super) source_workspace_id: String,
-    pub(super) entries: Vec<ClientWorktreeOpenEntry>,
-    pub(super) selected: usize,
-    pub(super) query: TextEditor,
-    pub(super) search_focused: bool,
-    pub(super) error: Option<String>,
-    pub(super) opening: bool,
-}
-
-impl ClientWorktreeOpenOverlay {
-    pub(super) fn filtered_indices(&self) -> Vec<usize> {
-        self.entries
-            .iter()
-            .enumerate()
-            .filter_map(|(index, entry)| entry.matches_query(&self.query).then_some(index))
-            .collect()
-    }
-
-    pub(super) fn selected_entry_index(&self) -> Option<usize> {
-        let filtered = self.filtered_indices();
-        filtered
-            .contains(&self.selected)
-            .then_some(self.selected)
-            .or_else(|| filtered.first().copied())
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct ClientWorktreeRemoveOverlay {
-    pub(super) workspace_id: String,
-    pub(super) path: String,
-    pub(super) error: Option<String>,
-    pub(super) removing: bool,
-    pub(super) force_confirmation: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientContextMenuAction {
     Rename,
     Close,
-    NewWorktree,
-    OpenWorktree,
-    RemoveWorktree,
     ToggleGroup,
     NewTab,
     RenamePane,
@@ -583,9 +476,6 @@ pub(super) enum ClientShellOverlay {
     ConfirmClose(ClientConfirmCloseOverlay),
     Help(ClientHelpOverlay),
     Navigator(ClientNavigatorOverlay),
-    WorktreeCreate(ClientWorktreeCreateOverlay),
-    WorktreeOpen(ClientWorktreeOpenOverlay),
-    WorktreeRemove(ClientWorktreeRemoveOverlay),
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
     Settings(ClientSettingsOverlay),
@@ -601,9 +491,6 @@ impl ClientShellOverlay {
             Self::ConfirmClose(_) => ClientShellOverlayKind::ConfirmClose,
             Self::Help(_) => ClientShellOverlayKind::Help,
             Self::Navigator(_) => ClientShellOverlayKind::Navigator,
-            Self::WorktreeCreate(_) => ClientShellOverlayKind::WorktreeCreate,
-            Self::WorktreeOpen(_) => ClientShellOverlayKind::WorktreeOpen,
-            Self::WorktreeRemove(_) => ClientShellOverlayKind::WorktreeRemove,
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
@@ -620,22 +507,6 @@ pub(super) enum PendingEndpointKind {
     },
     ReleaseNotesDismiss,
     ReloadConfig,
-    IntegrationList,
-    IntegrationInstall,
-    PrepareWorktreeCreate {
-        workspace_id: String,
-    },
-    PrepareWorktreeOpen {
-        workspace_id: String,
-    },
-    PrepareWorktreeRemove {
-        workspace_id: String,
-    },
-    WorktreeCreate,
-    WorktreeOpen,
-    WorktreeRemove {
-        forced: bool,
-    },
     SelectionCopy,
     PaneScroll {
         pane_id: String,
@@ -918,7 +789,6 @@ pub(crate) struct ClientShellState {
     pub(super) input_leases: ClientInputLeases,
     pub(super) next_request_id: u64,
     pub(super) pending_requests: HashMap<String, PendingEndpointRequest>,
-    pub(super) pending_integration_installs: usize,
     pub(super) pending_notifications: Vec<ClientPendingNotification>,
     pub(super) visible_notification: Option<ClientVisibleNotification>,
     pub(super) queued_notifications: VecDeque<ClientVisibleNotification>,
@@ -1070,7 +940,6 @@ impl ClientShellState {
             input_leases: ClientInputLeases::default(),
             next_request_id: 1,
             pending_requests: HashMap::new(),
-            pending_integration_installs: 0,
             pending_notifications: Vec::new(),
             visible_notification: None,
             queued_notifications: VecDeque::new(),
@@ -1206,7 +1075,6 @@ impl ClientShellState {
         self.pane_scroll_in_flight.clear();
         self.pane_scroll_queued.clear();
         self.pane_scroll_targets.clear();
-        self.pending_integration_installs = 0;
         self.endpoint_notice_seen.clear();
         self.visible_endpoint_notice = None;
         self.endpoint_error = None;

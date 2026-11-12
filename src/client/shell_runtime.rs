@@ -1,6 +1,19 @@
 use super::*;
 use std::time::Instant;
 
+/// Adopt the method set of the connection that is serving this client now.
+///
+/// A recovery probe or replacement Core can advertise a different set, so the
+/// menus, settings sections and confirmations are re-gated before the next
+/// projection arrives. Returns whether the visible chrome needs a repaint.
+pub(super) fn install_client_shell_methods(state: &mut ClientState, methods: Vec<String>) -> bool {
+    let changed = state.shell.set_endpoint_methods(Some(methods));
+    if changed {
+        state.request_repaint();
+    }
+    changed
+}
+
 pub(super) fn dispatch_client_shell_actions(
     actions: Vec<shell::ClientShellAction>,
     commands: &mut endpoint_commands::EndpointCommands,
@@ -12,13 +25,9 @@ pub(super) fn dispatch_client_shell_actions(
     let mut repaint = false;
     for action in actions {
         match action {
-            shell::ClientShellAction::Endpoint {
-                endpoint_id,
-                boot_id,
-                request,
-            } => {
-                if let Some(connection) = endpoints.connection(&endpoint_id) {
-                    commands.enqueue(endpoint_id, connection.generation, boot_id, request);
+            shell::ClientShellAction::Endpoint { boot_id, request } => {
+                if let Some(connection) = endpoints.connection() {
+                    commands.enqueue(connection.generation, boot_id, request);
                 } else {
                     repaint |= shell.cancel_endpoint_request(&request.id);
                 }
@@ -57,7 +66,7 @@ pub(super) fn dispatch_client_shell_actions(
             ),
         }
     }
-    for id in commands.send_next(&endpoint::ClientEndpointId::Local, endpoints) {
+    for id in commands.send_next(endpoints) {
         repaint |= shell.cancel_endpoint_request(&id);
     }
     Ok((replay, repaint))
@@ -105,20 +114,18 @@ pub(super) fn apply_client_shell_input_source_changes(
 }
 pub(super) fn install_client_shell_snapshot(
     state: &mut ClientState,
-    id: &endpoint::ClientEndpointId,
     snapshot: Box<crate::protocol::ClientShellSnapshot>,
     endpoints: &mut endpoint::EndpointRegistry,
     input_source: &mut impl crate::platform::PrefixInputSource,
 ) -> Result<(), ClientError> {
-    let Some(connection) = endpoints.connection(id) else {
+    let Some(connection) = endpoints.connection() else {
         return Ok(());
     };
     let generation = connection.generation;
     let pixels = state.pixel_mouse_available();
     let shell = &mut state.shell;
     let previous = shell.surface_size(state.reported_size.0, state.reported_size.1);
-    shell.set_endpoint_status(id, endpoint::ClientEndpointStatus::Online);
-    let epoch_changed = shell.set_endpoint_snapshot_for_generation(id, generation, snapshot);
+    let epoch_changed = shell.set_endpoint_snapshot_for_generation(generation, snapshot);
     let cleanup = shell.take_pending_graphics_cleanup();
     let next = shell.surface_size(state.reported_size.0, state.reported_size.1);
     let resize = (previous != next).then(|| {
@@ -138,7 +145,7 @@ pub(super) fn install_client_shell_snapshot(
     apply_client_shell_input_source_changes(state, input_source);
     state.present_graphics(&cleanup);
     if let Some(resize) = resize {
-        endpoints.send_to(id, &resize);
+        endpoints.send(&resize);
     }
     if let Some(frame) = frame {
         state.present_frame(frame);
@@ -202,7 +209,7 @@ pub(super) fn finish_client_shell_input(
     } else {
         frame
     };
-    let online = state.shell.endpoint_is_online(endpoints.active_id());
+    let online = state.shell.endpoint_is_online();
     for request in outcome.requests {
         // Host observations are meaningful before the first snapshot or paint.
         if matches!(&request, ClientMessage::ClientShellHostTheme { .. }) || online {
@@ -220,6 +227,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn recovered_core_methods_install_once_and_request_one_repaint() {
+        let mut state = ClientState::test_new();
+        assert!(install_client_shell_methods(
+            &mut state,
+            vec!["pane.focus".into(), "tab.close".into()]
+        ));
+        assert!(state.repaint_pending);
+
+        state.repaint_pending = false;
+        assert!(!install_client_shell_methods(
+            &mut state,
+            vec!["tab.close".into(), "pane.focus".into()]
+        ));
+        assert!(
+            !state.repaint_pending,
+            "an equal set in another order must not repaint"
+        );
+
+        // A replacement Core that implements less re-gates the same shell.
+        assert!(install_client_shell_methods(
+            &mut state,
+            vec!["pane.focus".into()]
+        ));
+        assert!(state.repaint_pending);
+    }
+
+    #[test]
     fn host_color_reaches_server_before_first_snapshot() {
         #[derive(Clone)]
         struct Capture(std::sync::Arc<std::sync::Mutex<Vec<ClientMessage>>>);
@@ -234,9 +268,7 @@ mod tests {
         let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let mut endpoints = endpoint::EndpointRegistry::new(Capture(sent.clone()), 1);
         let mut state = ClientState::test_new();
-        assert!(!state
-            .shell
-            .endpoint_is_online(&endpoint::ClientEndpointId::Local));
+        assert!(!state.shell.endpoint_is_online());
         let outcome = state.shell.handle_raw_events(vec![
             crate::raw_input::RawInputEvent::HostDefaultColor {
                 kind: crate::terminal_theme::DefaultColorKind::Background,

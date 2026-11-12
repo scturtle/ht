@@ -51,13 +51,13 @@ impl EndpointRegistry {
     pub(crate) fn active_id(&self) -> &ClientEndpointId {
         &ClientEndpointId::Local
     }
-    pub(crate) fn connection(&self, _id: &ClientEndpointId) -> Option<&EndpointConnection> {
+    pub(crate) fn connection(&self) -> Option<&EndpointConnection> {
         self.connection.as_ref()
     }
     pub(crate) fn active_surface_available(&self) -> bool {
         self.connection.is_some()
     }
-    pub(crate) fn accepts(&self, _id: &ClientEndpointId, generation: u64) -> bool {
+    pub(crate) fn accepts(&self, generation: u64) -> bool {
         self.connection
             .as_ref()
             .is_some_and(|c| c.generation == generation)
@@ -84,19 +84,12 @@ impl EndpointRegistry {
         match result {
             Ok(()) => EndpointSendOutcome::Sent,
             Err(error) => {
-                self.fail(&ClientEndpointId::Local, error);
+                self.fail(error);
                 EndpointSendOutcome::NotSent
             }
         }
     }
-    pub(crate) fn send_to(
-        &mut self,
-        _id: &ClientEndpointId,
-        message: &ClientMessage,
-    ) -> EndpointSendOutcome {
-        self.send(message)
-    }
-    pub(crate) fn fail(&mut self, _id: &ClientEndpointId, error: io::Error) {
+    pub(crate) fn fail(&mut self, error: io::Error) {
         let Some(mut connection) = self.connection.take() else {
             return;
         };
@@ -115,7 +108,7 @@ impl EndpointRegistry {
             .as_mut()
             .and_then(|c| c.transport.take_error());
         if let Some(error) = error {
-            self.fail(&ClientEndpointId::Local, error);
+            self.fail(error);
         }
         self.failure.take().into_iter().collect()
     }
@@ -153,8 +146,8 @@ mod tests {
     #[test]
     fn stale_connection_generations_remain_fenced() {
         let registry = EndpointRegistry::new(Capture(Default::default()), 7);
-        assert!(registry.accepts(&ClientEndpointId::Local, 7));
-        assert!(!registry.accepts(&ClientEndpointId::Local, 6));
+        assert!(registry.accepts(7));
+        assert!(!registry.accepts(6));
     }
     #[test]
     fn detach_flushes_before_only_its_own_relay_is_disconnected() {
@@ -166,11 +159,8 @@ mod tests {
     fn a_failed_connection_is_revoked_once_and_cannot_receive_input() {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let mut registry = EndpointRegistry::new(Capture(calls.clone()), 1);
-        registry.fail(
-            &ClientEndpointId::Local,
-            io::Error::new(io::ErrorKind::BrokenPipe, "lost"),
-        );
-        assert!(!registry.accepts(&ClientEndpointId::Local, 1));
+        registry.fail(io::Error::new(io::ErrorKind::BrokenPipe, "lost"));
+        assert!(!registry.accepts(1));
         assert_eq!(
             registry.send(&ClientMessage::Detach),
             EndpointSendOutcome::NotSent

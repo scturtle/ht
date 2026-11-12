@@ -13,7 +13,6 @@ pub(super) enum ClientLoopEvent {
         message: Box<ServerMessage>,
     },
     ServerDisconnected {
-        endpoint_id: endpoint::ClientEndpointId,
         generation: u64,
     },
     PaneDiagnosticsFinished {

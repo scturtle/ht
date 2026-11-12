@@ -174,7 +174,7 @@ impl ClientShellState {
         }
     }
 
-    pub(super) fn complete_onboarding(&mut self, outcome: &mut ClientShellInput) {
+    pub(super) fn complete_onboarding(&mut self) {
         if self.snapshot.is_none() {
             return;
         }
@@ -193,7 +193,6 @@ impl ClientShellState {
         }
         self.config.startup_onboarding = false;
         self.open_settings_overlay();
-        self.select_settings_section(ClientSettingsSection::Integrations, outcome);
     }
 
     pub(super) fn open_navigator_overlay(&mut self) {
@@ -295,22 +294,12 @@ impl ClientShellState {
             return;
         };
         let activated = match target {
-            ClientNavigatorTarget::Workspace {
-                endpoint_id,
-                workspace_id,
-            } => self.focus_or_activate(
-                endpoint_id,
-                ClientEndpointFocusTarget::Workspace(workspace_id),
-                outcome,
-            ),
-            ClientNavigatorTarget::Pane {
-                endpoint_id,
-                pane_id,
-            } => self.focus_or_activate(
-                endpoint_id,
-                ClientEndpointFocusTarget::Pane(pane_id),
-                outcome,
-            ),
+            ClientNavigatorTarget::Workspace { workspace_id, .. } => {
+                self.focus_or_activate(ClientEndpointFocusTarget::Workspace(workspace_id), outcome)
+            }
+            ClientNavigatorTarget::Pane { pane_id, .. } => {
+                self.focus_or_activate(ClientEndpointFocusTarget::Pane(pane_id), outcome)
+            }
         };
         if activated {
             self.overlay = None;
@@ -448,9 +437,6 @@ impl ClientShellState {
     }
 
     pub(super) fn insert_overlay_text(&mut self, text: &str) -> bool {
-        if self.insert_worktree_overlay_text(text) {
-            return true;
-        }
         match self.overlay.as_mut() {
             Some(ClientShellOverlay::Rename(rename)) => {
                 rename.input.insert(text);
@@ -485,7 +471,7 @@ impl ClientShellState {
                 key.code,
                 KeyCode::Enter | KeyCode::Right | KeyCode::Char('l')
             ) {
-                self.complete_onboarding(outcome);
+                self.complete_onboarding();
             }
             return;
         }
@@ -628,9 +614,6 @@ impl ClientShellState {
             return;
         }
 
-        if self.route_worktree_overlay_key(key, outcome) {
-            return;
-        }
         if matches!(self.overlay, Some(ClientShellOverlay::Navigator(_))) {
             let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
             let search_focused = matches!(

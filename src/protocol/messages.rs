@@ -19,15 +19,6 @@ pub const MAX_GRAPHICS_FRAME_SIZE: usize = 32 * 1024 * 1024;
 // Client → Server messages
 // ---------------------------------------------------------------------------
 
-/// Render payload encoding negotiated during client handshake.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RenderEncoding {
-    /// Send full semantic FrameData values. This is the local/default mode.
-    SemanticFrame,
-    /// Send already-diffed terminal ANSI byte streams.
-    TerminalAnsi,
-}
-
 /// Size of the pane surface requested by a client-owned shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientSurfaceSize {
@@ -436,10 +427,7 @@ impl ClientInputEvent {
     }
 }
 
-/// Messages sent from the client to the server over the client protocol socket.
-///
-/// Variant order is frozen for endpoint generation 1. Add compatible endpoint
-/// behavior through `EndpointControl` or advertised API methods, not new enum variants.
+/// Messages sent from the client to the Core adapter carried as typed values.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClientMessage {
     /// Raw input bytes read from the client's stdin.
@@ -542,10 +530,6 @@ pub enum ClientMessage {
 
     /// Update this client's shell mouse-capture preference after config reload.
     ClientShellMouseCapture { enabled: bool },
-
-    /// Extensible named control message for the stable client-owned endpoint protocol.
-    ///
-    EndpointControl { kind: String, data: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -861,10 +845,6 @@ pub struct ClientShellSnapshot {
     pub server_keybindings_toml: Option<String>,
     /// Whether the endpoint has a What's New entry, even if its body is unavailable.
     pub latest_release_notes_available: bool,
-    /// Whether endpoint-owned integration assets need an update.
-    pub integration_updates_available: bool,
-    /// Endpoint-owned base directory used for new linked worktree checkouts.
-    pub worktree_directory: String,
     /// Cached endpoint-owned notes used by the client-rendered overlay.
     pub release_notes: Option<ClientShellReleaseNotes>,
     pub focused_workspace_id: Option<String>,
@@ -1323,23 +1303,9 @@ pub struct EndpointResponseError {
     pub message: String,
 }
 
-/// Messages sent from the server to the client over the client protocol socket.
-///
-/// Variant order is frozen for endpoint generation 1. Add compatible endpoint
-/// behavior through `EndpointControl`, and ignore unrecognized named controls.
+/// Messages sent from the Core adapter to the client shell as typed values.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServerMessage {
-    /// Handshake response: server acknowledges (or rejects) the client.
-    Welcome {
-        /// Protocol version the server speaks.
-        version: u32,
-        /// Render encoding selected by the server for this connection.
-        encoding: RenderEncoding,
-        /// If present, the handshake failed and this describes why.
-        /// The client should exit with a clear error message.
-        error: Option<String>,
-    },
-
     /// Terminal bytes to write directly for a terminal-ANSI client.
     Terminal(TerminalFrame),
 
@@ -1432,6 +1398,10 @@ pub enum ServerMessage {
     /// Whether the focused pane or popup needs the shell host to report every key.
     ClientShellKeyboardReportAll { enabled: bool },
 
+    /// API methods this connection's Core actually implements. Re-sent whenever a
+    /// replacement connection changes the advertised set.
+    ClientShellEndpointMethods { methods: Vec<String> },
+
     /// Final result of one endpoint operation.
     ClientShellEndpointResponse {
         boot_id: String,
@@ -1441,10 +1411,6 @@ pub enum ServerMessage {
 
     /// Incremental terminal-cell update for a previously committed pane surface.
     PaneSurfacePatch(PaneSurfacePatch),
-
-    /// Extensible named control message for the stable client-owned endpoint protocol.
-    ///
-    EndpointControl { kind: String, data: String },
 }
 
 // ---------------------------------------------------------------------------

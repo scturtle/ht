@@ -1,34 +1,25 @@
 use super::*;
-use crate::client::endpoint::{ClientEndpointId, ClientEndpointStatus};
 
 #[test]
 fn a_new_projection_epoch_accepts_restarted_revisions_but_its_stale_updates_do_not() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut old = snapshot();
     old.revision = 80;
-    assert!(state.set_endpoint_snapshot_for_generation(&ClientEndpointId::Local, 1, Box::new(old)));
+    assert!(state.set_endpoint_snapshot_for_generation(1, Box::new(old)));
     let mut paint = surface();
     paint.projection_revision = 80;
     state.set_pane_surface(paint);
     assert!(state.compose(100, 28).is_some());
     let mut fresh = snapshot();
     fresh.boot_id = "replacement-projection".into();
-    assert!(state.set_endpoint_snapshot_for_generation(
-        &ClientEndpointId::Local,
-        1,
-        Box::new(fresh.clone())
-    ));
+    assert!(state.set_endpoint_snapshot_for_generation(1, Box::new(fresh.clone())));
     assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
     let mut paint = surface();
     paint.boot_id = fresh.boot_id.clone();
     state.set_pane_surface(paint);
     assert!(state.compose(100, 28).is_some());
     fresh.revision = 0;
-    assert!(!state.set_endpoint_snapshot_for_generation(
-        &ClientEndpointId::Local,
-        1,
-        Box::new(fresh)
-    ));
+    assert!(!state.set_endpoint_snapshot_for_generation(1, Box::new(fresh)));
     assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
 }
 
@@ -50,8 +41,6 @@ fn core_settings_and_context_menu_only_offer_implemented_actions() {
         ]
     );
     let mut outcome = ClientShellInput::default();
-    state.select_settings_section(ClientSettingsSection::Integrations, &mut outcome);
-    assert!(outcome.actions.is_empty());
     state.record_binding(
         crate::input::KeybindMatch::Action(crate::input::KeybindAction::ReloadConfig),
         &mut outcome,
@@ -80,166 +69,11 @@ fn core_settings_and_context_menu_only_offer_implemented_actions() {
     )));
 }
 
-fn pending_worktree() -> (ClientShellState, Vec<ClientShellAction>) {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    submit_worktree(state)
-}
-
-fn submit_worktree(mut state: ClientShellState) -> (ClientShellState, Vec<ClientShellAction>) {
-    let boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
-    let mut outcome = ClientShellInput::default();
-    state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorktree),
-        &mut outcome,
-    );
-    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
-        panic!("expected worktree preparation");
-    };
-    state.handle_endpoint_result(&boot_id, &request.id, Ok(worktree_list_result(None)));
-    state.handle_input_bytes(b"feature/reconnect");
-    let outcome = state.handle_input_bytes(b"\r");
-    assert!(matches!(
-        &state.overlay,
-        Some(ClientShellOverlay::WorktreeCreate(create)) if create.creating
-    ));
-    (state, outcome.actions)
-}
-
 fn request_id(actions: &[ClientShellAction]) -> &str {
     let [ClientShellAction::Endpoint { request, .. }] = actions else {
         panic!("expected one endpoint request");
     };
     &request.id
-}
-
-fn worktree_created_result() -> crate::api::schema::ResponseResult {
-    serde_json::from_value(serde_json::json!({
-        "type": "worktree_created",
-        "workspace": {
-            "workspace_id": "ws_2", "number": 2, "label": "worktree",
-            "focused": false, "pane_count": 1, "tab_count": 1,
-            "active_tab_id": "tab_2", "agent_status": "idle"
-        },
-        "tab": {
-            "tab_id": "tab_2", "workspace_id": "ws_2", "number": 1,
-            "label": "worktree", "focused": false, "pane_count": 1,
-            "agent_status": "idle"
-        },
-        "root_pane": {
-            "pane_id": "pane_2", "terminal_id": "term_2", "workspace_id": "ws_2",
-            "tab_id": "tab_2", "focused": false, "agent_status": "idle", "revision": 0
-        },
-        "worktree": {
-            "path": "/repo-feature", "branch": "feature/reconnect", "is_bare": false,
-            "is_detached": false, "is_prunable": false, "is_linked_worktree": true,
-            "open_workspace_id": "ws_2", "label": "worktree"
-        }
-    }))
-    .unwrap()
-}
-
-#[test]
-fn worktree_create_leaves_server_focus_unchanged() {
-    let (_, actions) = pending_worktree();
-    let [ClientShellAction::Endpoint { request, .. }] = &actions[..] else {
-        panic!("expected worktree creation");
-    };
-    assert!(matches!(
-        &request.method,
-        crate::api::schema::Method::WorktreeCreate(params) if !params.focus
-    ));
-}
-
-#[test]
-fn worktree_create_success_focuses_returned_tab_on_its_endpoint_after_snapshot_update() {
-    {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot(Box::new(snapshot()));
-        let (mut state, actions) = submit_worktree(state);
-        let endpoint_id = state.active_endpoint_id.clone();
-        let mut updated = state.snapshot.clone().unwrap();
-        let boot_id = updated.boot_id.clone();
-        updated.revision += 1;
-        updated.workspaces[0].label = "updated while creating".into();
-        state.set_endpoint_snapshot(&endpoint_id, updated);
-        let (repaint, focus) = state.handle_endpoint_result(
-            &boot_id,
-            request_id(&actions),
-            Ok(worktree_created_result()),
-        );
-        assert!(repaint);
-        assert!(state.overlay.is_none());
-        let [ClientShellAction::Endpoint {
-            endpoint_id: target,
-            boot_id: target_boot,
-            request,
-        }] = &focus[..]
-        else {
-            panic!("creation should request focus through normal client navigation");
-        };
-        assert_eq!(target, &endpoint_id);
-        assert_eq!(target_boot, &boot_id);
-        assert!(matches!(
-            &request.method,
-            crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_2"
-        ));
-        assert!(state
-            .handle_endpoint_result(
-                &boot_id,
-                request_id(&actions),
-                Ok(worktree_created_result())
-            )
-            .1
-            .is_empty());
-    }
-}
-
-#[test]
-fn worktree_create_cancelled_or_failed_request_never_focuses() {
-    for cancel in [false, true] {
-        let (mut state, actions) = pending_worktree();
-        let id = request_id(&actions);
-        if cancel {
-            assert!(state.cancel_endpoint_request(id));
-        } else {
-            let (_, follow_up) = state.handle_endpoint_result(
-                "boot-1",
-                id,
-                Err(ClientShellEndpointError {
-                    code: Some("worktree_failed".into()),
-                    message: "creation failed".into(),
-                }),
-            );
-            assert!(follow_up.is_empty());
-        }
-        assert!(state
-            .handle_endpoint_result("boot-1", id, Ok(worktree_created_result()))
-            .1
-            .is_empty());
-    }
-}
-
-#[test]
-fn disconnect_cancels_worktree_dialog_before_same_server_reconnect() {
-    let (mut state, _) = pending_worktree();
-    state.mark_endpoint_disconnected(&ClientEndpointId::Local);
-    assert!(state.pending_requests.is_empty());
-    assert!(matches!(
-        &state.overlay,
-        Some(ClientShellOverlay::WorktreeCreate(create)) if !create.creating
-    ));
-    state.set_endpoint_status(&ClientEndpointId::Local, ClientEndpointStatus::Online);
-    state.set_endpoint_snapshot(&ClientEndpointId::Local, Box::new(snapshot()));
-    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
-    state.set_pane_surface(surface());
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Esc,
-        KeyModifiers::NONE,
-    ))]);
-    assert!(state.overlay.is_none());
-    assert!(!state.handle_input_bytes(b"x").requests.is_empty());
 }
 
 struct TestTransport {
@@ -257,6 +91,321 @@ impl crate::client::endpoint::EndpointTransport for TestTransport {
 }
 
 #[test]
+fn capability_shrink_after_recovery_blocks_a_stale_close_confirmation() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.config.confirm_close = true;
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.set_endpoint_methods(Some(vec!["tab.close".into()]));
+    let boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
+    let mut outcome = ClientShellInput::default();
+    state.push_endpoint_method(
+        crate::api::schema::Method::TabClose(crate::api::schema::TabTarget {
+            tab_id: "tab_1".into(),
+        }),
+        &mut outcome,
+    );
+    let request_id = request_id(&outcome.actions).to_owned();
+    state.handle_endpoint_result(
+        &boot_id,
+        &request_id,
+        Err(ClientShellEndpointError {
+            code: Some("confirmation_required".into()),
+            message: "confirm".into(),
+        }),
+    );
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::ConfirmClose(_))
+    ));
+
+    // The relay recovered onto a Core that implements fewer methods.
+    state.set_endpoint_methods(Some(vec![]));
+    let mut confirm = ClientShellInput::default();
+    state.accept_close_confirmation(&mut confirm);
+
+    assert!(confirm.actions.is_empty());
+    assert!(state.pending_requests.is_empty());
+    assert!(state
+        .visible_endpoint_notice
+        .as_ref()
+        .is_some_and(|notice| notice.title == "Action unavailable"));
+}
+
+#[test]
+fn capability_refresh_preserves_pending_request_boot_fences() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.set_endpoint_methods(Some(vec!["pane.focus".into()]));
+    let boot_id = state.snapshot.as_ref().unwrap().boot_id.clone();
+    let mut outcome = ClientShellInput::default();
+    state.push_endpoint_method(
+        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+            pane_id: "pane_1".into(),
+        }),
+        &mut outcome,
+    );
+    let pending_id = request_id(&outcome.actions).to_owned();
+
+    state.set_endpoint_methods(Some(vec!["workspace.list".into()]));
+
+    let pending = state.pending_requests.get(&pending_id).expect("fence kept");
+    assert_eq!(pending.boot_id, boot_id);
+    assert_eq!(pending.method_name, "pane.focus");
+
+    // The fence still completes the request it was issued against.
+    let (repaint, actions) = state.handle_endpoint_result(
+        &boot_id,
+        &pending_id,
+        Ok(crate::api::schema::ResponseResult::Ok {}),
+    );
+    assert!(!repaint && actions.is_empty());
+    assert!(!state.pending_requests.contains_key(&pending_id));
+}
+
+#[test]
+fn capability_refresh_regates_an_open_pane_context_menu() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.set_endpoint_methods(Some(vec![
+        "pane.rename".into(),
+        "pane.split".into(),
+        "pane.zoom".into(),
+        "pane.close".into(),
+    ]));
+    state.open_pane_context_menu("pane_1".into(), 0, 0);
+    let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_mut() else {
+        panic!("pane context menu");
+    };
+    let split_right = menu
+        .items()
+        .iter()
+        .position(|item| item.action == ClientContextMenuAction::SplitRight)
+        .expect("split right item");
+    menu.highlighted = split_right;
+    assert!(menu
+        .items()
+        .iter()
+        .any(|item| item.action == ClientContextMenuAction::RenamePane));
+    state.compose(106, 20).expect("pane context menu rows");
+    assert!(!state.hits.context_menu_rows.is_empty());
+
+    // The replacement Core lost the optional pane.rename ability that Core only
+    // advertises while it reports terminal.label support.
+    assert!(state.set_endpoint_methods(Some(vec![
+        "pane.split".into(),
+        "pane.zoom".into(),
+        "pane.close".into(),
+    ])));
+
+    let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
+        panic!("the open context menu survives a capability refresh");
+    };
+    let actions = menu
+        .items()
+        .iter()
+        .map(|item| item.action)
+        .collect::<Vec<_>>();
+    assert!(
+        !actions.contains(&ClientContextMenuAction::RenamePane),
+        "{actions:?}"
+    );
+    assert_eq!(
+        actions[menu.highlighted],
+        ClientContextMenuAction::SplitRight
+    );
+    assert!(
+        state.hits.context_menu_rows.is_empty(),
+        "rows laid out for the old item list must not stay clickable"
+    );
+
+    let highlighted = menu.highlighted;
+    let mut outcome = ClientShellInput::default();
+    state.activate_context_menu_item(highlighted, &mut outcome);
+
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("split request: {:?}", outcome.actions);
+    };
+    assert!(matches!(
+        &request.method,
+        crate::api::schema::Method::PaneSplit(params)
+            if params.direction == crate::api::schema::SplitDirection::Right
+    ));
+}
+
+#[test]
+fn capability_refresh_does_not_replace_a_removed_highlight_or_forward_enter() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.set_endpoint_methods(Some(vec!["pane.rename".into(), "pane.split".into()]));
+    state.open_pane_context_menu("pane_1".into(), 0, 0);
+    let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
+        panic!("pane context menu");
+    };
+    assert_eq!(
+        menu.items()[menu.highlighted].action,
+        ClientContextMenuAction::RenamePane
+    );
+
+    state.set_endpoint_methods(Some(vec!["pane.split".into()]));
+    let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
+        panic!("menu must consume the pending Enter rather than forward it to the program");
+    };
+    assert!(
+        menu.items().get(menu.highlighted).is_none(),
+        "a removed action must not become a different selection"
+    );
+    let outcome = state.handle_input_bytes(b"\r");
+    assert!(
+        outcome.actions.is_empty(),
+        "no replacement action: {:?}",
+        outcome.actions
+    );
+    assert!(!outcome
+        .requests
+        .iter()
+        .any(|request| matches!(request, ClientMessage::ClientShellPaneInput { .. })));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn capability_refresh_preserves_an_open_context_menu_for_an_equivalent_set() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.set_endpoint_methods(Some(vec![
+        "pane.rename".into(),
+        "pane.split".into(),
+        "pane.zoom".into(),
+        "pane.close".into(),
+    ]));
+    state.open_pane_context_menu("pane_1".into(), 0, 0);
+    let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_mut() else {
+        panic!("pane context menu");
+    };
+    let split_down = menu
+        .items()
+        .iter()
+        .position(|item| item.action == ClientContextMenuAction::SplitDown)
+        .expect("split down item");
+    menu.highlighted = split_down;
+    let before = menu
+        .items()
+        .iter()
+        .map(|item| item.action)
+        .collect::<Vec<_>>();
+
+    // Same set in another order: nothing to re-gate, so nothing may reset.
+    assert!(!state.set_endpoint_methods(Some(vec![
+        "pane.close".into(),
+        "pane.zoom".into(),
+        "pane.rename".into(),
+        "pane.split".into(),
+    ])));
+    // A different set that still gates exactly the same items.
+    assert!(state.set_endpoint_methods(Some(vec![
+        "pane.rename".into(),
+        "pane.split".into(),
+        "pane.zoom".into(),
+        "pane.close".into(),
+        "workspace.list".into(),
+    ])));
+
+    let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
+        panic!("the open context menu survives a capability refresh");
+    };
+    assert_eq!(
+        menu.items()
+            .iter()
+            .map(|item| item.action)
+            .collect::<Vec<_>>(),
+        before
+    );
+    assert_eq!(menu.highlighted, split_down);
+}
+
+#[test]
+fn capability_refresh_regates_an_open_settings_overlay() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    let mut outcome = ClientShellInput::default();
+    // Capabilities are still unknown, so the client-local toast section is offered.
+    state.open_settings_overlay();
+    state.select_settings_section(ClientSettingsSection::Theme, &mut outcome);
+    state.move_settings_selection(1);
+    state.select_settings_section(ClientSettingsSection::Toast, &mut outcome);
+    state.move_settings_selection(2);
+    let previewed_theme = state.config.theme_name.clone();
+    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
+        panic!("settings overlay");
+    };
+    assert_eq!(settings.sections, ClientSettingsSection::ALL.to_vec());
+    assert_eq!(settings.section, ClientSettingsSection::Toast);
+    assert_eq!(settings.selected, 2);
+    let original_theme = settings.original_theme_name.clone();
+    let original_palette = settings.original_palette.clone();
+
+    // The recovered Core advertises methods, so semantic toast options are hidden.
+    assert!(state.set_endpoint_methods(Some(vec!["pane.focus".into()])));
+
+    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
+        panic!("the open settings overlay survives a capability refresh");
+    };
+    assert_eq!(
+        settings.sections,
+        vec![
+            ClientSettingsSection::Theme,
+            ClientSettingsSection::Indicators,
+            ClientSettingsSection::Sound
+        ]
+    );
+    assert_eq!(settings.section, ClientSettingsSection::Theme);
+    let previewed_index = crate::config::THEME_NAMES
+        .iter()
+        .position(|name| {
+            super::settings::normalized_theme_name(name)
+                == super::settings::normalized_theme_name(&previewed_theme)
+        })
+        .expect("previewed theme is a known theme");
+    assert_eq!(settings.selected, previewed_index);
+    // The preview and the cancel baseline still belong to the user's edits.
+    assert_eq!(state.config.theme_name, previewed_theme);
+    assert_eq!(settings.original_theme_name, original_theme);
+    assert_eq!(settings.original_palette, original_palette);
+}
+
+#[test]
+fn capability_refresh_preserves_open_settings_choice_when_sections_stay_equal() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_endpoint_methods(Some(vec!["pane.focus".into()]));
+    let mut outcome = ClientShellInput::default();
+    state.open_settings_overlay();
+    state.select_settings_section(ClientSettingsSection::Indicators, &mut outcome);
+    state.move_settings_selection(1);
+    let sections = ClientSettingsSection::ALL[..3].to_vec();
+    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
+        panic!("settings overlay");
+    };
+    assert_eq!(settings.sections, sections);
+    assert_eq!(settings.section, ClientSettingsSection::Indicators);
+    assert_eq!(settings.selected, 1);
+
+    // A different method set that gates the same settings sections.
+    assert!(state.set_endpoint_methods(Some(vec!["workspace.list".into(), "pane.zoom".into(),])));
+
+    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
+        panic!("the open settings overlay survives a capability refresh");
+    };
+    assert_eq!(settings.sections, sections);
+    assert_eq!(settings.section, ClientSettingsSection::Indicators);
+    assert_eq!(settings.selected, 1);
+}
+
+#[test]
 fn local_selection_does_not_need_an_endpoint_activation_event() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
@@ -264,7 +413,6 @@ fn local_selection_does_not_need_an_endpoint_activation_event() {
     tx.try_send(crate::client::ClientLoopEvent::Timer).unwrap();
     let mut outcome = ClientShellInput::default();
     assert!(state.focus_or_activate(
-        ClientEndpointId::Local,
         ClientEndpointFocusTarget::Workspace("ws_1".into()),
         &mut outcome
     ));
@@ -284,7 +432,11 @@ fn dispatcher_cancels_requests_when_the_core_transport_fails() {
 
     {
         let fail_send = true;
-        let (mut state, actions) = pending_worktree();
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(snapshot()));
+        state.set_pane_surface(surface());
+        let actions =
+            state.focus_endpoint_target(ClientEndpointFocusTarget::Workspace("ws_1".into()));
         let mut endpoints = EndpointRegistry::new(TestTransport { fail: fail_send }, 1);
         let mut commands = EndpointCommands::default();
         let (replay, repaint) = crate::client::shell_runtime::dispatch_client_shell_actions(
@@ -298,10 +450,6 @@ fn dispatcher_cancels_requests_when_the_core_transport_fails() {
         assert!(repaint);
         assert!(replay.is_empty());
         assert!(state.pending_requests.is_empty());
-        assert!(matches!(
-            &state.overlay,
-            Some(ClientShellOverlay::WorktreeCreate(create)) if !create.creating
-        ));
         assert!(state
             .visible_endpoint_notice
             .as_ref()
@@ -326,54 +474,19 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
     let mut commands = EndpointCommands::default();
     for (generation, actions) in [(1, actions), (2, current)] {
         for action in actions {
-            let ClientShellAction::Endpoint {
-                endpoint_id,
-                boot_id,
-                request,
-            } = action
-            else {
+            let ClientShellAction::Endpoint { boot_id, request } = action else {
                 panic!("expected endpoint request");
             };
-            commands.enqueue(endpoint_id, generation, boot_id, request);
+            commands.enqueue(generation, boot_id, request);
         }
     }
     let mut endpoints = EndpointRegistry::new(TestTransport { fail: false }, 2);
-    let cancelled = commands.send_next(&ClientEndpointId::Local, &mut endpoints);
+    let cancelled = commands.send_next(&mut endpoints);
     assert_eq!(cancelled, vec![stale_id.clone()]);
     state.cancel_endpoint_request(&stale_id);
-    assert!(!commands.accepts_response(&ClientEndpointId::Local, 1, "boot-1", &stale_id));
-    assert!(commands.accepts_response(&ClientEndpointId::Local, 2, "boot-1", &current_id));
+    assert!(!commands.accepts_response(1, "boot-1", &stale_id));
+    assert!(commands.accepts_response(2, "boot-1", &current_id));
     assert!(state.pending_requests.contains_key(&current_id));
-}
-
-#[test]
-fn cancelled_integration_install_does_not_queue_a_refresh() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    state.open_settings_overlay();
-    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_mut() else {
-        panic!("settings overlay");
-    };
-    settings.installing_integrations = true;
-    state.pending_integration_installs = 1;
-    let mut outcome = ClientShellInput::default();
-    assert!(state.push_endpoint_method_with_kind(
-        crate::api::schema::Method::IntegrationInstall(
-            crate::api::schema::IntegrationInstallParams {
-                target: crate::api::schema::IntegrationTarget::Pi,
-            }
-        ),
-        PendingEndpointKind::IntegrationInstall,
-        &mut outcome,
-    ));
-    assert!(state.cancel_endpoint_request(request_id(&outcome.actions)));
-    assert!(state.pending_requests.is_empty());
-    assert_eq!(state.pending_integration_installs, 0);
-    assert!(matches!(
-        &state.overlay,
-        Some(ClientShellOverlay::Settings(settings))
-            if !settings.installing_integrations && !settings.loading_integrations
-    ));
 }
 
 #[test]

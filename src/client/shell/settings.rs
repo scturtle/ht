@@ -26,41 +26,61 @@ fn toast_index(delivery: crate::config::ToastDelivery) -> usize {
     }
 }
 
-pub(super) fn integration_needs_install(info: &crate::api::schema::IntegrationInfo) -> bool {
-    info.state == crate::api::schema::IntegrationState::Outdated
-        || info.available && info.state == crate::api::schema::IntegrationState::NotInstalled
-}
-
 impl ClientShellState {
-    pub(super) fn open_settings_overlay(&mut self) {
-        let integrations = self.supports_endpoint_method(
-            &crate::api::schema::Method::IntegrationList(Default::default()),
-        ) && self
-            .endpoint
-            .methods
-            .as_ref()
-            .is_none_or(|m| m.contains("integration.install"));
-        // Core forwards bells/clipboard, not semantic agent-notification events.
-        let sections = ClientSettingsSection::ALL
+    /// Sections this endpoint can actually configure.
+    fn available_settings_sections(&self) -> Vec<ClientSettingsSection> {
+        ClientSettingsSection::ALL
             .iter()
             .copied()
             .filter(|section| match section {
+                // Core forwards bells/clipboard, not semantic agent-notification events.
                 ClientSettingsSection::Toast => self.endpoint.methods.is_none(),
-                ClientSettingsSection::Integrations => integrations,
                 _ => true,
             })
-            .collect();
+            .collect()
+    }
+
+    pub(super) fn open_settings_overlay(&mut self) {
+        let sections = self.available_settings_sections();
         self.overlay = Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
             sections,
             section: ClientSettingsSection::Theme,
             selected: theme_index(&self.config.theme_name),
             original_theme_name: self.config.theme_name.clone(),
             original_palette: self.config.palette.clone(),
-            integrations: Vec::new(),
-            integration_messages: Vec::new(),
-            loading_integrations: false,
-            installing_integrations: false,
         }));
+    }
+
+    /// Re-derive the visible sections of an open overlay after the method set
+    /// changed, keeping the user's section, choice, theme preview and cancel
+    /// baseline whenever the section is still supported.
+    pub(super) fn refresh_settings_sections(&mut self) {
+        let sections = self.available_settings_sections();
+        let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_ref() else {
+            return;
+        };
+        if settings.sections == sections {
+            return;
+        }
+        let current = settings.section;
+        let keep_current = sections.contains(&current);
+        let section = if keep_current {
+            current
+        } else {
+            sections
+                .first()
+                .copied()
+                .unwrap_or(ClientSettingsSection::Theme)
+        };
+        let selection = (!keep_current).then(|| self.selected_index_for_settings_section(section));
+        let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() else {
+            return;
+        };
+        settings.sections = sections;
+        settings.section = section;
+        if let Some(selection) = selection {
+            settings.selected = selection;
+        }
     }
 
     fn selected_index_for_settings_section(&self, section: ClientSettingsSection) -> usize {
@@ -69,7 +89,6 @@ impl ClientShellState {
             ClientSettingsSection::Indicators => indicator_index(self.config.status_indicators),
             ClientSettingsSection::Sound => usize::from(!self.config.sound_enabled),
             ClientSettingsSection::Toast => toast_index(self.config.toast_delivery),
-            ClientSettingsSection::Integrations => 0,
         }
     }
 
@@ -84,21 +103,9 @@ impl ClientShellState {
             }
         }
         let selected = self.selected_index_for_settings_section(section);
-        let request_integrations = matches!(section, ClientSettingsSection::Integrations)
-            && matches!(
-                self.overlay,
-                Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
-                    loading_integrations: false,
-                    installing_integrations: false,
-                    ..
-                }))
-            );
         if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
             settings.section = section;
             settings.selected = selected;
-        }
-        if request_integrations {
-            self.queue_integration_list(outcome, true);
         }
         outcome.repaint = true;
     }
@@ -122,7 +129,6 @@ impl ClientShellState {
                 ClientSettingsSection::Theme => crate::config::THEME_NAMES.len(),
                 ClientSettingsSection::Indicators | ClientSettingsSection::Sound => 2,
                 ClientSettingsSection::Toast => 4,
-                ClientSettingsSection::Integrations => settings.integrations.len(),
             },
             _ => 0,
         }
@@ -245,128 +251,6 @@ impl ClientShellState {
                     outcome,
                 );
             }
-            ClientSettingsSection::Integrations => self.install_recommended_integrations(outcome),
-        }
-    }
-
-    fn queue_integration_list(&mut self, outcome: &mut ClientShellInput, clear_messages: bool) {
-        if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
-            settings.loading_integrations = true;
-            if clear_messages {
-                settings.integration_messages.clear();
-            }
-        }
-        if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::IntegrationList(crate::api::schema::EmptyParams::default()),
-            PendingEndpointKind::IntegrationList,
-            outcome,
-        ) {
-            if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
-                settings.loading_integrations = false;
-            }
-        }
-    }
-
-    fn install_recommended_integrations(&mut self, outcome: &mut ClientShellInput) {
-        if self.pending_integration_installs > 0 {
-            return;
-        }
-        let targets = match self.overlay.as_ref() {
-            Some(ClientShellOverlay::Settings(settings)) => settings
-                .integrations
-                .iter()
-                .filter(|integration| integration_needs_install(integration))
-                .map(|integration| integration.target)
-                .collect::<Vec<_>>(),
-            _ => return,
-        };
-        if targets.is_empty() {
-            return;
-        }
-        if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
-            settings.installing_integrations = true;
-            settings.integration_messages.clear();
-        }
-        self.pending_integration_installs = 0;
-        for target in targets {
-            if self.push_endpoint_method_with_kind(
-                crate::api::schema::Method::IntegrationInstall(
-                    crate::api::schema::IntegrationInstallParams { target },
-                ),
-                PendingEndpointKind::IntegrationInstall,
-                outcome,
-            ) {
-                self.pending_integration_installs += 1;
-            }
-        }
-        if self.pending_integration_installs == 0 {
-            if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
-                settings.installing_integrations = false;
-            }
-        }
-        outcome.repaint = true;
-    }
-
-    pub(super) fn handle_settings_endpoint_result(
-        &mut self,
-        kind: PendingEndpointKind,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
-    ) -> (bool, Vec<ClientShellAction>) {
-        match kind {
-            PendingEndpointKind::IntegrationList => {
-                if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
-                    settings.loading_integrations = false;
-                    match result {
-                        Ok(crate::api::schema::ResponseResult::IntegrationList {
-                            integrations,
-                        }) => {
-                            settings.integrations = integrations;
-                            settings.selected = settings
-                                .selected
-                                .min(settings.integrations.len().saturating_sub(1));
-                        }
-                        Ok(_) => {
-                            self.set_endpoint_error(
-                                "endpoint returned an unexpected integration list result",
-                            );
-                        }
-                        Err(_) => {}
-                    }
-                }
-                (true, Vec::new())
-            }
-            PendingEndpointKind::IntegrationInstall => {
-                let cancelled = result
-                    .as_ref()
-                    .is_err_and(|error| error.code.as_deref() == Some("endpoint_cancelled"));
-                self.pending_integration_installs =
-                    self.pending_integration_installs.saturating_sub(1);
-                if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
-                    match result {
-                        Ok(crate::api::schema::ResponseResult::IntegrationInstall {
-                            details,
-                            ..
-                        }) => settings.integration_messages.extend(details.messages),
-                        Ok(_) => settings
-                            .integration_messages
-                            .push("endpoint returned an unexpected integration result".into()),
-                        Err(error) => settings.integration_messages.push(error.message),
-                    }
-                    settings.installing_integrations = self.pending_integration_installs > 0;
-                }
-                let actions = if !cancelled
-                    && self.pending_integration_installs == 0
-                    && matches!(self.overlay, Some(ClientShellOverlay::Settings(_)))
-                {
-                    let mut deferred = ClientShellInput::default();
-                    self.queue_integration_list(&mut deferred, false);
-                    deferred.actions
-                } else {
-                    Vec::new()
-                };
-                (true, actions)
-            }
-            _ => (false, Vec::new()),
         }
     }
 
@@ -380,16 +264,8 @@ impl ClientShellState {
         }
         let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
         if code == KeyCode::Esc {
-            if !matches!(
-                self.overlay,
-                Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
-                    installing_integrations: true,
-                    ..
-                }))
-            ) {
-                self.cancel_settings_overlay();
-                outcome.repaint = true;
-            }
+            self.cancel_settings_overlay();
+            outcome.repaint = true;
             return true;
         }
         if matches!(code, KeyCode::Tab | KeyCode::Right | KeyCode::Char('l'))

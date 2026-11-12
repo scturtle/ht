@@ -697,7 +697,7 @@ impl ClientShellState {
             if mouse.kind == MouseEventKind::Down(MouseButton::Left)
                 && super::contains(self.hits.overlay_primary, point)
             {
-                self.complete_onboarding(outcome);
+                self.complete_onboarding();
             }
             return;
         }
@@ -1400,83 +1400,6 @@ impl ClientShellState {
             }
             return;
         }
-        if matches!(
-            self.overlay,
-            Some(
-                ClientShellOverlay::WorktreeCreate(_)
-                    | ClientShellOverlay::WorktreeOpen(_)
-                    | ClientShellOverlay::WorktreeRemove(_)
-            )
-        ) {
-            match mouse.kind {
-                MouseEventKind::ScrollUp
-                    if matches!(self.overlay, Some(ClientShellOverlay::WorktreeOpen(_))) =>
-                {
-                    self.move_worktree_open_selection(-1);
-                    outcome.repaint = true;
-                }
-                MouseEventKind::ScrollDown
-                    if matches!(self.overlay, Some(ClientShellOverlay::WorktreeOpen(_))) =>
-                {
-                    self.move_worktree_open_selection(1);
-                    outcome.repaint = true;
-                }
-                MouseEventKind::Down(MouseButton::Left) => {
-                    if super::contains(self.hits.overlay_cancel, point) {
-                        let busy =
-                            matches!(
-                                self.overlay,
-                                Some(
-                                    ClientShellOverlay::WorktreeCreate(
-                                        ClientWorktreeCreateOverlay { creating: true, .. }
-                                    ) | ClientShellOverlay::WorktreeOpen(
-                                        ClientWorktreeOpenOverlay { opening: true, .. }
-                                    ) | ClientShellOverlay::WorktreeRemove(
-                                        ClientWorktreeRemoveOverlay { removing: true, .. }
-                                    )
-                                )
-                            );
-                        if !busy {
-                            self.overlay = None;
-                            outcome.repaint = true;
-                        }
-                    } else if super::contains(self.hits.worktree_search, point) {
-                        if let Some(ClientShellOverlay::WorktreeOpen(open)) = self.overlay.as_mut()
-                        {
-                            open.search_focused = true;
-                            outcome.repaint = true;
-                        }
-                    } else if let Some((_, index)) = self
-                        .hits
-                        .worktree_rows
-                        .iter()
-                        .find(|(rect, _)| super::contains(*rect, point))
-                        .copied()
-                    {
-                        if let Some(ClientShellOverlay::WorktreeOpen(open)) = self.overlay.as_mut()
-                        {
-                            open.selected = index;
-                        }
-                        self.submit_worktree_open(outcome);
-                    } else if super::contains(self.hits.overlay_primary, point) {
-                        match self.overlay.as_ref() {
-                            Some(ClientShellOverlay::WorktreeCreate(_)) => {
-                                self.submit_worktree_create(outcome)
-                            }
-                            Some(ClientShellOverlay::WorktreeOpen(_)) => {
-                                self.submit_worktree_open(outcome)
-                            }
-                            Some(ClientShellOverlay::WorktreeRemove(_)) => {
-                                self.submit_worktree_remove(outcome)
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-            return;
-        }
         if matches!(self.overlay, Some(ClientShellOverlay::Settings(_))) {
             if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
                 if let Some((_, section)) = self
@@ -1513,17 +1436,8 @@ impl ClientShellState {
                 } else if super::contains(self.hits.overlay_cancel, point)
                     || !super::contains(self.hits.settings_popup, point)
                 {
-                    let installing = matches!(
-                        self.overlay,
-                        Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
-                            installing_integrations: true,
-                            ..
-                        }))
-                    );
-                    if !installing {
-                        self.cancel_settings_overlay();
-                        outcome.repaint = true;
-                    }
+                    self.cancel_settings_overlay();
+                    outcome.repaint = true;
                 }
             }
             return;

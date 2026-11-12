@@ -541,19 +541,6 @@ impl ClientShellState {
         matches!(
             self.overlay.as_ref(),
             Some(ClientShellOverlay::Rename(_))
-                | Some(ClientShellOverlay::WorktreeCreate(
-                    ClientWorktreeCreateOverlay {
-                        creating: false,
-                        ..
-                    }
-                ))
-                | Some(ClientShellOverlay::WorktreeOpen(
-                    ClientWorktreeOpenOverlay {
-                        search_focused: true,
-                        opening: false,
-                        ..
-                    }
-                ))
                 | Some(ClientShellOverlay::Navigator(ClientNavigatorOverlay {
                     search_focused: true,
                     ..

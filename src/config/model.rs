@@ -271,7 +271,6 @@ pub struct Config {
     pub server: ServerConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
-    pub worktrees: WorktreesConfig,
     pub advanced: AdvancedConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
@@ -295,12 +294,6 @@ pub struct KeysConfig {
     pub settings: BindingConfig,
     /// Create a new workspace. Default: "prefix+shift+n"
     pub new_workspace: BindingConfig,
-    /// Create a Git worktree from the selected workspace. Default: "prefix+shift+g"
-    pub new_worktree: BindingConfig,
-    /// Open an existing Git worktree from the selected workspace. Unset by default.
-    pub open_worktree: BindingConfig,
-    /// Delete the selected managed worktree checkout after confirmation. Unset by default.
-    pub remove_worktree: BindingConfig,
     /// Rename the selected workspace. Default: "prefix+shift+w"
     pub rename_workspace: BindingConfig,
     /// Close the selected workspace. Default: "prefix+shift+d"
@@ -432,12 +425,6 @@ pub(crate) struct KeysConfigOverlay {
     settings: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     new_workspace: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    new_worktree: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    open_worktree: Option<BindingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    remove_worktree: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     rename_workspace: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -599,9 +586,6 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(help);
         apply_field!(settings);
         apply_field!(new_workspace);
-        apply_field!(new_worktree);
-        apply_field!(open_worktree);
-        apply_field!(remove_worktree);
         apply_field!(rename_workspace);
         apply_field!(close_workspace);
         apply_field!(workspace_picker);
@@ -704,9 +688,6 @@ impl KeysConfig {
         copy_effective_action_field!(help, keybinds.help);
         copy_effective_action_field!(settings, keybinds.settings);
         copy_effective_action_field!(new_workspace, keybinds.new_workspace);
-        copy_effective_action_field!(new_worktree, keybinds.new_worktree);
-        copy_effective_action_field!(open_worktree, keybinds.open_worktree);
-        copy_effective_action_field!(remove_worktree, keybinds.remove_worktree);
         copy_effective_action_field!(rename_workspace, keybinds.rename_workspace);
         copy_effective_action_field!(close_workspace, keybinds.close_workspace);
         copy_effective_action_field!(workspace_picker, keybinds.workspace_picker);
@@ -815,13 +796,6 @@ pub struct IndexedKeysConfig {
     pub workspaces: String,
     /// Modifier combo for agent shortcuts 1-9. Unset by default.
     pub agents: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct WorktreesConfig {
-    /// Root directory under which Herdr creates <repo>/<branch-slug> checkouts.
-    pub directory: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -1074,9 +1048,6 @@ impl Default for KeysConfig {
             help: BindingConfig::one("prefix+?"),
             settings: BindingConfig::one("prefix+s"),
             new_workspace: BindingConfig::one("prefix+shift+n"),
-            new_worktree: BindingConfig::one("prefix+shift+g"),
-            open_worktree: BindingConfig::empty(),
-            remove_worktree: BindingConfig::empty(),
             rename_workspace: BindingConfig::one("prefix+shift+w"),
             close_workspace: BindingConfig::one("prefix+shift+d"),
             workspace_picker: BindingConfig::one("prefix+w"),
@@ -1133,14 +1104,6 @@ impl Default for KeysConfig {
             indexed: IndexedKeysConfig::default(),
             command: Vec::new(),
             user_fields: BTreeSet::new(),
-        }
-    }
-}
-
-impl Default for WorktreesConfig {
-    fn default() -> Self {
-        Self {
-            directory: "~/.herdr/worktrees".into(),
         }
     }
 }
@@ -1463,19 +1426,6 @@ tab_bar_right_separator = " · "
             TabBarRightEntryConfig::Hostname
         ));
         assert_eq!(config.ui.tab_bar_right_separator, " · ");
-    }
-
-    #[test]
-    fn worktrees_directory_defaults_and_parses() {
-        let default_config = Config::default();
-        assert_eq!(default_config.worktrees.directory, "~/.herdr/worktrees");
-
-        let toml = r#"
-[worktrees]
-directory = "~/Projects/herdr-worktrees"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.worktrees.directory, "~/Projects/herdr-worktrees");
     }
 
     #[test]

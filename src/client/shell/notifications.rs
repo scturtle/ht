@@ -388,7 +388,7 @@ mod tests {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.visible_notification = Some(notification());
         state.queued_notifications.push_back(notification());
-        state.retire_endpoint_notifications(&ClientEndpointId::Local);
+        state.retire_endpoint_notifications();
         assert!(state.visible_notification.is_none());
         assert!(state.queued_notifications.is_empty());
     }

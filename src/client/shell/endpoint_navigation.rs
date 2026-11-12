@@ -36,20 +36,15 @@ impl ClientShellState {
         outcome: &mut ClientShellInput,
     ) {
         self.focus_or_activate(
-            press.endpoint_id,
             ClientEndpointFocusTarget::Workspace(press.workspace_id),
             outcome,
         );
     }
 
-    pub(super) fn activate_endpoint(
-        &mut self,
-        endpoint_id: ClientEndpointId,
-        outcome: &mut ClientShellInput,
-    ) -> bool {
+    pub(super) fn activate_endpoint(&mut self, outcome: &mut ClientShellInput) -> bool {
         self.pending_workspace_highlight = None;
         self.pending_agent_reveal = None;
-        if !self.endpoint_is_online(&endpoint_id) {
+        if !self.endpoint_is_online() {
             self.receive_endpoint_unavailable("Core is not ready".into());
             outcome.repaint = true;
             return false;
@@ -58,11 +53,10 @@ impl ClientShellState {
     }
     pub(super) fn focus_or_activate(
         &mut self,
-        endpoint_id: ClientEndpointId,
         target: ClientEndpointFocusTarget,
         outcome: &mut ClientShellInput,
     ) -> bool {
-        if !self.activate_endpoint(endpoint_id, outcome) {
+        if !self.activate_endpoint(outcome) {
             return false;
         }
         let method = match target {

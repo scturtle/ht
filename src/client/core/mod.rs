@@ -513,6 +513,16 @@ pub(super) fn start(
                                     "Core connection recovered; delivered images are not re-sent"
                                 );
                                 drain_input(&receiver, &worker_queued);
+                                // A replacement Core may implement a different method set.
+                                // Authoritative, ordered and typed: the shell re-gates its
+                                // menus and confirmations before the new projection arrives.
+                                if let Err(stopped) = emit(
+                                    ServerMessage::ClientShellEndpointMethods {
+                                        methods: methods::advertised(&session.core.hello),
+                                    },
+                                ) {
+                                    break Err(stopped);
+                                }
                                 continue;
                             }
                             Err(error) => break Err(error),
@@ -527,10 +537,7 @@ pub(super) fn start(
                 }
             }
             worker_stop.store(true, Ordering::Release);
-            let _ = events.blocking_send(ClientLoopEvent::ServerDisconnected {
-                endpoint_id: ClientEndpointId::Local,
-                generation: 1,
-            });
+            let _ = events.blocking_send(ClientLoopEvent::ServerDisconnected { generation: 1 });
             // Dropping only the relay leaves Core's holders and programs alive.
         })?;
     Ok(CoreEndpoint {

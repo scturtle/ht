@@ -176,11 +176,7 @@ fn active_preview_is_not_retargeted_by_deletion_or_reboot() {
     for invalidation in ["deleted", "boot", "generation"] {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         let mut local = workspaces(2);
-        state.set_endpoint_snapshot_for_generation(
-            &ClientEndpointId::Local,
-            7,
-            Box::new(local.clone()),
-        );
+        state.set_endpoint_snapshot_for_generation(7, Box::new(local.clone()));
         state.set_pane_surface(surface());
         state.compose(100, 28).unwrap();
         enter_navigation(&mut state);
@@ -196,11 +192,7 @@ fn active_preview_is_not_retargeted_by_deletion_or_reboot() {
             _ => {}
         }
         let generation = if invalidation == "generation" { 8 } else { 7 };
-        state.set_endpoint_snapshot_for_generation(
-            &ClientEndpointId::Local,
-            generation,
-            Box::new(local),
-        );
+        state.set_endpoint_snapshot_for_generation(generation, Box::new(local));
         assert_eq!(state.navigate_workspace_id, selected);
         preview_key(&mut state, b"\r");
         assert_eq!(state.mode, ClientShellMode::Navigate);
@@ -367,8 +359,8 @@ fn pending_navigation_highlight_does_not_survive_identity_changes() {
         let mut snapshot = workspaces(3);
         match change {
             "disconnect" => {
-                state.mark_endpoint_disconnected(&ClientEndpointId::Local);
-                state.set_endpoint_status(&ClientEndpointId::Local, ClientEndpointStatus::Online);
+                state.mark_endpoint_disconnected();
+                state.set_endpoint_status(ClientEndpointStatus::Online);
                 state.set_snapshot(Box::new(snapshot));
             }
             "boot" => {
@@ -376,11 +368,7 @@ fn pending_navigation_highlight_does_not_survive_identity_changes() {
                 state.set_snapshot(Box::new(snapshot));
             }
             "generation" => {
-                state.set_endpoint_snapshot_for_generation(
-                    &ClientEndpointId::Local,
-                    1,
-                    Box::new(snapshot),
-                );
+                state.set_endpoint_snapshot_for_generation(1, Box::new(snapshot));
             }
             "deleted" => {
                 snapshot.workspaces.pop();
@@ -430,7 +418,6 @@ fn navigation_highlight_requires_enqueued_focus_and_yields_to_new_intent() {
     assert_local_highlight(&mut state, "ws_3");
     let mut focus = ClientShellInput::default();
     state.focus_or_activate(
-        ClientEndpointId::Local,
         ClientEndpointFocusTarget::Workspace("ws_2".into()),
         &mut focus,
     );

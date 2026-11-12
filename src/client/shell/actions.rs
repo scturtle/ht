@@ -34,15 +34,6 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                if matches!(
-                    action,
-                    crate::input::KeybindAction::NewWorktree
-                        | crate::input::KeybindAction::OpenWorktree
-                        | crate::input::KeybindAction::RemoveWorktree
-                ) {
-                    self.begin_worktree_action(action, outcome);
-                    return;
-                }
                 if action == crate::input::KeybindAction::OpenNavigator {
                     self.open_navigator_overlay();
                     outcome.repaint = true;
@@ -363,8 +354,8 @@ impl ClientShellState {
         if changes_focus {
             outcome.repaint |= self.pending_workspace_highlight.take().is_some();
         }
-        if !self.endpoint_is_online(&self.active_endpoint_id) {
-            let label = self.active_endpoint_label().to_owned();
+        if !self.endpoint_is_online() {
+            let label = self.endpoint_label().to_owned();
             outcome.repaint |= self.receive_endpoint_unavailable(format!("{label} is not ready"));
             return false;
         }
@@ -409,7 +400,6 @@ impl ClientShellState {
             },
         );
         outcome.actions.push(ClientShellAction::Endpoint {
-            endpoint_id: self.active_endpoint_id.clone(),
             boot_id: snapshot.boot_id.clone(),
             request: Box::new(crate::api::schema::Request {
                 id: request_id,
@@ -800,15 +790,6 @@ impl ClientShellState {
                     Err(_) => true,
                 };
                 return (repaint, Vec::new());
-            }
-            kind @ (PendingEndpointKind::IntegrationList
-            | PendingEndpointKind::IntegrationInstall) => {
-                return self.handle_settings_endpoint_result(kind, result);
-            }
-            kind => {
-                let mut outcome = ClientShellInput::default();
-                let repaint = self.handle_worktree_endpoint_result(kind, result, &mut outcome);
-                return (repaint || outcome.repaint, outcome.actions);
             }
         }
         let repaint = match result {

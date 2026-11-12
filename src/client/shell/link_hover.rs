@@ -156,7 +156,7 @@ impl ClientShellState {
         }
         let target = hover.target.clone();
         // Hover is optional and speculative: do not probe unadvertised methods or show notices.
-        if !self.endpoint_is_online(&self.active_endpoint_id)
+        if !self.endpoint_is_online()
             || !self
                 .endpoint
                 .methods

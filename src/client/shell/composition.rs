@@ -48,9 +48,7 @@ impl ClientShellState {
             });
         // A resize invalidates pane geometry, not the healthy Local workspace chrome.
         let local_snapshot = self.snapshot.as_deref().filter(|_| {
-            layout.sidebar.width > 0
-                && self.endpoint_status(&self.active_endpoint_id)
-                    == Some(ClientEndpointStatus::Online)
+            layout.sidebar.width > 0 && self.endpoint_status() == ClientEndpointStatus::Online
         });
         let mut render_state = render::ShellRenderState {
             active_endpoint_id: &self.active_endpoint_id,
@@ -86,14 +84,9 @@ impl ClientShellState {
             self.hits = ShellHitMap::default();
         }
         let message = self.endpoint_error.clone().unwrap_or_else(|| {
-            let status = self
-                .endpoint_status(&self.active_endpoint_id)
-                .unwrap_or(ClientEndpointStatus::Connecting);
+            let status = self.endpoint_status();
             let (_, label, _) = endpoint_status_presentation(status, &self.config.palette);
-            format!(
-                "{}: {label}. Waiting for Core.",
-                self.active_endpoint_label()
-            )
+            format!("{}: {label}. Waiting for Core.", self.endpoint_label())
         });
         let message_area = if layout.sidebar.width > 0 {
             layout.pane_surface
@@ -619,8 +612,6 @@ impl ClientShellState {
                 self.hits.navigator_rows = rendered.navigator_rows;
                 self.hits.navigator_scrollbar = rendered.navigator_scrollbar;
                 self.hits.navigator_scroll_metrics = rendered.navigator_scroll_metrics;
-                self.hits.worktree_search = rendered.worktree_search;
-                self.hits.worktree_rows = rendered.worktree_rows;
                 self.hits.help_popup = rendered.help_popup;
                 self.hits.help_scrollbar = rendered.help_scrollbar;
                 self.hits.help_scroll_metrics = rendered.help_scroll_metrics;
@@ -653,7 +644,7 @@ impl ClientShellState {
                 .scroll
                 .min(u16::try_from(self.hits.release_notes_max_scroll).unwrap_or(u16::MAX));
         }
-        if self.endpoint_status(&self.active_endpoint_id) != Some(ClientEndpointStatus::Online) {
+        if self.endpoint_status() != ClientEndpointStatus::Online {
             frame.cursor = None;
             self.hits.panes.clear();
             self.hits.pane_splits.clear();
