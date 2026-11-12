@@ -30,7 +30,6 @@ fn navigate_update_status_uses_released_desktop_and_mobile_placement() {
 
     state.config.tab_bar_position = crate::config::TabBarPositionConfig::Top;
     state.visible_notification = Some(ClientVisibleNotification {
-        endpoint_id: ClientEndpointId::Local,
         event: SemanticNotification {
             kind: SemanticNotificationKind::Custom,
             title: "bottom notification".into(),
@@ -232,10 +231,7 @@ fn mobile_header_and_switcher_render_released_sections_and_stable_targets() {
         .find_map(|(rect, target)| {
             matches!(
                 target,
-                ClientMobileTarget::Tab {
-                    endpoint_id,
-                    tab_id,
-                } if endpoint_id.is_local() && tab_id == "tab_1"
+                ClientMobileTarget::Tab { tab_id } if tab_id == "tab_1"
             )
             .then_some(*rect)
         })
@@ -295,7 +291,7 @@ fn mobile_background_workspace_uses_its_own_active_tab_status() {
     state.set_snapshot(Box::new(projected));
     state.set_pane_surface(surface());
     state.mode = ClientShellMode::Navigate;
-    state.navigate_workspace_id = state.navigation_target(&ClientEndpointId::Local, "ws_2");
+    state.navigate_workspace_id = state.navigation_target("ws_2");
     let frame = state.compose(44, 20).expect("mobile switcher");
     let text = frame
         .cells
@@ -547,10 +543,7 @@ fn mobile_switcher_scroll_close_and_width_transition_clear_mobile_hits() {
         ))]);
     }
     state.compose(44, 10).expect("revealed mobile selection");
-    assert_eq!(
-        state.navigate_workspace_id,
-        state.navigation_target(&ClientEndpointId::Local, "ws_8")
-    );
+    assert_eq!(state.navigate_workspace_id, state.navigation_target("ws_8"));
     assert!(state.mobile_switcher_scroll > 2);
     assert!(state.hits.mobile_targets.iter().any(|(_, target)| {
         matches!(

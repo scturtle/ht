@@ -1055,7 +1055,6 @@ fn navigator_renders_every_terminal_in_workspace_sections() {
     };
     navigator.scroll = 2;
     navigator.selected = Some(ClientNavigatorTarget::Pane {
-        endpoint_id: state.active_endpoint_id.clone(),
         pane_id: "pane_shell".into(),
     });
     let visible = visible_rows(&mut state, 11);
@@ -1098,14 +1097,12 @@ fn navigator_search_matches_non_adjacent_words_without_losing_the_pane_target() 
     ] {
         navigator.query = query.into();
         navigator.selected = None;
-        let rows =
-            render::client_navigator_rows(&state.endpoint, &state.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(&state.endpoint, navigator);
         let target =
             super::super::aggregate_navigation::selected_navigator_target(&rows, navigator);
         assert_eq!(
             target,
             matches.then(|| ClientNavigatorTarget::Pane {
-                endpoint_id: state.active_endpoint_id.clone(),
                 pane_id: "pane_1".into(),
             }),
             "query={query:?}"
@@ -1173,8 +1170,7 @@ fn navigator_searches_ancestor_context_and_keeps_split_agents_individually_actio
         navigator.query = query.into();
         navigator.filter = filter;
         navigator.selected = None;
-        let rows =
-            render::client_navigator_rows(&state.endpoint, &state.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(&state.endpoint, navigator);
         let pane_ids = rows
             .iter()
             .filter_map(|row| match &row.target {
@@ -1258,7 +1254,7 @@ fn navigator_distinguishes_unnamed_terminals_on_numbered_tabs() {
     let Some(ClientShellOverlay::Navigator(navigator)) = &state.overlay else {
         panic!("navigator");
     };
-    let rows = render::client_navigator_rows(&state.endpoint, &state.active_endpoint_id, navigator);
+    let rows = render::client_navigator_rows(&state.endpoint, navigator);
     let labels = rows
         .iter()
         .filter(|row| matches!(row.target, ClientNavigatorTarget::Pane { .. }))
@@ -1288,8 +1284,7 @@ fn navigator_keeps_empty_workspaces_searchable_without_status_filters() {
         };
         navigator.query = query.into();
         navigator.filter = filter;
-        let rows =
-            render::client_navigator_rows(&state.endpoint, &state.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(&state.endpoint, navigator);
         assert_eq!(
             rows.len(),
             usize::from(expected),
@@ -1300,7 +1295,6 @@ fn navigator_keeps_empty_workspaces_searchable_without_status_filters() {
         assert_eq!(
             target,
             expected.then(|| ClientNavigatorTarget::Workspace {
-                endpoint_id: ClientEndpointId::Local,
                 workspace_id: "ws_1".into(),
             })
         );
@@ -1360,12 +1354,7 @@ fn navigator_horizontal_arrows_jump_sections_but_edit_the_search_cursor() {
         };
         navigator.selected.clone()
     };
-    let target = |id: &str| {
-        Some(ClientNavigatorTarget::Pane {
-            endpoint_id: ClientEndpointId::Local,
-            pane_id: id.into(),
-        })
-    };
+    let target = |id: &str| Some(ClientNavigatorTarget::Pane { pane_id: id.into() });
     press(&mut state, KeyCode::Left);
     assert_eq!(selected(&state), target("pane_1"));
     press(&mut state, KeyCode::Right);
@@ -1701,7 +1690,7 @@ fn navigator_owns_search_mouse_selection_and_stable_target_focus() {
         else {
             panic!("expected navigator");
         };
-        render::client_navigator_rows(&state.endpoint, &state.active_endpoint_id, navigator)
+        render::client_navigator_rows(&state.endpoint, navigator)
             .iter()
             .find(|row| matches!(row.target, ClientNavigatorTarget::Pane { .. }))
             .map(|row| row.target.clone())

@@ -88,7 +88,6 @@ impl ClientShellState {
                 self.set_local_config_diagnostic(self.config.local_config_diagnostic(&diagnostics));
             }
         }
-        self.reconcile_input_source();
     }
 }
 
@@ -134,9 +133,6 @@ impl ClientShellConfig {
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
-            switch_ascii_input_source_in_prefix: config
-                .experimental
-                .switch_ascii_input_source_in_prefix,
             local_config_path: crate::config::config_path(),
             preferences_path: None,
             preferences: preferences::ClientChromePreferences::default(),
@@ -328,10 +324,6 @@ impl ClientShellConfig {
             self.theme_runtime = crate::app::client_theme_runtime_from_config(config);
             self.theme_name = self.theme_runtime.manual_name.clone();
             self.palette = crate::app::client_palette_from_config(config);
-        }
-        if !invalid_section("experimental") {
-            self.switch_ascii_input_source_in_prefix =
-                config.experimental.switch_ascii_input_source_in_prefix;
         }
 
         diagnostics

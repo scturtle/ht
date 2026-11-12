@@ -100,23 +100,10 @@ pub(super) fn sync_client_shell_keyboard_report_all(
     }
     Ok(())
 }
-pub(super) fn apply_client_shell_input_source_changes(
-    state: &mut ClientState,
-    source: &mut impl crate::platform::PrefixInputSource,
-) {
-    for active in state.shell.take_input_source_changes() {
-        if active {
-            source.switch_to_ascii();
-        } else {
-            source.restore();
-        }
-    }
-}
 pub(super) fn install_client_shell_snapshot(
     state: &mut ClientState,
     snapshot: Box<crate::protocol::ClientShellSnapshot>,
     endpoints: &mut endpoint::EndpointRegistry,
-    input_source: &mut impl crate::platform::PrefixInputSource,
 ) -> Result<(), ClientError> {
     let Some(connection) = endpoints.connection() else {
         return Ok(());
@@ -142,7 +129,6 @@ pub(super) fn install_client_shell_snapshot(
     if epoch_changed {
         state.request_repaint();
     }
-    apply_client_shell_input_source_changes(state, input_source);
     state.present_graphics(&cleanup);
     if let Some(resize) = resize {
         endpoints.send(&resize);
@@ -158,9 +144,7 @@ pub(super) fn finish_client_shell_input(
     frame: Option<super::frame_output::ComposedFrame>,
     endpoints: &mut endpoint::EndpointRegistry,
     commands: &mut endpoint_commands::EndpointCommands,
-    input_source: &mut impl crate::platform::PrefixInputSource,
 ) -> Result<bool, ClientError> {
-    apply_client_shell_input_source_changes(state, input_source);
     if outcome.detach {
         let _ = write_to_server(endpoints, &ClientMessage::Detach);
         return Ok(true);
@@ -280,14 +264,12 @@ mod tests {
             },
         ]);
         let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
-        let mut prefix_input_source = crate::platform::RealPrefixInputSource::default();
         finish_client_shell_input(
             &mut state,
             outcome,
             None,
             &mut endpoints,
             &mut endpoint_commands,
-            &mut prefix_input_source,
         )
         .unwrap();
 
@@ -317,7 +299,6 @@ mod tests {
             None,
             &mut endpoints,
             &mut endpoint_commands,
-            &mut prefix_input_source,
         )
         .unwrap();
         assert_eq!(

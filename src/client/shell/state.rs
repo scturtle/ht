@@ -45,7 +45,6 @@ pub(crate) struct ClientShellConfig {
     pub(super) mouse_scroll_lines: usize,
     pub(super) right_click_passthrough_modifiers: Option<crossterm::event::KeyModifiers>,
     pub(super) redraw_on_focus_gained: bool,
-    pub(super) switch_ascii_input_source_in_prefix: bool,
     pub(super) local_config_path: std::path::PathBuf,
     pub(super) preferences_path: Option<std::path::PathBuf>,
     pub(super) preferences: preferences::ClientChromePreferences,
@@ -64,19 +63,10 @@ pub(super) struct ClientShellLayout {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ClientMobileTarget {
     NewWorkspace,
-    Workspace {
-        endpoint_id: ClientEndpointId,
-        workspace_id: String,
-    },
+    Workspace { workspace_id: String },
     NewTab,
-    Tab {
-        endpoint_id: ClientEndpointId,
-        tab_id: String,
-    },
-    Agent {
-        endpoint_id: ClientEndpointId,
-        pane_id: String,
-    },
+    Tab { tab_id: String },
+    Agent { pane_id: String },
     Menu(usize),
 }
 
@@ -166,7 +156,6 @@ pub(super) struct ClientPaneMouseGesture {
 }
 
 pub(super) struct ClientWorkspacePress {
-    pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
@@ -226,7 +215,6 @@ pub(super) enum ClientChromeDrag {
 
 pub(super) struct WorkspaceHit {
     pub(super) rect: Rect,
-    pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
     pub(super) indented: bool,
     pub(super) group_toggle: Option<(Rect, String)>,
@@ -323,14 +311,8 @@ pub(super) enum ClientNavigatorFilter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ClientNavigatorTarget {
-    Workspace {
-        endpoint_id: ClientEndpointId,
-        workspace_id: String,
-    },
-    Pane {
-        endpoint_id: ClientEndpointId,
-        pane_id: String,
-    },
+    Workspace { workspace_id: String },
+    Pane { pane_id: String },
 }
 
 #[derive(Clone, Debug)]
@@ -592,7 +574,6 @@ pub(crate) enum ClientShellNotificationEffect {
 }
 
 pub(super) struct ClientPendingNotification {
-    pub(super) endpoint_id: ClientEndpointId,
     pub(super) event: SemanticNotification,
     pub(super) deadline: std::time::Instant,
     pub(super) expires_at: std::time::Instant,
@@ -600,7 +581,6 @@ pub(super) struct ClientPendingNotification {
 }
 
 pub(super) struct ClientVisibleNotification {
-    pub(super) endpoint_id: ClientEndpointId,
     pub(super) event: SemanticNotification,
     pub(super) deadline: std::time::Instant,
 }
@@ -734,7 +714,6 @@ pub(crate) struct ClientShellState {
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) workspace_scroll: usize,
     pub(super) agent_scroll: usize,
-    pub(super) pending_agent_reveal: Option<(ClientEndpointId, String)>,
     pub(super) tab_scroll: usize,
     pub(super) mobile_switcher_scroll: usize,
     pub(super) reveal_focused_workspace: bool,
@@ -747,7 +726,6 @@ pub(crate) struct ClientShellState {
     pub(super) selection_repaint_deadline: Option<std::time::Instant>,
     pub(super) hits: ShellHitMap,
     pub(super) endpoint: ClientShellEndpoint,
-    pub(super) active_endpoint_id: ClientEndpointId,
     pub(super) mode: ClientShellMode,
     pub(super) navigate_workspace_id: Option<WorkspaceNavigationTarget>,
     pub(super) pending_workspace_highlight: Option<PendingWorkspaceHighlight>,
@@ -795,8 +773,6 @@ pub(crate) struct ClientShellState {
     pub(super) endpoint_notice_seen: HashSet<ClientEndpointNoticeKey>,
     pub(super) visible_endpoint_notice: Option<ClientVisibleEndpointNotice>,
     pub(super) outer_focused: Option<bool>,
-    pub(super) ascii_input_source_active: bool,
-    pub(super) pending_input_source_changes: Vec<bool>,
     pub(super) host_appearance: Option<crate::terminal_theme::HostAppearance>,
     pub(super) host_appearance_explicit: bool,
     pub(super) host_background: Option<crate::terminal_theme::RgbColor>,
@@ -891,7 +867,6 @@ impl ClientShellState {
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
             workspace_scroll: 0,
             agent_scroll: 0,
-            pending_agent_reveal: None,
             tab_scroll: 0,
             mobile_switcher_scroll: 0,
             reveal_focused_workspace: true,
@@ -904,7 +879,6 @@ impl ClientShellState {
             selection_repaint_deadline: None,
             hits: ShellHitMap::default(),
             endpoint: local_endpoint(),
-            active_endpoint_id: ClientEndpointId::Local,
             mode: ClientShellMode::Terminal,
             navigate_workspace_id: None,
             pending_workspace_highlight: None,
@@ -946,8 +920,6 @@ impl ClientShellState {
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
             outer_focused: None,
-            ascii_input_source_active: false,
-            pending_input_source_changes: Vec::new(),
             host_appearance: None,
             host_appearance_explicit: false,
             host_background: None,
@@ -983,16 +955,13 @@ impl ClientShellState {
             .is_some_and(|(cols, rows)| !self.layout(cols, rows).mobile_header.is_empty())
     }
 
-    pub(super) fn collapsed_groups_for_endpoint(
-        &self,
-        _id: &ClientEndpointId,
-    ) -> Option<&HashSet<String>> {
-        Some(&self.collapsed_groups)
+    pub(super) fn collapsed_groups(&self) -> &HashSet<String> {
+        &self.collapsed_groups
     }
-    pub(super) fn group_is_collapsed(&self, _id: &ClientEndpointId, key: &str) -> bool {
+    pub(super) fn group_is_collapsed(&self, key: &str) -> bool {
         self.collapsed_groups.contains(key)
     }
-    pub(super) fn toggle_collapsed_group(&mut self, _id: &ClientEndpointId, key: String) {
+    pub(super) fn toggle_collapsed_group(&mut self, key: String) {
         if !self.collapsed_groups.remove(&key) {
             self.collapsed_groups.insert(key);
         }
@@ -1006,11 +975,7 @@ impl ClientShellState {
         if self.mobile_layout_active() {
             render::workspace_entries(snapshot, &empty_collapsed_groups)
         } else {
-            render::workspace_entries(
-                snapshot,
-                self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
-                    .unwrap_or(&empty_collapsed_groups),
-            )
+            render::workspace_entries(snapshot, self.collapsed_groups())
         }
     }
 
@@ -1325,7 +1290,7 @@ impl ClientShellState {
             self.navigate_workspace_id = snapshot
                 .focused_workspace_id
                 .as_deref()
-                .and_then(|id| self.navigation_target(&self.active_endpoint_id, id));
+                .and_then(|id| self.navigation_target(id));
             self.reveal_mobile_workspace = self.mobile_layout_active();
         }
         let pane_exists =
@@ -1410,7 +1375,6 @@ impl ClientShellState {
             }
         }
         self.resume_mobile_switcher_if_ready();
-        self.reconcile_input_source();
     }
 
     pub(crate) fn set_pane_surface(&mut self, surface: PaneSurfaceFrame) {
@@ -1559,7 +1523,6 @@ impl ClientShellState {
         self.pane_surface_generation = self.active_snapshot_generation;
         self.invalidate_link_hover();
         self.resume_mobile_switcher_if_ready();
-        self.reconcile_input_source();
     }
 
     pub(crate) fn show_copy_feedback(&mut self, now: std::time::Instant) -> bool {

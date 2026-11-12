@@ -103,7 +103,6 @@ pub(crate) fn render_collapsed_sidebar(
         );
         hits.workspaces.push(WorkspaceHit {
             rect,
-            endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
             indented: false,
             group_toggle: None,
@@ -317,9 +316,9 @@ pub(crate) fn render_sidebar(
             break;
         }
         let rect = Rect::new(body.x, y, content_width, row_height);
-        let selected = state.selected_workspace_id.is_some_and(|target| {
-            target.matches(state.active_endpoint_id, &workspace.workspace_id)
-        });
+        let selected = state
+            .selected_workspace_id
+            .is_some_and(|target| target.matches(&workspace.workspace_id));
         let dragged = state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
         if selected {
             buffer.set_style(rect, Style::default().bg(palette.selection_bg));
@@ -351,7 +350,6 @@ pub(crate) fn render_sidebar(
         );
         hits.workspaces.push(WorkspaceHit {
             rect,
-            endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
             indented: entry.indented,
             group_toggle,

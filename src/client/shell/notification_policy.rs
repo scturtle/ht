@@ -74,17 +74,14 @@ impl ClientShellState {
         let Some(pane_id) = notification.event.pane_id else {
             return;
         };
-        if notification.endpoint_id == self.active_endpoint_id {
-            self.push_endpoint_method(
-                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
-                outcome,
-            );
-        }
+        self.push_endpoint_method(
+            crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
+            outcome,
+        );
     }
 
     pub(crate) fn receive_notification(
         &mut self,
-        endpoint_id: &ClientEndpointId,
         event: SemanticNotification,
         now: std::time::Instant,
     ) -> (Vec<ClientShellNotificationEffect>, bool) {
@@ -97,20 +94,15 @@ impl ClientShellState {
             .checked_add(std::time::Duration::from_secs(delay))
             .unwrap_or(now);
         let cleared_visible = event.pane_id.as_deref().is_some_and(|pane_id| {
-            self.visible_notification.as_ref().is_some_and(|visible| {
-                visible.endpoint_id == *endpoint_id
-                    && visible.event.pane_id.as_deref() == Some(pane_id)
-            })
+            self.visible_notification
+                .as_ref()
+                .is_some_and(|visible| visible.event.pane_id.as_deref() == Some(pane_id))
         });
         if let Some(pane_id) = event.pane_id.as_deref() {
-            self.pending_notifications.retain(|pending| {
-                pending.endpoint_id != *endpoint_id
-                    || pending.event.pane_id.as_deref() != Some(pane_id)
-            });
-            self.queued_notifications.retain(|queued| {
-                queued.endpoint_id != *endpoint_id
-                    || queued.event.pane_id.as_deref() != Some(pane_id)
-            });
+            self.pending_notifications
+                .retain(|pending| pending.event.pane_id.as_deref() != Some(pane_id));
+            self.queued_notifications
+                .retain(|queued| queued.event.pane_id.as_deref() != Some(pane_id));
             if cleared_visible {
                 self.visible_notification = None;
                 self.promote_queued_notification(now);
@@ -120,7 +112,6 @@ impl ClientShellState {
         // client-projected pane remains Done, even when delivery is immediate.
         let validate_state = delay > 0 || event.kind == SemanticNotificationKind::Finished;
         self.pending_notifications.push(ClientPendingNotification {
-            endpoint_id: endpoint_id.clone(),
             event,
             deadline,
             expires_at: now.checked_add(COMPLETION_EVIDENCE_GRACE).unwrap_or(now),
@@ -161,7 +152,7 @@ impl ClientShellState {
                 continue;
             }
             if pending.validate_state {
-                match self.notification_validation(&pending.endpoint_id, &pending.event) {
+                match self.notification_validation(&pending.event) {
                     NotificationValidation::Current => {}
                     NotificationValidation::AwaitingSnapshot if now < pending.expires_at => {
                         let mut pending = pending;
@@ -177,8 +168,7 @@ impl ClientShellState {
                     }
                 }
             }
-            let target_active =
-                self.notification_target_is_active(&pending.endpoint_id, &pending.event);
+            let target_active = self.notification_target_is_active(&pending.event);
             let suppress_external = target_active && self.outer_focused != Some(false);
             if let Some(sound) = pending.event.sound {
                 let suppress_sound =
@@ -199,7 +189,6 @@ impl ClientShellState {
                 crate::config::ToastDelivery::Herdr if !target_active => {
                     self.queue_visible_notification(
                         ClientVisibleNotification {
-                            endpoint_id: pending.endpoint_id,
                             event: pending.event,
                             deadline: now,
                         },
@@ -226,14 +215,7 @@ impl ClientShellState {
         (effects, repaint)
     }
 
-    fn notification_target_is_active(
-        &self,
-        endpoint_id: &ClientEndpointId,
-        event: &SemanticNotification,
-    ) -> bool {
-        if endpoint_id != &self.active_endpoint_id {
-            return false;
-        }
+    fn notification_target_is_active(&self, event: &SemanticNotification) -> bool {
         let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return false;
         };
@@ -245,11 +227,7 @@ impl ClientShellState {
         })
     }
 
-    fn notification_validation(
-        &self,
-        _endpoint_id: &ClientEndpointId,
-        event: &SemanticNotification,
-    ) -> NotificationValidation {
+    fn notification_validation(&self, event: &SemanticNotification) -> NotificationValidation {
         let Some(pane_id) = event.pane_id.as_deref() else {
             // Finished notifications carry no independently trustworthy completion state. Without
             // a projected pane to verify as Done, do not emit completion chrome or sound.

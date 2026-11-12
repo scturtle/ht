@@ -35,7 +35,6 @@ pub(crate) fn render_client_overlay(
     o: &ClientShellOverlay,
     s: &ClientShellSnapshot,
     endpoints: &ClientShellEndpoint,
-    active_endpoint_id: &ClientEndpointId,
     k: &LiveKeybindConfig,
     p: &Palette,
 ) -> Option<OverlayRender> {
@@ -61,9 +60,7 @@ pub(crate) fn render_client_overlay(
         ClientShellOverlay::Rename(v) => render_rename_overlay(b, v, p),
         ClientShellOverlay::ConfirmClose(v) => render_confirm_close_overlay(b, v, p),
         ClientShellOverlay::Help(v) => render_help_overlay(b, v, k, p),
-        ClientShellOverlay::Navigator(v) => {
-            render_navigator_overlay(b, v, endpoints, active_endpoint_id, p)
-        }
+        ClientShellOverlay::Navigator(v) => render_navigator_overlay(b, v, endpoints, p),
         ClientShellOverlay::Settings(v) => settings_overlay::render_settings_overlay(b, v, p),
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }
@@ -689,7 +686,6 @@ fn render_navigator_overlay(
     b: &mut Buffer,
     n: &ClientNavigatorOverlay,
     endpoints: &ClientShellEndpoint,
-    active_endpoint_id: &ClientEndpointId,
     p: &Palette,
 ) -> Option<OverlayRender> {
     let a = b.area;
@@ -714,7 +710,7 @@ fn render_navigator_overlay(
         " Go to ",
         Style::default().fg(p.accent).bg(p.panel_bg),
     );
-    let rows = super::aggregate_navigation::navigator_rows(endpoints, active_endpoint_id, n);
+    let rows = super::aggregate_navigation::navigator_rows(endpoints, n);
     let search = if n.search_focused {
         " / ".to_owned()
     } else if let Some(f) = n.filter {

@@ -39,24 +39,24 @@ fn enter_navigation(state: &mut ClientShellState) {
     assert_eq!(state.mode, ClientShellMode::Navigate);
 }
 
-fn assert_selected(state: &ClientShellState, endpoint: &ClientEndpointId, workspace: &str) {
+fn assert_selected(state: &ClientShellState, workspace: &str) {
     assert_eq!(
         state.navigate_workspace_id,
-        state.navigation_target(endpoint, workspace)
+        state.navigation_target(workspace)
     );
 }
 
-fn workspace_rect(state: &ClientShellState, endpoint: &ClientEndpointId, workspace: &str) -> Rect {
+fn workspace_rect(state: &ClientShellState, workspace: &str) -> Rect {
     state
         .hits
         .workspaces
         .iter()
-        .find(|hit| &hit.endpoint_id == endpoint && hit.workspace_id == workspace)
+        .find(|hit| hit.workspace_id == workspace)
         .map(|hit| hit.rect)
         .or_else(|| {
             state.hits.mobile_targets.iter().find_map(|(rect, target)| {
-                matches!(target, ClientMobileTarget::Workspace { endpoint_id, workspace_id }
-                if endpoint_id == endpoint && workspace_id == workspace)
+                matches!(target, ClientMobileTarget::Workspace { workspace_id }
+                if workspace_id == workspace)
                 .then_some(*rect)
             })
         })
@@ -85,9 +85,9 @@ fn local_navigation_highlight_stays_visible_with_terminal_theme() {
             enter_navigation(&mut state);
 
             for workspace_id in ["ws_1", "ws_2"] {
-                assert_selected(&state, &ClientEndpointId::Local, workspace_id);
+                assert_selected(&state, workspace_id);
                 let buffer = state.compose(100, 28).unwrap().to_ratatui_buffer().unwrap();
-                let selected = workspace_rect(&state, &ClientEndpointId::Local, workspace_id);
+                let selected = workspace_rect(&state, workspace_id);
                 for y in selected.y..selected.bottom() {
                     for x in selected.x..selected.right() {
                         assert_eq!(
@@ -97,10 +97,10 @@ fn local_navigation_highlight_stays_visible_with_terminal_theme() {
                         );
                     }
                 }
-                let untouched = workspace_rect(&state, &ClientEndpointId::Local, "ws_3");
+                let untouched = workspace_rect(&state, "ws_3");
                 assert_ne!(buffer[(untouched.x, untouched.y)].bg, expected_bg);
                 if workspace_id != "ws_1" {
-                    let focused = workspace_rect(&state, &ClientEndpointId::Local, "ws_1");
+                    let focused = workspace_rect(&state, "ws_1");
                     assert_eq!(
                         buffer[(focused.x, focused.y)].bg,
                         if selection_bg == Color::Reset {
@@ -124,12 +124,12 @@ fn local_navigation_highlight_stays_visible_with_terminal_theme() {
             );
             preview_key(&mut state, b"\x1b");
             let buffer = state.compose(100, 28).unwrap().to_ratatui_buffer().unwrap();
-            let focused = workspace_rect(&state, &ClientEndpointId::Local, "ws_1");
+            let focused = workspace_rect(&state, "ws_1");
             assert_eq!(
                 buffer[(focused.x, focused.y)].bg,
                 state.config.palette.active_row_bg
             );
-            let cancelled = workspace_rect(&state, &ClientEndpointId::Local, "ws_3");
+            let cancelled = workspace_rect(&state, "ws_3");
             assert_eq!(
                 buffer[(cancelled.x, cancelled.y)].bg,
                 state.config.palette.sidebar_bg
@@ -160,14 +160,14 @@ fn single_machine_compact_navigation_includes_visible_collapsed_group_children()
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(grouped_workspaces()));
     state.set_pane_surface(surface());
-    state.toggle_collapsed_group(&ClientEndpointId::Local, "repo".into());
+    state.toggle_collapsed_group("repo".into());
     state.sidebar_collapsed = true;
     state.compose(100, 28).unwrap();
-    workspace_rect(&state, &ClientEndpointId::Local, "ws_3");
+    workspace_rect(&state, "ws_3");
     enter_navigation(&mut state);
     for id in ["ws_2", "ws_3"] {
         preview_key(&mut state, b"\x1b[B");
-        assert_selected(&state, &ClientEndpointId::Local, id);
+        assert_selected(&state, id);
     }
 }
 
@@ -181,7 +181,7 @@ fn active_preview_is_not_retargeted_by_deletion_or_reboot() {
         state.compose(100, 28).unwrap();
         enter_navigation(&mut state);
         preview_key(&mut state, b"\x1b[B");
-        assert_selected(&state, &ClientEndpointId::Local, "ws_2");
+        assert_selected(&state, "ws_2");
         let selected = state.navigate_workspace_id.clone();
         match invalidation {
             "boot" => local.boot_id = "new-local-boot".into(),
@@ -238,7 +238,7 @@ fn request_local_navigation(state: &mut ClientShellState, down: usize) -> String
 fn assert_local_highlight(state: &mut ClientShellState, selected_id: &str) {
     let buffer = state.compose(100, 28).unwrap().to_ratatui_buffer().unwrap();
     for workspace_id in ["ws_1", "ws_2", "ws_3"] {
-        let rect = workspace_rect(state, &ClientEndpointId::Local, workspace_id);
+        let rect = workspace_rect(state, workspace_id);
         assert_eq!(
             (rect.x..rect.right())
                 .any(|x| buffer[(x, rect.y)].bg == state.config.palette.active_row_bg),
@@ -606,12 +606,12 @@ fn configured_ctrl_bracket_navigate_binding_wins_over_cancel() {
     state.set_pane_surface(surface());
     state.compose(100, 28).unwrap();
     enter_navigation(&mut state);
-    assert_selected(&state, &ClientEndpointId::Local, "ws_1");
+    assert_selected(&state, "ws_1");
 
     preview_key(&mut state, KITTY_CTRL_BRACKET);
 
     assert_eq!(state.mode, ClientShellMode::Navigate);
-    assert_selected(&state, &ClientEndpointId::Local, "ws_2");
+    assert_selected(&state, "ws_2");
 }
 
 #[test]
@@ -622,5 +622,5 @@ fn kitty_ctrl_shift_bracket_keeps_navigation_open() {
     state.handle_input_bytes(KITTY_CTRL_SHIFT_BRACKET);
 
     assert_eq!(state.mode, ClientShellMode::Navigate);
-    assert_selected(&state, &ClientEndpointId::Local, "ws_1");
+    assert_selected(&state, "ws_1");
 }

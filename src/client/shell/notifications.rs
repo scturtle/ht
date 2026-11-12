@@ -211,7 +211,6 @@ mod tests {
 
     fn notification() -> ClientVisibleNotification {
         ClientVisibleNotification {
-            endpoint_id: ClientEndpointId::Local,
             event: SemanticNotification {
                 kind: SemanticNotificationKind::Custom,
                 title: "notice".into(),
@@ -258,7 +257,6 @@ mod tests {
     fn unavailable_notification_target_stays_visible_and_reports_the_machine() {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.visible_notification = Some(ClientVisibleNotification {
-            endpoint_id: ClientEndpointId::Local,
             event: SemanticNotification {
                 kind: SemanticNotificationKind::NeedsAttention,
                 title: "agent needs attention".into(),
@@ -310,7 +308,6 @@ mod tests {
         state.set_snapshot(Box::new(snapshot));
 
         let (effects, repaint) = state.receive_notification(
-            &ClientEndpointId::Local,
             SemanticNotification {
                 kind: SemanticNotificationKind::Finished,
                 title: "agent finished".into(),
@@ -367,7 +364,7 @@ mod tests {
             position: None,
         };
 
-        let (effects, _) = state.receive_notification(&ClientEndpointId::Local, event, now);
+        let (effects, _) = state.receive_notification(event, now);
         assert!(effects.is_empty());
         assert_eq!(state.pending_notifications.len(), 1);
 
@@ -401,7 +398,6 @@ mod tests {
         let now = std::time::Instant::now();
         for title in ["first", "second"] {
             state.receive_notification(
-                &ClientEndpointId::Local,
                 SemanticNotification {
                     kind: SemanticNotificationKind::Custom,
                     title: title.into(),

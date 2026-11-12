@@ -18,7 +18,6 @@ pub(super) use endpoints::*;
 mod global_menu;
 mod graphics;
 mod input;
-mod input_source;
 mod link_hover;
 mod mobile;
 mod mouse;
@@ -48,7 +47,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
-use super::endpoint::{ClientEndpointId, ClientEndpointStatus};
+use super::endpoint::ClientEndpointStatus;
 use crate::app::state::Palette;
 use crate::config::{
     Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,

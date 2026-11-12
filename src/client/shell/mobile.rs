@@ -364,7 +364,6 @@ pub(super) fn render_mobile_switcher(
     area: Rect,
     snapshot: &ClientShellSnapshot,
     endpoints: &ClientShellEndpoint,
-    active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
     selected_workspace_id: Option<&WorkspaceNavigationTarget>,
     scroll: &mut usize,
@@ -438,7 +437,6 @@ pub(super) fn render_mobile_switcher(
     let items = mobile_items(
         snapshot,
         endpoints,
-        active_endpoint_id,
         config,
         selected_workspace_id,
         viewport.width.saturating_sub(1),
@@ -453,10 +451,8 @@ pub(super) fn render_mobile_switcher(
                 let end = start.saturating_add(item.lines.len());
                 if matches!(
                     item.target.as_ref(),
-                    Some(ClientMobileTarget::Workspace {
-                        endpoint_id,
-                        workspace_id,
-                    }) if selected_workspace_id.matches(endpoint_id, workspace_id)
+                    Some(ClientMobileTarget::Workspace { workspace_id })
+                        if selected_workspace_id.matches(workspace_id)
                 ) {
                     if start < *scroll {
                         *scroll = start;
@@ -574,7 +570,6 @@ fn render_close_button(buffer: &mut Buffer, area: Rect, palette: &Palette) {
 fn mobile_items(
     snapshot: &ClientShellSnapshot,
     endpoints: &ClientShellEndpoint,
-    active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
     selected_workspace_id: Option<&WorkspaceNavigationTarget>,
     content_width: u16,
@@ -653,7 +648,7 @@ fn mobile_items(
             if endpoint.stale() {
                 detail.push(mobile_endpoint_state(endpoint.status).to_owned());
             }
-            let background = if endpoint.endpoint_id == active_endpoint_id && agent.focused {
+            let background = if agent.focused {
                 palette.surface_dim
             } else {
                 palette.panel_bg
@@ -708,7 +703,6 @@ fn mobile_items(
                 ],
                 background,
                 target: Some(ClientMobileTarget::Agent {
-                    endpoint_id: endpoint.endpoint_id.clone(),
                     pane_id: agent.pane_id.clone(),
                 }),
             });
@@ -726,16 +720,15 @@ fn mobile_items(
             let Some(workspace) = endpoint.snapshot.workspaces.get(entry.index) else {
                 continue;
             };
-            let selected = selected_workspace_id.is_some_and(|target| {
-                target.matches(endpoint.endpoint_id, &workspace.workspace_id)
-            });
+            let selected =
+                selected_workspace_id.is_some_and(|target| target.matches(&workspace.workspace_id));
             let background = if selected {
                 if palette.surface0 == ratatui::style::Color::Reset {
                     palette.active_row_bg
                 } else {
                     palette.surface0
                 }
-            } else if endpoint.endpoint_id == active_endpoint_id && workspace.focused {
+            } else if workspace.focused {
                 if selected_workspace_id.is_some()
                     && palette.surface0 == ratatui::style::Color::Reset
                 {
@@ -840,7 +833,6 @@ fn mobile_items(
                 ],
                 background,
                 target: Some(ClientMobileTarget::Workspace {
-                    endpoint_id: endpoint.endpoint_id.clone(),
                     workspace_id: workspace.workspace_id.clone(),
                 }),
             });
@@ -884,7 +876,6 @@ fn mobile_items(
                 ))],
                 background,
                 target: Some(ClientMobileTarget::Tab {
-                    endpoint_id: active_endpoint_id.clone(),
                     tab_id: tab.tab_id.clone(),
                 }),
             });

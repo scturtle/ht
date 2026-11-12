@@ -831,3 +831,30 @@ fn terminal_control_scroll_command_maps_to_attach_scroll() {
     assert_eq!(direction, AttachScrollDirection::Up);
     assert_eq!(lines, 3);
 }
+
+struct SilentTransport;
+
+impl endpoint::EndpointTransport for SilentTransport {
+    fn send(&mut self, _: &crate::protocol::ClientMessage) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn only_a_failure_from_the_live_generation_ends_the_client_loop() {
+    let live = endpoint::EndpointRegistry::new(SilentTransport, 7);
+    assert!(!failure_is_superseded(&live, 7));
+    assert!(failure_is_superseded(&live, 6));
+
+    let mut revoked = endpoint::EndpointRegistry::new(SilentTransport, 7);
+    revoked.fail(io::Error::new(io::ErrorKind::BrokenPipe, "lost"));
+    assert!(
+        !failure_is_superseded(&revoked, 7),
+        "a revoked connection reports its own failure as fatal"
+    );
+    assert!(revoked.take_failure().is_some());
+    assert!(
+        revoked.take_failure().is_none(),
+        "a failure is consumed once"
+    );
+}

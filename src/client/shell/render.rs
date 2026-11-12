@@ -230,7 +230,6 @@ pub(super) fn render_mode_bar(
 }
 
 pub(super) struct ShellRenderState<'a> {
-    pub(super) active_endpoint_id: &'a ClientEndpointId,
     pub(super) collapsed_groups: &'a HashSet<String>,
     pub(super) workspace_scroll: &'a mut usize,
     pub(super) agent_scroll: &'a mut usize,

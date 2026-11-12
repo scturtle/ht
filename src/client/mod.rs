@@ -262,11 +262,11 @@ fn server_graphics_files_allowed(
     endpoint_id.is_local() && !remote_client_process
 }
 
-fn graphics_owner_is_active(
-    endpoints: &endpoint::EndpointRegistry,
-    owner: &endpoint::ClientEndpointId,
-) -> bool {
-    endpoints.active_id() == owner && endpoints.connection().is_some()
+/// A transport failure whose generation a live connection already replaced must not
+/// end the loop; every other failure is still fatal. Checked before the Timer work
+/// below runs so an ignored failure never skips it.
+fn failure_is_superseded(endpoints: &endpoint::EndpointRegistry, failure_generation: u64) -> bool {
+    endpoints.connection().is_some() && !endpoints.accepts(failure_generation)
 }
 
 /// The main client event loop.
@@ -406,14 +406,9 @@ async fn run_client_loop(
     let mut write_stream = endpoint::EndpointRegistry::new(transport, 1);
     write_stream.send(&ClientMessage::ClientShellFocus { focused: true });
 
-    // This (foreground) client owns the prefix ASCII input-source switch
-    // (implemented on macOS and Windows; a no-op on other platforms).
-    let mut prefix_input_source = crate::platform::RealPrefixInputSource::default();
-
     // Main event loop.
     let mut client_timer = timer::ClientLoopTimer::new();
     while !should_quit.load(Ordering::Acquire) {
-        apply_client_shell_input_source_changes(&mut state, &mut prefix_input_source);
         {
             let shell = &mut state.shell;
             let cleanup = shell.take_pending_graphics_cleanup();
@@ -470,7 +465,6 @@ async fn run_client_loop(
                     frame,
                     &mut write_stream,
                     &mut endpoint_commands,
-                    &mut prefix_input_source,
                 )? {
                     return Ok(());
                 }
@@ -489,12 +483,12 @@ async fn run_client_loop(
                         .remove(&key)
                         .map(|asset| (key, asset))
                 });
-                let Some(((owner, _, _, _), asset)) = pending else {
+                let Some(((_, _, _, _), asset)) = pending else {
                     // Raw/non-surface transfers retain their existing response handling.
                     continue;
                 };
                 let eligible = response.success
-                    && graphics_owner_is_active(&write_stream, &owner)
+                    && write_stream.active_surface_available()
                     && state
                         .shell
                         .accepts_direct_graphics_asset(&asset, response.image_id);
@@ -555,7 +549,6 @@ async fn run_client_loop(
                     frame,
                     &mut write_stream,
                     &mut endpoint_commands,
-                    &mut prefix_input_source,
                 )? {
                     return Ok(());
                 }
@@ -637,7 +630,7 @@ async fn run_client_loop(
                         image_id,
                     } = message.as_ref()
                     {
-                        let owner_active = graphics_owner_is_active(&write_stream, &endpoint_id);
+                        let owner_active = write_stream.active_surface_available();
                         state.receive_graphics_retirement(
                             &endpoint_id,
                             generation,
@@ -648,8 +641,7 @@ async fn run_client_loop(
                     }
                     continue;
                 }
-                let endpoint_active =
-                    write_stream.active_id() == &endpoint_id && write_stream.connection().is_some();
+                let endpoint_active = write_stream.active_surface_available();
                 match *message {
                     ServerMessage::ClientShellSnapshot(snapshot) => {
                         for id in endpoint_commands.observe_snapshot(generation, &snapshot.boot_id)
@@ -659,12 +651,7 @@ async fn run_client_loop(
                                 shell.cancel_endpoint_request(&id);
                             }
                         }
-                        install_client_shell_snapshot(
-                            &mut state,
-                            snapshot,
-                            &mut write_stream,
-                            &mut prefix_input_source,
-                        )?;
+                        install_client_shell_snapshot(&mut state, snapshot, &mut write_stream)?;
                     }
                     ServerMessage::PaneSurface(surface) => {
                         if !endpoint_active {
@@ -675,10 +662,6 @@ async fn run_client_loop(
                             shell.set_pane_surface(surface);
                             shell.compose(state.reported_size.0, state.reported_size.1)
                         };
-                        apply_client_shell_input_source_changes(
-                            &mut state,
-                            &mut prefix_input_source,
-                        );
                         if let Some(frame) = composed {
                             state.present_frame(frame);
                         }
@@ -705,10 +688,6 @@ async fn run_client_loop(
                             shell::ClientPaneSurfacePatchOutcome::Applied(None) => true,
                             shell::ClientPaneSurfacePatchOutcome::Rejected => false,
                         };
-                        apply_client_shell_input_source_changes(
-                            &mut state,
-                            &mut prefix_input_source,
-                        );
                         if compose_fallback {
                             let composed = state
                                 .shell
@@ -790,7 +769,7 @@ async fn run_client_loop(
                                 || surface_asset.as_ref().is_some_and(|asset| {
                                     state.disabled_native_graphics.get(&endpoint_id)
                                         != Some(&generation)
-                                        && graphics_owner_is_active(&write_stream, &endpoint_id)
+                                        && write_stream.active_surface_available()
                                         && leading.is_empty()
                                         && asset.format
                                             == crate::protocol::SurfaceGraphicsFormat::Rgba
@@ -890,11 +869,8 @@ async fn run_client_loop(
                     ServerMessage::SemanticNotification(event) => {
                         let (effects, frame) = {
                             let shell = &mut state.shell;
-                            let (effects, repaint) = shell.receive_notification(
-                                &endpoint_id,
-                                event,
-                                std::time::Instant::now(),
-                            );
+                            let (effects, repaint) =
+                                shell.receive_notification(event, std::time::Instant::now());
                             let frame = repaint
                                 .then(|| {
                                     shell.compose(state.reported_size.0, state.reported_size.1)
@@ -945,14 +921,6 @@ async fn run_client_loop(
                                 Vec::new(),
                             )
                         };
-                        {
-                            let shell = &mut state.shell;
-                            shell.reconcile_input_source();
-                        }
-                        apply_client_shell_input_source_changes(
-                            &mut state,
-                            &mut prefix_input_source,
-                        );
                         let (replay_mouse, dispatch_repaint) = dispatch_client_shell_actions(
                             actions,
                             &mut endpoint_commands,
@@ -989,7 +957,6 @@ async fn run_client_loop(
                                 frame,
                                 &mut write_stream,
                                 &mut endpoint_commands,
-                                &mut prefix_input_source,
                             )? {
                                 return Ok(());
                             }
@@ -1020,7 +987,6 @@ async fn run_client_loop(
                         &mut write_stream,
                         &host_mouse_capture_active,
                         &host_sgr_pixels_active,
-                        &mut prefix_input_source,
                     )?,
                     ServerMessage::MouseCapture {
                         enabled,
@@ -1080,21 +1046,18 @@ async fn run_client_loop(
                 state
                     .detached_process_children
                     .retain_mut(|child| child.try_wait().ok().flatten().is_none());
-                for failure in write_stream.take_failures() {
-                    if write_stream.connection().is_some()
-                        && !write_stream.accepts(failure.generation)
-                    {
-                        continue;
+                if let Some(failure) = write_stream.take_failure() {
+                    if !failure_is_superseded(&write_stream, failure.generation) {
+                        warn!(
+                            endpoint = %failure.endpoint_id.storage_key(),
+                            error = %failure.message,
+                            "endpoint transport failed"
+                        );
+                        return Err(ClientError::ConnectionLost(io::Error::new(
+                            failure.kind,
+                            failure.message,
+                        )));
                     }
-                    warn!(
-                        endpoint = %failure.endpoint_id.storage_key(),
-                        error = %failure.message,
-                        "endpoint transport failed"
-                    );
-                    return Err(ClientError::ConnectionLost(io::Error::new(
-                        failure.kind,
-                        failure.message,
-                    )));
                 }
                 {
                     let expired_endpoints = endpoint_commands
@@ -1132,7 +1095,6 @@ async fn run_client_loop(
                         frame,
                         &mut write_stream,
                         &mut endpoint_commands,
-                        &mut prefix_input_source,
                     )? {
                         return Ok(());
                     }

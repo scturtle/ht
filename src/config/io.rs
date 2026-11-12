@@ -1026,6 +1026,79 @@ sidebar_width = 32
     }
 
     #[test]
+    fn retired_ascii_input_source_setting_loads_with_ignored_key_diagnostic() {
+        let loaded = load_live_config_from_str(
+            r#"
+[experimental]
+switch_ascii_input_source_in_prefix = true
+pane_history = true
+kitty_graphics = true
+
+[ui]
+sidebar_width = 32
+
+[keys]
+new_workspace = "prefix+shift+n"
+"#,
+        )
+        .unwrap();
+
+        assert!(loaded.invalid_sections.is_empty());
+        assert_eq!(
+            loaded.diagnostics,
+            vec![
+                "unknown config key experimental.switch_ascii_input_source_in_prefix; ignoring key"
+            ],
+            "the retired key must only be reported as ignored"
+        );
+        // The retired key must not stop the sibling keys in the same section from
+        // parsing, nor the other live sections from applying.
+        assert!(loaded.config.experimental.pane_history);
+        assert_eq!(loaded.config.experimental.kitty_graphics, Some(true));
+        assert!(loaded.config.kitty_graphics_enabled());
+        assert_eq!(loaded.config.ui.sidebar_width, 32);
+        assert!(loaded
+            .config
+            .keybinds()
+            .new_workspace
+            .bindings
+            .iter()
+            .any(|binding| binding.label == "prefix+shift+n"));
+    }
+
+    #[test]
+    fn invalid_experimental_section_is_reported_without_discarding_valid_sections() {
+        let loaded = load_live_config_from_str(
+            r#"
+[experimental]
+pane_history = "yes"
+
+[ui]
+sidebar_width = 33
+"#,
+        )
+        .unwrap();
+
+        // `invalid_sections` is the signal live reload consumers use to keep their
+        // previous values for that section; this load verifies the signal and that
+        // the rejected section is not applied, not that a running client kept a
+        // pre-existing non-default value.
+        assert_eq!(loaded.invalid_sections, vec!["experimental"]);
+        assert_eq!(loaded.diagnostics.len(), 1);
+        assert!(
+            loaded.diagnostics[0].contains("invalid experimental config")
+                && loaded.diagnostics[0].contains("keeping current experimental settings"),
+            "unexpected diagnostic: {:?}",
+            loaded.diagnostics
+        );
+        assert!(
+            !loaded.config.experimental.pane_history,
+            "the rejected section's values are not applied"
+        );
+        assert_eq!(loaded.config.ui.sidebar_width, 33);
+    }
+
+    #[test]
     fn load_live_config_discards_ignored_keys_from_an_invalid_section() {
         let loaded = load_live_config_from_str(
             r#"

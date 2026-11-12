@@ -1029,16 +1029,6 @@ pub struct ExperimentalConfig {
     /// Cursor shape rendered for the IME anchor when
     /// `reveal_hidden_cursor_for_cjk_ime` is enabled. Default: "steady_block".
     pub cjk_ime_cursor_shape: ImeCursorShape,
-    /// While prefix mode is active, temporarily switch the host input source
-    /// to an ASCII-capable mode so prefix commands are read as ASCII even when
-    /// an IME is active, then restore the previous input source when prefix
-    /// mode exits. On macOS this selects the ASCII-capable keyboard layout; on
-    /// Windows it switches the IME to English (ASCII) input. Windows support is
-    /// currently limited to the Korean IME; with an IME for any other language,
-    /// the input source is left unchanged. macOS and Windows only; a no-op
-    /// elsewhere and a best-effort no-op if the switch fails.
-    /// Default: false.
-    pub switch_ascii_input_source_in_prefix: bool,
 }
 
 impl Default for KeysConfig {
@@ -1465,23 +1455,6 @@ reveal_hidden_cursor_for_cjk_ime = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.experimental.reveal_hidden_cursor_for_cjk_ime);
-    }
-
-    #[test]
-    fn switch_ascii_input_source_in_prefix_default_off_and_parse() {
-        let default_config = Config::default();
-        assert!(
-            !default_config
-                .experimental
-                .switch_ascii_input_source_in_prefix
-        );
-
-        let toml = r#"
-[experimental]
-switch_ascii_input_source_in_prefix = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.experimental.switch_ascii_input_source_in_prefix);
     }
 
     #[test]
@@ -1933,14 +1906,12 @@ kitty_graphics = true
 allow_nested = true
 kitty_graphics = true
 pane_history = true
-switch_ascii_input_source_in_prefix = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.experimental.allow_nested);
         assert_eq!(config.experimental.kitty_graphics, Some(true));
         assert!(config.kitty_graphics_enabled());
         assert!(config.experimental.pane_history);
-        assert!(config.experimental.switch_ascii_input_source_in_prefix);
     }
 
     #[test]

@@ -5,7 +5,6 @@ use crate::protocol::ClientShellAgent;
 
 #[derive(Clone, Copy)]
 pub(super) struct CachedEndpointSnapshot<'a> {
-    pub(super) endpoint_id: &'a ClientEndpointId,
     pub(super) label: &'a str,
     pub(super) status: ClientEndpointStatus,
     pub(super) snapshot: &'a ClientShellSnapshot,
@@ -25,7 +24,6 @@ pub(super) fn cached_core_snapshot(
         .snapshot
         .as_deref()
         .map(|snapshot| CachedEndpointSnapshot {
-            endpoint_id: &endpoint.endpoint_id,
             label: &endpoint.label,
             status: endpoint.status,
             snapshot,
@@ -87,7 +85,6 @@ fn sort_aggregate_rows(
 
 pub(super) fn navigator_rows(
     endpoints: &ClientShellEndpoint,
-    active_endpoint_id: &ClientEndpointId,
     navigator: &ClientNavigatorOverlay,
 ) -> Vec<ClientNavigatorRow> {
     let query = navigator.query.trim().to_lowercase();
@@ -217,10 +214,8 @@ pub(super) fn navigator_rows(
                                 agent: agent_kind.map(str::to_owned),
                                 status: Some(status),
                                 stale,
-                                current: endpoint.endpoint_id == *active_endpoint_id
-                                    && snapshot.focused_pane_id.as_deref() == Some(&pane.pane_id),
+                                current: snapshot.focused_pane_id.as_deref() == Some(&pane.pane_id),
                                 target: ClientNavigatorTarget::Pane {
-                                    endpoint_id: endpoint.endpoint_id.clone(),
                                     pane_id: pane.pane_id.clone(),
                                 },
                             });
@@ -241,7 +236,6 @@ pub(super) fn navigator_rows(
                         stale,
                         current: false,
                         target: ClientNavigatorTarget::Workspace {
-                            endpoint_id: endpoint.endpoint_id.clone(),
                             workspace_id: workspace.workspace_id.clone(),
                         },
                     });

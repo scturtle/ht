@@ -291,17 +291,6 @@ fn delayed_link_fallback_does_not_replay_against_changed_geometry() {
     }
 }
 
-#[test]
-fn invalid_experimental_reload_keeps_input_source_preference() {
-    let mut shell = ClientShellConfig::from_config(&Config::default());
-    shell.switch_ascii_input_source_in_prefix = true;
-    let config = Config::default();
-    shell.apply_live_config(&config, &[], &["experimental".to_owned()]);
-    assert!(shell.switch_ascii_input_source_in_prefix);
-    shell.apply_live_config(&config, &[], &[]);
-    assert!(!shell.switch_ascii_input_source_in_prefix);
-}
-
 fn pane_key_events(
     outcome: &ClientShellInput,
 ) -> Vec<(

@@ -130,7 +130,6 @@ fn cursor_movement_preserves_filter_selection_and_scroll() {
             ClientShellOverlay::Navigator(v) => {
                 v.scroll = 3;
                 v.selected = Some(ClientNavigatorTarget::Pane {
-                    endpoint_id: ClientEndpointId::Local,
                     pane_id: "pane_1".into(),
                 });
             }

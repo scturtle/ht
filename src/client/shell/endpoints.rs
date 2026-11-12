@@ -4,7 +4,6 @@ use super::*;
 /// kept separately from the cached metadata while a replacement surface arrives.
 #[derive(Clone, Debug)]
 pub(crate) struct ClientShellEndpoint {
-    pub(crate) endpoint_id: ClientEndpointId,
     pub(crate) label: String,
     pub(crate) status: ClientEndpointStatus,
     pub(crate) snapshot: Option<Box<ClientShellSnapshot>>,
@@ -223,7 +222,6 @@ pub(super) fn endpoint_status_presentation(
 }
 pub(super) fn local_endpoint() -> ClientShellEndpoint {
     ClientShellEndpoint {
-        endpoint_id: ClientEndpointId::Local,
         label: "Local".into(),
         status: ClientEndpointStatus::Connecting,
         snapshot: None,

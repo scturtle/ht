@@ -243,7 +243,6 @@ impl ClientShellState {
                 }
             }
             self.invalidate_link_hover();
-            self.reconcile_input_source();
         } else {
             let mut next = current.clone();
             if !apply_patch_to_surface(&mut next, &patch) {

@@ -21,9 +21,9 @@ impl ClientShellState {
         });
         let client = json!({
             "trigger":"menu", "pane_id":pane_id, "mode":format!("{:?}",self.mode),
-            "outer_focused":self.outer_focused, "endpoint":self.active_endpoint_id.storage_key(),
+            "outer_focused":self.outer_focused, "endpoint":"local",
             "workspace_preview_blocked":self.workspace_preview_action_blocked(),
-            "navigate_workspace":self.navigate_workspace_id.as_ref().map(|t| json!({"endpoint":t.endpoint_id.storage_key(),"workspace":t.workspace_id,"scope_debug":format!("{t:?}")})),
+            "navigate_workspace":self.navigate_workspace_id.as_ref().map(|t| json!({"endpoint":"local","workspace":t.workspace_id,"scope_debug":format!("{t:?}")})),
             "snapshot_generation":self.active_snapshot_generation,
             "surface_generation":self.pane_surface_generation,
             "snapshot_revision":snapshot.map(|s| s.revision),

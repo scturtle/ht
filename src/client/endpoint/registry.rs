@@ -48,9 +48,6 @@ impl EndpointRegistry {
             failure: None,
         }
     }
-    pub(crate) fn active_id(&self) -> &ClientEndpointId {
-        &ClientEndpointId::Local
-    }
     pub(crate) fn connection(&self) -> Option<&EndpointConnection> {
         self.connection.as_ref()
     }
@@ -102,7 +99,7 @@ impl EndpointRegistry {
             message: error.to_string(),
         });
     }
-    pub(crate) fn take_failures(&mut self) -> Vec<EndpointTransportFailure> {
+    pub(crate) fn take_failure(&mut self) -> Option<EndpointTransportFailure> {
         let error = self
             .connection
             .as_mut()
@@ -110,7 +107,7 @@ impl EndpointRegistry {
         if let Some(error) = error {
             self.fail(error);
         }
-        self.failure.take().into_iter().collect()
+        self.failure.take()
     }
 }
 impl Drop for EndpointRegistry {
@@ -165,8 +162,10 @@ mod tests {
             registry.send(&ClientMessage::Detach),
             EndpointSendOutcome::NotSent
         );
-        assert_eq!(registry.take_failures().len(), 1);
-        assert!(registry.take_failures().is_empty());
+        assert!(registry.take_failure().is_some_and(
+            |failure| failure.generation == 1 && failure.kind == io::ErrorKind::BrokenPipe
+        ));
+        assert!(registry.take_failure().is_none());
         drop(registry);
         assert_eq!(*calls.lock().unwrap(), ["disconnect"]);
     }

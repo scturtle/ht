@@ -43,7 +43,6 @@ impl ClientShellState {
         let pending_workspace_highlight =
             self.pending_workspace_highlight.as_ref().filter(|pending| {
                 self.mode != ClientShellMode::Navigate
-                    && pending.target.endpoint_id == self.active_endpoint_id
                     && self.navigation_target_valid(&pending.target)
             });
         // A resize invalidates pane geometry, not the healthy Local workspace chrome.
@@ -51,7 +50,6 @@ impl ClientShellState {
             layout.sidebar.width > 0 && self.endpoint_status() == ClientEndpointStatus::Online
         });
         let mut render_state = render::ShellRenderState {
-            active_endpoint_id: &self.active_endpoint_id,
             collapsed_groups: &self.collapsed_groups,
             workspace_scroll: &mut self.workspace_scroll,
             agent_scroll: &mut self.agent_scroll,
@@ -145,7 +143,6 @@ impl ClientShellState {
         let pending_workspace_highlight =
             self.pending_workspace_highlight.as_ref().filter(|pending| {
                 self.mode != ClientShellMode::Navigate
-                    && pending.target.endpoint_id == self.active_endpoint_id
                     && self.navigation_target_valid(&pending.target)
             });
         if self.snapshot.is_none() || self.pane_surface.is_none() {
@@ -189,7 +186,6 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
-                active_endpoint_id: &self.active_endpoint_id,
                 collapsed_groups: &self.collapsed_groups,
                 workspace_scroll: &mut self.workspace_scroll,
                 agent_scroll: &mut self.agent_scroll,
@@ -538,7 +534,6 @@ impl ClientShellState {
                 Rect::new(0, 0, cols, rows),
                 snapshot,
                 &self.endpoint,
-                &self.active_endpoint_id,
                 &self.config,
                 self.navigate_workspace_id
                     .as_ref()
@@ -599,7 +594,6 @@ impl ClientShellState {
                     overlay,
                     snapshot,
                     &self.endpoint,
-                    &self.active_endpoint_id,
                     &self.config.keybinds,
                     &self.config.palette,
                 )?;

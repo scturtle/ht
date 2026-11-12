@@ -512,9 +512,6 @@ impl ClientShellState {
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
             || point.1 >= self.hits.new_workspace.y
-            || self.hits.workspaces.iter().any(|hit| {
-                hit.endpoint_id != self.active_endpoint_id && super::contains(hit.rect, point)
-            })
         {
             return None;
         }
@@ -523,7 +520,7 @@ impl ClientShellState {
             .hits
             .workspaces
             .iter()
-            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.indented)
+            .filter(|hit| !hit.indented)
             .filter(|hit| {
                 hit.group_toggle.as_ref().is_none_or(|(_, key)| {
                     snapshot
@@ -539,17 +536,8 @@ impl ClientShellState {
             })
             .map(|hit| (Some(hit.workspace_id.clone()), hit.rect.y.saturating_sub(1)))
             .collect::<Vec<_>>();
-        let empty_collapsed_groups = HashSet::new();
-        let collapsed_groups = self
-            .collapsed_groups_for_endpoint(&self.active_endpoint_id)
-            .unwrap_or(&empty_collapsed_groups);
-        let entries = render::workspace_entries(snapshot, collapsed_groups);
-        let last_hit = self
-            .hits
-            .workspaces
-            .iter()
-            .rev()
-            .find(|hit| hit.endpoint_id == self.active_endpoint_id)?;
+        let entries = render::workspace_entries(snapshot, self.collapsed_groups());
+        let last_hit = self.hits.workspaces.last()?;
         let last_position = entries.iter().position(|entry| {
             snapshot
                 .workspaces
@@ -1959,10 +1947,10 @@ impl ClientShellState {
                 }
                 let group_toggle = self.hits.workspaces.iter().find_map(|hit| {
                     let (rect, key) = hit.group_toggle.as_ref()?;
-                    super::contains(*rect, point).then(|| (hit.endpoint_id.clone(), key.clone()))
+                    super::contains(*rect, point).then(|| key.clone())
                 });
-                if let Some((endpoint_id, key)) = group_toggle {
-                    self.toggle_collapsed_group(&endpoint_id, key);
+                if let Some(key) = group_toggle {
+                    self.toggle_collapsed_group(key);
                     outcome.repaint = true;
                     self.persist_chrome_preferences(outcome);
                     return;
@@ -1973,7 +1961,6 @@ impl ClientShellState {
                     .iter()
                     .find(|hit| super::contains(hit.rect, point))
                     .map(|hit| ClientWorkspacePress {
-                        endpoint_id: hit.endpoint_id.clone(),
                         workspace_id: hit.workspace_id.clone(),
                         start_column: mouse.column,
                         start_row: mouse.row,

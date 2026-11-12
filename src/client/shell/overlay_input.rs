@@ -203,8 +203,7 @@ impl ClientShellState {
             scroll: 0,
             filter: None,
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, &navigator);
+        let rows = render::client_navigator_rows(&self.endpoint, &navigator);
         navigator.selected = rows
             .iter()
             .find(|row| row.current)
@@ -216,8 +215,7 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(&self.endpoint, navigator);
         if rows.is_empty() {
             navigator.selected = None;
             return;
@@ -233,8 +231,7 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(&self.endpoint, navigator);
         let viewport_rows = viewport_rows.max(1);
         navigator.scroll = scroll.min(rows.len().saturating_sub(viewport_rows));
         let selected =
@@ -248,8 +245,7 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoint, &self.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(&self.endpoint, navigator);
         let Some(selected) =
             super::aggregate_navigation::navigator_selected_index(&rows, navigator)
         else {
@@ -281,11 +277,7 @@ impl ClientShellState {
     pub(super) fn accept_navigator_selection(&mut self, outcome: &mut ClientShellInput) {
         let target = self.overlay.as_ref().and_then(|overlay| match overlay {
             ClientShellOverlay::Navigator(navigator) => {
-                let rows = render::client_navigator_rows(
-                    &self.endpoint,
-                    &self.active_endpoint_id,
-                    navigator,
-                );
+                let rows = render::client_navigator_rows(&self.endpoint, navigator);
                 super::aggregate_navigation::selected_navigator_target(&rows, navigator)
             }
             _ => None,
@@ -310,10 +302,7 @@ impl ClientShellState {
     pub(super) fn workspace_action_id(&self) -> Option<String> {
         self.navigate_workspace_id
             .as_ref()
-            .filter(|target| {
-                target.endpoint_id == self.active_endpoint_id
-                    && self.navigation_target_valid(target)
-            })
+            .filter(|target| self.navigation_target_valid(target))
             .map(|target| target.workspace_id.clone())
             .or_else(|| {
                 self.snapshot
@@ -689,13 +678,11 @@ impl ClientShellState {
             }
             if matches!(code, KeyCode::End | KeyCode::Char('G')) && modifiers.is_empty() {
                 let last = self.overlay.as_ref().and_then(|overlay| match overlay {
-                    ClientShellOverlay::Navigator(navigator) => render::client_navigator_rows(
-                        &self.endpoint,
-                        &self.active_endpoint_id,
-                        navigator,
-                    )
-                    .last()
-                    .map(|row| row.target.clone()),
+                    ClientShellOverlay::Navigator(navigator) => {
+                        render::client_navigator_rows(&self.endpoint, navigator)
+                            .last()
+                            .map(|row| row.target.clone())
+                    }
                     _ => None,
                 });
                 if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
@@ -1069,8 +1056,7 @@ impl ClientShellState {
         };
         outcome.repaint = true;
         let method = if let Some(target) = confirm.tab_target {
-            if target.workspace.endpoint_id != self.active_endpoint_id
-                || !self.navigation_target_valid(&target.workspace)
+            if !self.navigation_target_valid(&target.workspace)
                 || !self.snapshot.as_deref().is_some_and(|snapshot| {
                     snapshot.tabs.iter().any(|tab| {
                         tab.tab_id == target.tab_id
@@ -1157,8 +1143,7 @@ impl ClientShellState {
             return false;
         }
         let tab_target = if let Some(tab_id) = tab_id {
-            let Some(workspace) = self.navigation_target(&self.active_endpoint_id, &workspace_id)
-            else {
+            let Some(workspace) = self.navigation_target(&workspace_id) else {
                 return false;
             };
             Some(ClientTabCloseConfirmation {

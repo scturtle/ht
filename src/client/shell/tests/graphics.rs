@@ -151,7 +151,6 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
             state.set_snapshot(Box::new(snapshot()));
             state.set_pane_surface(surface());
             state.visible_notification = Some(ClientVisibleNotification {
-                endpoint_id: ClientEndpointId::Local,
                 event: SemanticNotification {
                     kind: SemanticNotificationKind::Custom,
                     title: "notice".into(),
@@ -317,7 +316,6 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
                 &overlay,
                 snapshot,
                 &state.endpoint,
-                &state.active_endpoint_id,
                 &state.config.keybinds,
                 &state.config.palette,
             ),

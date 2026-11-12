@@ -148,9 +148,7 @@ impl ClientShellState {
                 })
         });
         let close_group = super::sidebar::workspace_close_is_group(snapshot, workspace);
-        let collapsed = worktree.is_some_and(|worktree| {
-            self.group_is_collapsed(&self.active_endpoint_id, &worktree.key)
-        });
+        let collapsed = worktree.is_some_and(|worktree| self.group_is_collapsed(&worktree.key));
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             methods: self.endpoint.methods.clone(),
             target: ClientContextMenuTarget::Workspace {
@@ -305,8 +303,7 @@ impl ClientShellState {
                         .map(|worktree| worktree.key.clone())
                 });
                 if let Some(key) = key {
-                    let endpoint_id = self.active_endpoint_id.clone();
-                    self.toggle_collapsed_group(&endpoint_id, key);
+                    self.toggle_collapsed_group(key);
                     self.persist_chrome_preferences(outcome);
                 }
             }

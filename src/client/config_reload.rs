@@ -9,7 +9,6 @@ pub(super) fn apply_reload(
     endpoints: &mut endpoint::EndpointRegistry,
     host_mouse_capture_active: &std::sync::atomic::AtomicBool,
     host_sgr_pixels_active: &std::sync::atomic::AtomicBool,
-    prefix_input_source: &mut impl crate::platform::PrefixInputSource,
 ) -> Result<(), ClientError> {
     let previous_mouse_capture = state.shell_mouse_capture_preference;
     let mut mouse_capture = previous_mouse_capture;
@@ -65,7 +64,6 @@ pub(super) fn apply_reload(
             resize,
         )
     };
-    apply_client_shell_input_source_changes(state, prefix_input_source);
     if let Some(resize) = resize {
         write_to_server(endpoints, &resize).map_err(ClientError::ConnectionLost)?;
     }
