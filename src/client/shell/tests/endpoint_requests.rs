@@ -80,7 +80,7 @@ struct TestTransport {
     fail: bool,
 }
 
-impl crate::client::endpoint::EndpointTransport for TestTransport {
+impl crate::client::connection::CoreTransport for TestTransport {
     fn send(&mut self, _: &ClientMessage) -> std::io::Result<()> {
         if self.fail {
             Err(std::io::ErrorKind::BrokenPipe.into())
@@ -427,7 +427,7 @@ fn local_selection_does_not_need_an_endpoint_activation_event() {
 
 #[test]
 fn dispatcher_cancels_requests_when_the_core_transport_fails() {
-    use crate::client::endpoint::EndpointRegistry;
+    use crate::client::connection::CoreConnection;
     use crate::client::endpoint_commands::EndpointCommands;
 
     {
@@ -437,7 +437,7 @@ fn dispatcher_cancels_requests_when_the_core_transport_fails() {
         state.set_pane_surface(surface());
         let actions =
             state.focus_endpoint_target(ClientEndpointFocusTarget::Workspace("ws_1".into()));
-        let mut endpoints = EndpointRegistry::new(TestTransport { fail: fail_send }, 1);
+        let mut endpoints = CoreConnection::new(TestTransport { fail: fail_send }, 1);
         let mut commands = EndpointCommands::default();
         let (replay, repaint) = crate::client::shell_runtime::dispatch_client_shell_actions(
             actions,
@@ -460,7 +460,7 @@ fn dispatcher_cancels_requests_when_the_core_transport_fails() {
 
 #[test]
 fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
-    use crate::client::endpoint::EndpointRegistry;
+    use crate::client::connection::CoreConnection;
     use crate::client::endpoint_commands::EndpointCommands;
 
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
@@ -480,7 +480,7 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
             commands.enqueue(generation, boot_id, request);
         }
     }
-    let mut endpoints = EndpointRegistry::new(TestTransport { fail: false }, 2);
+    let mut endpoints = CoreConnection::new(TestTransport { fail: false }, 2);
     let cancelled = commands.send_next(&mut endpoints);
     assert_eq!(cancelled, vec![stale_id.clone()]);
     state.cancel_endpoint_request(&stale_id);

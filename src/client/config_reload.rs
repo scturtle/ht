@@ -6,7 +6,7 @@ pub(super) fn init_logging() {
 
 pub(super) fn apply_reload(
     state: &mut ClientState,
-    endpoints: &mut endpoint::EndpointRegistry,
+    endpoints: &mut connection::CoreConnection,
     host_mouse_capture_active: &std::sync::atomic::AtomicBool,
     host_sgr_pixels_active: &std::sync::atomic::AtomicBool,
 ) -> Result<(), ClientError> {
@@ -20,13 +20,9 @@ pub(super) fn apply_reload(
     );
     state.shell_mouse_capture_preference = mouse_capture;
     if previous_mouse_capture != mouse_capture {
-        write_to_server(
-            endpoints,
-            &ClientMessage::ClientShellMouseCapture {
-                enabled: mouse_capture,
-            },
-        )
-        .map_err(ClientError::ConnectionLost)?;
+        endpoints.send(&ClientMessage::ClientShellMouseCapture {
+            enabled: mouse_capture,
+        });
     }
     let enabled = state.requested_host_mouse_capture();
     let sgr_pixels = effective_sgr_pixel_mouse(
@@ -65,7 +61,7 @@ pub(super) fn apply_reload(
         )
     };
     if let Some(resize) = resize {
-        write_to_server(endpoints, &resize).map_err(ClientError::ConnectionLost)?;
+        endpoints.send(&resize);
     }
     if let Some(frame) = frame {
         state.present_frame(frame);

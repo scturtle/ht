@@ -45,13 +45,11 @@ pub(super) struct ClientState {
     /// The host's answer to the SGR pixel mouse probe; None when unknown.
     pub(super) host_sgr_pixel_mouse: Option<bool>,
     pub(super) direct_graphics_response: Arc<Mutex<direct_graphics::ResponseMatcher>>,
-    pub(super) retired_direct_graphics: HashMap<endpoint::ClientEndpointId, RetiredDirectGraphics>,
-    pub(super) disabled_native_graphics: HashMap<endpoint::ClientEndpointId, u64>,
+    pub(super) retired_direct_graphics: Option<RetiredDirectGraphics>,
+    pub(super) disabled_native_graphics: Option<u64>,
     pub(super) pending_native_cleanup: Vec<u8>,
-    pub(super) pending_surface_graphics: HashMap<
-        (endpoint::ClientEndpointId, u64, u64, u32),
-        crate::protocol::SurfaceGraphicsAssetKey,
-    >,
+    pub(super) pending_surface_graphics:
+        HashMap<(u64, u64, u32), crate::protocol::SurfaceGraphicsAssetKey>,
     pub(super) redraw_on_focus_gained: bool,
     pub(super) repaint_pending: bool,
     pub(super) draw_host_cursor: bool,
@@ -89,7 +87,7 @@ impl ClientState {
             pixel_geometry_exact: false,
             host_sgr_pixel_mouse: None,
             direct_graphics_response: Default::default(),
-            retired_direct_graphics: HashMap::new(),
+            retired_direct_graphics: None,
             disabled_native_graphics: Default::default(),
             pending_native_cleanup: Vec::new(),
             pending_surface_graphics: HashMap::new(),
@@ -115,20 +113,18 @@ impl ClientState {
     /// already checked the connection generation.
     pub(super) fn receive_graphics_retirement(
         &mut self,
-        endpoint_id: &endpoint::ClientEndpointId,
         generation: u64,
         transfer_id: u64,
         image_id: u32,
         owner_active: bool,
     ) {
         if transfer_id & crate::kitty_graphics::surface::NATIVE_TRANSFER_BIT != 0 {
-            self.disabled_native_graphics
-                .insert(endpoint_id.clone(), generation);
+            self.disabled_native_graphics = Some(generation);
         }
-        self.record_retired_direct_graphics(endpoint_id.clone(), generation, transfer_id, image_id);
+        self.record_retired_direct_graphics(generation, transfer_id, image_id);
         let upload_pending = self
             .pending_surface_graphics
-            .remove(&(endpoint_id.clone(), generation, transfer_id, image_id))
+            .remove(&(generation, transfer_id, image_id))
             .is_some();
         // Retirement cleanup is terminal-owned. A native retirement owns the
         // ID only while its exact upload is pending: collision rejection and a
@@ -248,15 +244,13 @@ impl ClientState {
 
     pub(super) fn record_retired_direct_graphics(
         &mut self,
-        endpoint_id: endpoint::ClientEndpointId,
         generation: u64,
         transfer_id: u64,
         image_id: u32,
     ) {
         let retired = self
             .retired_direct_graphics
-            .entry(endpoint_id)
-            .or_insert_with(|| RetiredDirectGraphics::new(generation));
+            .get_or_insert_with(|| RetiredDirectGraphics::new(generation));
         if retired.generation != generation {
             *retired = RetiredDirectGraphics::new(generation);
         }
@@ -274,12 +268,11 @@ impl ClientState {
 
     pub(super) fn match_retired_direct_graphics(
         &mut self,
-        endpoint_id: &endpoint::ClientEndpointId,
         generation: u64,
         transfer_id: u64,
         image_id: u32,
     ) -> RetiredDirectGraphicsMatch {
-        let Some(retired) = self.retired_direct_graphics.get_mut(endpoint_id) else {
+        let Some(retired) = self.retired_direct_graphics.as_mut() else {
             return RetiredDirectGraphicsMatch::None;
         };
         if retired.generation != generation {
@@ -292,7 +285,7 @@ impl ClientState {
         {
             retired.transfers.swap_remove(index);
             if retired.transfers.is_empty() && !retired.saturated {
-                self.retired_direct_graphics.remove(endpoint_id);
+                self.retired_direct_graphics = None;
             }
             return RetiredDirectGraphicsMatch::Exact;
         }
@@ -391,84 +384,88 @@ mod native_cleanup_tests {
     #[test]
     fn retired_graphics_tombstones_ignore_late_files_until_the_exact_tuple_arrives() {
         let mut state = ClientState::test_new();
-        let endpoint = endpoint::ClientEndpointId::Local;
-        state.record_retired_direct_graphics(endpoint.clone(), 7, 11, 1234);
-        state.record_retired_direct_graphics(endpoint.clone(), 7, 12, 5678);
-        state.disabled_native_graphics.insert(endpoint.clone(), 7);
+        state.record_retired_direct_graphics(7, 11, 1234);
+        state.record_retired_direct_graphics(7, 12, 5678);
+        state.disabled_native_graphics = Some(7);
 
-        // Switching away and back does not reset guards, and an unrelated queued file cannot
-        // consume either of two sequential API retirement tombstones.
+        // An unrelated file cannot consume either exact retirement tombstone or
+        // reset the generation's native-graphics guard.
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 7, 13, 9999),
+            state.match_retired_direct_graphics(7, 13, 9999),
             RetiredDirectGraphicsMatch::None
         );
         assert_eq!(
             state
                 .retired_direct_graphics
-                .get(&endpoint)
+                .as_ref()
                 .unwrap()
                 .transfers
                 .len(),
             2
         );
-        assert_eq!(state.disabled_native_graphics.get(&endpoint), Some(&7));
+        assert_eq!(state.disabled_native_graphics, Some(7));
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 7, 11, 1234),
+            state.match_retired_direct_graphics(7, 11, 1234),
             RetiredDirectGraphicsMatch::Exact
         );
         assert!(state
             .retired_direct_graphics
-            .get(&endpoint)
+            .as_ref()
             .unwrap()
             .transfers
             .contains(&(12, 5678)));
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 7, 12, 5678),
+            state.match_retired_direct_graphics(7, 12, 5678),
             RetiredDirectGraphicsMatch::Exact
         );
-        assert!(!state.retired_direct_graphics.contains_key(&endpoint));
+        assert!(state.retired_direct_graphics.is_none());
     }
 
     #[test]
     fn retired_graphics_tombstone_overflow_fails_closed_until_generation_reset() {
         let mut state = ClientState::test_new();
-        let endpoint = endpoint::ClientEndpointId::Local;
         for transfer_id in 0..=MAX_RETIRED_DIRECT_GRAPHICS as u64 {
-            state.record_retired_direct_graphics(
-                endpoint.clone(),
-                7,
-                transfer_id,
-                transfer_id as u32,
-            );
+            state.record_retired_direct_graphics(7, transfer_id, transfer_id as u32);
         }
-        let retired = state.retired_direct_graphics.get(&endpoint).unwrap();
+        let retired = state.retired_direct_graphics.as_ref().unwrap();
         assert_eq!(retired.transfers.len(), MAX_RETIRED_DIRECT_GRAPHICS);
         assert!(retired.saturated);
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 7, 1, 1),
+            state.match_retired_direct_graphics(7, 1, 1),
             RetiredDirectGraphicsMatch::Exact
         );
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 7, 10_000, 10_000),
+            state.match_retired_direct_graphics(7, 10_000, 10_000),
             RetiredDirectGraphicsMatch::Saturated
         );
-        assert!(
-            state
-                .retired_direct_graphics
-                .get(&endpoint)
-                .unwrap()
-                .saturated
-        );
+        assert!(state.retired_direct_graphics.as_ref().unwrap().saturated);
 
-        state.record_retired_direct_graphics(endpoint.clone(), 8, 1, 2);
+        state.record_retired_direct_graphics(8, 1, 2);
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 8, 9, 9),
+            state.match_retired_direct_graphics(8, 9, 9),
             RetiredDirectGraphicsMatch::None
         );
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 8, 1, 2),
+            state.match_retired_direct_graphics(8, 1, 2),
             RetiredDirectGraphicsMatch::Exact
         );
+    }
+
+    #[test]
+    fn retired_graphics_matches_preserve_generation_transfer_and_image_identity() {
+        let mut state = ClientState::test_new();
+        state.record_retired_direct_graphics(7, 11, 1234);
+        for (generation, transfer, image) in [(6, 11, 1234), (7, 12, 1234), (7, 11, 5678)] {
+            assert_eq!(
+                state.match_retired_direct_graphics(generation, transfer, image),
+                RetiredDirectGraphicsMatch::None
+            );
+        }
+        assert_eq!(
+            state.match_retired_direct_graphics(7, 11, 1234),
+            RetiredDirectGraphicsMatch::Exact
+        );
+        assert!(state.retired_direct_graphics.is_none());
     }
 
     #[test]
@@ -525,7 +522,6 @@ mod native_cleanup_tests {
     fn pending_native_retirement_preserves_its_exact_tombstone_and_cleanup() {
         let mut state = ClientState::test_new();
         state.kitty_graphics_enabled = true;
-        let endpoint = endpoint::ClientEndpointId::Local;
         let transfer = crate::kitty_graphics::surface::NATIVE_TRANSFER_BIT | 1;
         let key = crate::protocol::SurfaceGraphicsAssetKey {
             source: crate::protocol::SurfaceGraphicsSource::Terminal {
@@ -542,11 +538,22 @@ mod native_cleanup_tests {
         };
         state
             .pending_surface_graphics
-            .insert((endpoint.clone(), 9, transfer, 1234), key);
-        state.receive_graphics_retirement(&endpoint, 9, transfer, 1234, false);
-        assert!(state.pending_surface_graphics.is_empty());
+            .insert((10, transfer, 1234), key.clone());
+        state
+            .pending_surface_graphics
+            .insert((9, transfer, 1234), key);
+        state.receive_graphics_retirement(9, transfer, 1234, false);
+        assert_eq!(state.pending_surface_graphics.len(), 1);
+        assert!(state
+            .pending_surface_graphics
+            .contains_key(&(10, transfer, 1234)));
+        assert_eq!(state.disabled_native_graphics, Some(9));
         assert_eq!(
-            state.match_retired_direct_graphics(&endpoint, 9, transfer, 1234),
+            state.match_retired_direct_graphics(10, transfer, 1234),
+            RetiredDirectGraphicsMatch::None
+        );
+        assert_eq!(
+            state.match_retired_direct_graphics(9, transfer, 1234),
             RetiredDirectGraphicsMatch::Exact
         );
         let mut output = Vec::new();

@@ -1,6 +1,6 @@
 //! The one Core command lane. Correlation and retirement survive the removal of federation.
 use super::{
-    endpoint::{EndpointRegistry, EndpointSendOutcome},
+    connection::{CoreConnection, SendOutcome},
     shell::ClientShellEndpointError,
 };
 use crate::{
@@ -49,7 +49,7 @@ impl EndpointCommands {
             request,
         });
     }
-    pub(super) fn send_next(&mut self, connection: &mut EndpointRegistry) -> Vec<String> {
+    pub(super) fn send_next(&mut self, connection: &mut CoreConnection) -> Vec<String> {
         let mut cancelled = Vec::new();
         if self.in_flight.is_some() {
             return cancelled;
@@ -64,7 +64,7 @@ impl EndpointCommands {
                 boot_id: command.boot_id.clone(),
                 request: command.request,
             };
-            if connection.send(&message) != EndpointSendOutcome::Sent {
+            if connection.send(&message) != SendOutcome::Sent {
                 cancelled.push(request_id);
                 continue;
             }

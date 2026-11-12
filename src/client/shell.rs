@@ -48,7 +48,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
-use super::endpoint::ClientEndpointStatus;
+use super::connection::ClientEndpointStatus;
 use crate::config::{
     Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,
     TabBarPositionConfig,

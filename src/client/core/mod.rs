@@ -21,10 +21,7 @@ mod wake;
 mod writer;
 mod zoom;
 
-use super::{
-    endpoint::{ClientEndpointId, EndpointTransport},
-    events::ClientLoopEvent,
-};
+use super::{connection::CoreTransport, events::ClientLoopEvent};
 use crate::protocol::{ClientMessage, ServerMessage};
 pub(super) use session::Session;
 use std::{
@@ -191,7 +188,7 @@ struct CoreEndpoint {
     options: Option<Options>,
     events: tokio::sync::mpsc::Sender<ClientLoopEvent>,
 }
-impl EndpointTransport for CoreEndpoint {
+impl CoreTransport for CoreEndpoint {
     fn diagnostic_source(&mut self, pane: &str) -> Option<super::diagnostics::DiagnosticSource> {
         let options = self.options.clone()?;
         self.pending = None; // Keep later input behind the capture barrier.
@@ -345,7 +342,7 @@ fn drain_input(receiver: &mpsc::Receiver<Command>, queued: &AtomicUsize) -> usiz
 pub(super) fn start(
     mut session: Box<Session>,
     events: &tokio::sync::mpsc::Sender<ClientLoopEvent>,
-) -> io::Result<impl EndpointTransport + 'static> {
+) -> io::Result<impl CoreTransport + 'static> {
     let options = session.diagnostic_options();
     let wake = session.core.worker_wake();
     let worker_wake = wake.clone();
@@ -365,7 +362,6 @@ pub(super) fn start(
             let emit = |message: ServerMessage| {
                 events
                     .blocking_send(ClientLoopEvent::ServerMessage {
-                        endpoint_id: ClientEndpointId::Local,
                         generation: 1,
                         message: Box::new(message),
                     })

@@ -17,7 +17,7 @@ pub(super) fn install_client_shell_methods(state: &mut ClientState, methods: Vec
 pub(super) fn dispatch_client_shell_actions(
     actions: Vec<shell::ClientShellAction>,
     commands: &mut endpoint_commands::EndpointCommands,
-    endpoints: &mut endpoint::EndpointRegistry,
+    endpoints: &mut connection::CoreConnection,
     shell: &mut shell::ClientShellState,
     children: &mut Vec<std::process::Child>,
 ) -> Result<(Vec<crossterm::event::MouseEvent>, bool), ClientError> {
@@ -26,8 +26,8 @@ pub(super) fn dispatch_client_shell_actions(
     for action in actions {
         match action {
             shell::ClientShellAction::Endpoint { boot_id, request } => {
-                if let Some(connection) = endpoints.connection() {
-                    commands.enqueue(connection.generation, boot_id, request);
+                if let Some(generation) = endpoints.generation() {
+                    commands.enqueue(generation, boot_id, request);
                 } else {
                     repaint |= shell.cancel_endpoint_request(&request.id);
                 }
@@ -103,12 +103,11 @@ pub(super) fn sync_client_shell_keyboard_report_all(
 pub(super) fn install_client_shell_snapshot(
     state: &mut ClientState,
     snapshot: Box<crate::protocol::ClientShellSnapshot>,
-    endpoints: &mut endpoint::EndpointRegistry,
+    endpoints: &mut connection::CoreConnection,
 ) -> Result<(), ClientError> {
-    let Some(connection) = endpoints.connection() else {
+    let Some(generation) = endpoints.generation() else {
         return Ok(());
     };
-    let generation = connection.generation;
     let pixels = state.pixel_mouse_available();
     let shell = &mut state.shell;
     let previous = shell.surface_size(state.reported_size.0, state.reported_size.1);
@@ -142,11 +141,11 @@ pub(super) fn finish_client_shell_input(
     state: &mut ClientState,
     mut outcome: shell::ClientShellInput,
     frame: Option<super::frame_output::ComposedFrame>,
-    endpoints: &mut endpoint::EndpointRegistry,
+    endpoints: &mut connection::CoreConnection,
     commands: &mut endpoint_commands::EndpointCommands,
 ) -> Result<bool, ClientError> {
     if outcome.detach {
-        let _ = write_to_server(endpoints, &ClientMessage::Detach);
+        endpoints.send(&ClientMessage::Detach);
         return Ok(true);
     }
     if outcome.resize {
@@ -158,7 +157,7 @@ pub(super) fn finish_client_shell_input(
             state.reported_cell_size.1,
             state.pixel_mouse_available(),
         );
-        write_to_server(endpoints, &resize).map_err(ClientError::ConnectionLost)?;
+        endpoints.send(&resize);
     }
     if outcome.query_host_appearance {
         query_host_terminal_appearance();
@@ -197,7 +196,7 @@ pub(super) fn finish_client_shell_input(
     for request in outcome.requests {
         // Host observations are meaningful before the first snapshot or paint.
         if matches!(&request, ClientMessage::ClientShellHostTheme { .. }) || online {
-            write_to_server(endpoints, &request).map_err(ClientError::ConnectionLost)?;
+            endpoints.send(&request);
         }
     }
     if let Some(frame) = frame {
@@ -238,11 +237,55 @@ mod tests {
     }
 
     #[test]
+    fn failed_ui_send_leaves_failure_for_the_lifecycle_loop_without_retrying() {
+        struct FailedSend(Arc<AtomicU32>);
+        impl connection::CoreTransport for FailedSend {
+            fn send(&mut self, _: &ClientMessage) -> io::Result<()> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "queue closed"))
+            }
+        }
+        let sends = Arc::new(AtomicU32::new(0));
+        let mut connection = connection::CoreConnection::new(FailedSend(sends.clone()), 7);
+        let mut state = ClientState::test_new();
+        let outcome = state.shell.handle_raw_events(vec![
+            crate::raw_input::RawInputEvent::HostDefaultColor {
+                kind: crate::terminal_theme::DefaultColorKind::Background,
+                color: crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 },
+            },
+            crate::raw_input::RawInputEvent::HostDefaultColor {
+                kind: crate::terminal_theme::DefaultColorKind::Foreground,
+                color: crate::terminal_theme::RgbColor { r: 4, g: 5, b: 6 },
+            },
+        ]);
+        assert!(outcome.requests.len() >= 2);
+        assert!(
+            matches!(
+                finish_client_shell_input(
+                    &mut state,
+                    outcome,
+                    None,
+                    &mut connection,
+                    &mut endpoint_commands::EndpointCommands::default(),
+                ),
+                Ok(false)
+            ),
+            "a send failure must follow the normal lifecycle transition"
+        );
+        assert_eq!(sends.load(Ordering::Relaxed), 1);
+        let failure = connection.take_failure().unwrap();
+        assert_eq!(failure.generation, 7);
+        assert_eq!(failure.kind, io::ErrorKind::BrokenPipe);
+        assert_eq!(failure.message, "queue closed");
+        assert!(connection.take_failure().is_none());
+    }
+
+    #[test]
     fn host_color_reaches_server_before_first_snapshot() {
         #[derive(Clone)]
         struct Capture(std::sync::Arc<std::sync::Mutex<Vec<ClientMessage>>>);
 
-        impl endpoint::EndpointTransport for Capture {
+        impl connection::CoreTransport for Capture {
             fn send(&mut self, message: &ClientMessage) -> std::io::Result<()> {
                 self.0.lock().unwrap().push(message.clone());
                 Ok(())
@@ -250,7 +293,7 @@ mod tests {
         }
 
         let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let mut endpoints = endpoint::EndpointRegistry::new(Capture(sent.clone()), 1);
+        let mut endpoints = connection::CoreConnection::new(Capture(sent.clone()), 1);
         let mut state = ClientState::test_new();
         assert!(!state.shell.endpoint_is_online());
         let outcome = state.shell.handle_raw_events(vec![

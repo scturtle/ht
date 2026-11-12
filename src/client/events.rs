@@ -8,7 +8,6 @@ pub(super) enum ClientLoopEvent {
     Resize(u16, u16, u32, u32, bool),
     TerminalUnavailable(io::Error),
     ServerMessage {
-        endpoint_id: endpoint::ClientEndpointId,
         generation: u64,
         message: Box<ServerMessage>,
     },
