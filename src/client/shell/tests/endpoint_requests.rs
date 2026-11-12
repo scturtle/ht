@@ -412,10 +412,12 @@ fn local_selection_does_not_need_an_endpoint_activation_event() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     tx.try_send(crate::client::ClientLoopEvent::Timer).unwrap();
     let mut outcome = ClientShellInput::default();
-    assert!(state.focus_or_activate(
-        ClientEndpointFocusTarget::Workspace("ws_1".into()),
-        &mut outcome
-    ));
+    state.push_endpoint_method(
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
+            workspace_id: "ws_1".into(),
+        }),
+        &mut outcome,
+    );
     assert!(
         matches!(&outcome.actions[..],[ClientShellAction::Endpoint {request,..}] if matches!(request.action,crate::actions::Action::WorkspaceFocus(_)))
     );
@@ -435,8 +437,7 @@ fn dispatcher_cancels_requests_when_the_core_transport_fails() {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(snapshot()));
         state.set_pane_surface(surface());
-        let actions =
-            state.focus_endpoint_target(ClientEndpointFocusTarget::Workspace("ws_1".into()));
+        let actions = workspace_focus_actions(&mut state, "ws_1");
         let mut endpoints = CoreConnection::new(TestTransport { fail: fail_send }, 1);
         let mut commands = EndpointCommands::default();
         let (replay, repaint) = crate::client::shell_runtime::dispatch_client_shell_actions(
@@ -466,10 +467,9 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
-    let actions =
-        state.focus_endpoint_target(ClientEndpointFocusTarget::Workspace("ws_stale".into()));
+    let actions = workspace_focus_actions(&mut state, "ws_stale");
     let stale_id = request_id(&actions).to_owned();
-    let current = state.focus_endpoint_target(ClientEndpointFocusTarget::Workspace("ws_1".into()));
+    let current = workspace_focus_actions(&mut state, "ws_1");
     let current_id = request_id(&current).to_owned();
     let mut commands = EndpointCommands::default();
     for (generation, actions) in [(1, actions), (2, current)] {
@@ -561,4 +561,18 @@ fn cancelled_link_activation_does_not_replay_mouse_input() {
     );
     assert!(actions.is_empty());
     assert!(state.url_click_consumes_until_up);
+}
+
+fn workspace_focus_actions(
+    state: &mut ClientShellState,
+    workspace_id: &str,
+) -> Vec<ClientShellAction> {
+    let mut outcome = ClientShellInput::default();
+    state.push_endpoint_method(
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
+            workspace_id: workspace_id.into(),
+        }),
+        &mut outcome,
+    );
+    outcome.actions
 }

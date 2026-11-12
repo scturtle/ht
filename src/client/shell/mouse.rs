@@ -5,6 +5,32 @@ const SELECTION_AUTOSCROLL_INTERVAL: std::time::Duration = std::time::Duration::
 const SELECTION_REPAINT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
 
 impl ClientShellState {
+    fn workspace_at(&self, point: (u16, u16)) -> Option<String> {
+        self.hits
+            .workspaces
+            .iter()
+            .find(|hit| super::contains(hit.rect, point))
+            .map(|hit| hit.workspace_id.clone())
+    }
+
+    fn workspace_is_draggable(&self, press: &ClientWorkspacePress) -> bool {
+        self.endpoint
+            .snapshot
+            .as_deref()
+            .and_then(|snapshot| {
+                snapshot
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.workspace_id == press.workspace_id)
+            })
+            .is_some_and(|workspace| {
+                !workspace
+                    .worktree
+                    .as_ref()
+                    .is_some_and(|worktree| worktree.is_linked_worktree)
+            })
+    }
+
     fn set_sidebar_width_from_column(&mut self, column: u16, outcome: &mut ClientShellInput) {
         let (min, max) = crate::config::validated_sidebar_bounds(
             self.config.sidebar_min_width,
@@ -1023,7 +1049,7 @@ impl ClientShellState {
                     .max(mouse.row.abs_diff(press.start_row));
                 if delta >= 1 {
                     let source_workspace_id = press.workspace_id.clone();
-                    let draggable = self.endpoint_workspace_is_draggable(press);
+                    let draggable = self.workspace_is_draggable(press);
                     if draggable {
                         if let Some(target) = self.workspace_drop_target_at(point) {
                             self.chrome_drag = Some(ClientChromeDrag::Workspace {
@@ -1167,7 +1193,12 @@ impl ClientShellState {
                 return;
             }
             if let Some(press) = self.workspace_press.take() {
-                self.finish_endpoint_workspace_press(press, outcome);
+                self.push_endpoint_method(
+                    crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
+                        workspace_id: press.workspace_id,
+                    }),
+                    outcome,
+                );
                 return;
             }
             if let Some(press) = self.tab_press.take() {
@@ -1548,7 +1579,7 @@ impl ClientShellState {
                     return;
                 }
                 let workspace_id = (!self.sidebar_collapsed)
-                    .then(|| self.active_endpoint_workspace_at(point))
+                    .then(|| self.workspace_at(point))
                     .flatten();
                 if let Some(workspace_id) = workspace_id {
                     self.open_workspace_context_menu(workspace_id, mouse.column, mouse.row);

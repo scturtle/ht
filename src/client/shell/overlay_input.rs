@@ -9,7 +9,7 @@ impl ClientShellState {
             scroll: 0,
             filter: None,
         };
-        let rows = render::client_navigator_rows(&self.endpoint, &navigator);
+        let rows = super::navigator::navigator_rows(&self.endpoint, &navigator);
         navigator.selected = rows
             .iter()
             .find(|row| row.current)
@@ -21,13 +21,12 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows = render::client_navigator_rows(&self.endpoint, navigator);
+        let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
         if rows.is_empty() {
             navigator.selected = None;
             return;
         }
-        let selected =
-            super::aggregate_navigation::navigator_selected_index(&rows, navigator).unwrap_or(0);
+        let selected = super::navigator::navigator_selected_index(&rows, navigator).unwrap_or(0);
         let next =
             (selected as isize + delta).clamp(0, rows.len().saturating_sub(1) as isize) as usize;
         navigator.selected = Some(rows[next].target.clone());
@@ -37,11 +36,10 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows = render::client_navigator_rows(&self.endpoint, navigator);
+        let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
         let viewport_rows = viewport_rows.max(1);
         navigator.scroll = scroll.min(rows.len().saturating_sub(viewport_rows));
-        let selected =
-            super::aggregate_navigation::navigator_selected_index(&rows, navigator).unwrap_or(0);
+        let selected = super::navigator::navigator_selected_index(&rows, navigator).unwrap_or(0);
         // Keep the selection in the dragged viewport so rendering does not snap back to it.
         let selected = selected.clamp(navigator.scroll, navigator.scroll + viewport_rows - 1);
         navigator.selected = rows.get(selected).map(|row| row.target.clone());
@@ -51,10 +49,8 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows = render::client_navigator_rows(&self.endpoint, navigator);
-        let Some(selected) =
-            super::aggregate_navigation::navigator_selected_index(&rows, navigator)
-        else {
+        let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
+        let Some(selected) = super::navigator::navigator_selected_index(&rows, navigator) else {
             return;
         };
         let section = rows[..=selected]
@@ -83,23 +79,29 @@ impl ClientShellState {
     pub(super) fn accept_navigator_selection(&mut self, outcome: &mut ClientShellInput) {
         let target = self.overlay.as_ref().and_then(|overlay| match overlay {
             ClientShellOverlay::Navigator(navigator) => {
-                let rows = render::client_navigator_rows(&self.endpoint, navigator);
-                super::aggregate_navigation::selected_navigator_target(&rows, navigator)
+                let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
+                super::navigator::selected_navigator_target(&rows, navigator)
             }
             _ => None,
         });
         let Some(target) = target else {
             return;
         };
-        let activated = match target {
-            ClientNavigatorTarget::Workspace { workspace_id, .. } => {
-                self.focus_or_activate(ClientEndpointFocusTarget::Workspace(workspace_id), outcome)
+        // Offline connections keep the chooser open. Capability refusals keep
+        // the existing dismissal policy, but admission never enqueues them.
+        let online = self.endpoint_is_online();
+        let method = match target {
+            ClientNavigatorTarget::Workspace { workspace_id } => {
+                crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
+                    workspace_id,
+                })
             }
-            ClientNavigatorTarget::Pane { pane_id, .. } => {
-                self.focus_or_activate(ClientEndpointFocusTarget::Pane(pane_id), outcome)
+            ClientNavigatorTarget::Pane { pane_id } => {
+                crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id })
             }
         };
-        if activated {
+        self.push_endpoint_method(method, outcome);
+        if online {
             self.overlay = None;
         }
         outcome.repaint = true;
@@ -394,7 +396,7 @@ impl ClientShellState {
             if matches!(code, KeyCode::End | KeyCode::Char('G')) && modifiers.is_empty() {
                 let last = self.overlay.as_ref().and_then(|overlay| match overlay {
                     ClientShellOverlay::Navigator(navigator) => {
-                        render::client_navigator_rows(&self.endpoint, navigator)
+                        super::navigator::navigator_rows(&self.endpoint, navigator)
                             .last()
                             .map(|row| row.target.clone())
                     }

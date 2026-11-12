@@ -336,7 +336,7 @@ fn render_navigator_overlay(
         " Go to ",
         Style::default().fg(p.accent).bg(p.panel_bg),
     );
-    let rows = super::aggregate_navigation::navigator_rows(endpoints, n);
+    let rows = super::navigator::navigator_rows(endpoints, n);
     let search = if n.search_focused {
         " / ".to_owned()
     } else if let Some(f) = n.filter {
@@ -407,7 +407,7 @@ fn render_navigator_overlay(
         Style::default().fg(p.surface1).bg(p.panel_bg),
     );
     let body = Rect::new(i.x, i.y + 2, i.width, i.height.saturating_sub(5));
-    let selected = super::aggregate_navigation::navigator_selected_index(&rows, n).unwrap_or(0);
+    let selected = super::navigator::navigator_selected_index(&rows, n).unwrap_or(0);
     let max = rows.len().saturating_sub(body.height as usize);
     let scroll = n
         .scroll

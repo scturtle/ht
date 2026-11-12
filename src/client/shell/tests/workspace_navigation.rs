@@ -424,8 +424,10 @@ fn navigation_highlight_requires_enqueued_focus_and_yields_to_new_intent() {
     state.cancel_endpoint_request(&request.id);
     assert_local_highlight(&mut state, "ws_3");
     let mut focus = ClientShellInput::default();
-    state.focus_or_activate(
-        ClientEndpointFocusTarget::Workspace("ws_2".into()),
+    state.push_endpoint_method(
+        crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
+            workspace_id: "ws_2".into(),
+        }),
         &mut focus,
     );
     assert!(state.pending_workspace_highlight.is_none());
@@ -628,4 +630,38 @@ fn kitty_ctrl_shift_bracket_keeps_navigation_open() {
 
     assert_eq!(state.mode, ClientShellMode::Navigate);
     assert_selected(&state, "ws_1");
+}
+
+#[test]
+fn workspace_click_repaints_when_releasing_an_accepted_navigation_highlight() {
+    let mut state = local_navigation_state(false);
+    request_local_navigation(&mut state, 2);
+    assert_local_highlight(&mut state, "ws_3");
+    let rect = workspace_rect(&state, "ws_2");
+    state.workspace_press = Some(ClientWorkspacePress {
+        workspace_id: "ws_2".into(),
+        start_column: rect.x,
+        start_row: rect.y,
+    });
+    let mut outcome = ClientShellInput::default();
+    state.handle_mouse(
+        MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        },
+        &mut outcome,
+    );
+    assert!(
+        matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.action, crate::actions::Action::WorkspaceFocus(params)
+            if params.workspace_id == "ws_2"))
+    );
+    assert!(state.pending_workspace_highlight.is_none());
+    assert!(
+        outcome.repaint,
+        "clearing a display-only highlight needs repaint before Core replies"
+    );
+    assert_local_highlight(&mut state, "ws_1");
 }

@@ -530,7 +530,6 @@ impl ClientShellState {
             super::mobile::render_mobile_switcher(
                 &mut composed,
                 Rect::new(0, 0, cols, rows),
-                snapshot,
                 &self.endpoint,
                 &self.config,
                 self.navigate_workspace_id

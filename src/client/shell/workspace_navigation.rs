@@ -167,25 +167,25 @@ impl ClientShellState {
             return;
         }
         let action_index = outcome.actions.len();
-        if self.focus_or_activate(
-            ClientEndpointFocusTarget::Workspace(target.workspace_id.clone()),
+        self.push_endpoint_method(
+            crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
+                workspace_id: target.workspace_id.clone(),
+            }),
             outcome,
-        ) {
-            // Only retain a highlight if a focus request was actually enqueued.
-            if let Some(ClientShellAction::Endpoint { request, .. }) =
-                outcome.actions.get(action_index)
-            {
-                self.pending_workspace_highlight = Some(PendingWorkspaceHighlight {
-                    target,
-                    request_id: request.id.clone(),
-                    // A later focus can be coalesced with this one before a snapshot is sent.
-                    expires_at: std::time::Instant::now() + std::time::Duration::from_secs(1),
-                });
-                self.reconcile_pending_workspace_highlight();
-            }
-            self.mode = ClientShellMode::Terminal;
-            self.navigate_workspace_id = None;
+        );
+        // Only retain a highlight if a focus request was actually enqueued.
+        if let Some(ClientShellAction::Endpoint { request, .. }) = outcome.actions.get(action_index)
+        {
+            self.pending_workspace_highlight = Some(PendingWorkspaceHighlight {
+                target,
+                request_id: request.id.clone(),
+                // A later focus can be coalesced with this one before a snapshot is sent.
+                expires_at: std::time::Instant::now() + std::time::Duration::from_secs(1),
+            });
+            self.reconcile_pending_workspace_highlight();
         }
+        self.mode = ClientShellMode::Terminal;
+        self.navigate_workspace_id = None;
         outcome.repaint = true;
     }
 }

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 mod actions;
 mod agent_sidebar;
-mod aggregate_navigation;
+mod navigator;
 mod workspace_navigation;
 use workspace_navigation::{PendingWorkspaceHighlight, WorkspaceNavigationTarget};
 mod composition;
@@ -11,7 +11,6 @@ mod context_menu;
 mod copy_mode;
 mod diagnostics;
 mod endpoint_agent_state;
-mod endpoint_navigation;
 mod endpoint_notices;
 mod endpoints;
 pub(super) use endpoints::*;

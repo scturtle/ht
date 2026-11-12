@@ -342,29 +342,6 @@ impl ClientShellState {
         )
     }
 
-    #[cfg(test)]
-    pub(crate) fn focus_endpoint_target(
-        &mut self,
-        target: ClientEndpointFocusTarget,
-    ) -> Vec<ClientShellAction> {
-        let method = match target {
-            ClientEndpointFocusTarget::Workspace(workspace_id) => {
-                crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
-                    workspace_id,
-                })
-            }
-            ClientEndpointFocusTarget::Tab(tab_id) => {
-                crate::actions::Action::TabFocus(crate::actions::TabTarget { tab_id })
-            }
-            ClientEndpointFocusTarget::Pane(pane_id) => {
-                crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id })
-            }
-        };
-        let mut outcome = ClientShellInput::default();
-        self.push_endpoint_method(method, &mut outcome);
-        outcome.actions
-    }
-
     pub(crate) fn cancel_endpoint_request(&mut self, request_id: &str) -> bool {
         let Some(pending) = self.pending_requests.get(request_id) else {
             return false;

@@ -12,13 +12,6 @@ pub(crate) struct ClientShellEndpoint {
     pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) methods: Option<HashSet<String>>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ClientEndpointFocusTarget {
-    Workspace(String),
-    Tab(String),
-    Pane(String),
-}
-
 impl ClientShellState {
     pub(crate) fn set_endpoint_status(&mut self, status: ClientEndpointStatus) {
         if status != ClientEndpointStatus::Online {
