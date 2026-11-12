@@ -221,7 +221,15 @@ fn client_shell_graphics_follow_final_shell_origin_and_local_overlay_visibility(
     assert!(visible.contains("a=t,t=d"));
     assert!(visible.contains("\u{1b}[2;27H"));
 
-    state.overlay = Some(ClientShellOverlay::Onboarding);
+    // This live centered dialog leaves the corner placement uncovered. A full
+    // height help panel would cover it and correctly retire its placement.
+    state.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+        title: "rename pane",
+        input: "name".into(),
+        target: ClientRenameTarget::Pane {
+            pane_id: "pane_1".into(),
+        },
+    }));
     let uncovered = state.compose(106, 20).expect("overlay frame");
     assert!(
         !String::from_utf8_lossy(&uncovered.graphics.clone().into_inline_bytes()).contains("a=d")

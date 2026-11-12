@@ -36,9 +36,9 @@ pub use self::{
 };
 
 pub(crate) use self::keybinds::parse_key_combo;
-pub(crate) use self::write::{update_file_at, write_edit, ConfigEdit};
+pub(crate) use self::write::{write_edit, ConfigEdit};
 pub(crate) use self::{
-    io::upsert_top_level_bool, tab_bar::tab_bar_right_diagnostics, theme::canonical_theme_name,
+    tab_bar::tab_bar_right_diagnostics, theme::canonical_theme_name,
     window_title::window_title_diagnostics,
 };
 
@@ -80,10 +80,6 @@ pub(crate) fn test_config_env_lock() -> &'static std::sync::Mutex<()> {
 }
 
 impl Config {
-    pub fn should_show_onboarding(&self) -> bool {
-        self.onboarding.unwrap_or(true)
-    }
-
     pub fn kitty_graphics_enabled(&self) -> bool {
         self.terminal
             .kitty_graphics

@@ -49,7 +49,7 @@ while True:
         def configure(lines):
             extra = "" if lines is None else f"[advanced]\nscrollback_limit_lines={lines}\n"
             (home / "config.toml").write_text(
-                'onboarding=false\n[experimental]\nallow_nested=true\n[keys]\ndetach="f10"\n' + extra
+                '[experimental]\nallow_nested=true\n[keys]\ndetach="f10"\n' + extra
             )
 
         def hc(*args):

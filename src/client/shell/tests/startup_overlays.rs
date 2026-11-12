@@ -1,134 +1,49 @@
 use super::*;
 
 #[test]
-fn endpoint_product_announcement_is_client_rendered_modal_and_dismissed_by_identity() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut endpoint_snapshot = snapshot();
-    endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
-            version: "0.8.2".into(),
-            id: "client-shell".into(),
-            title: "A client-owned announcement".into(),
-            body: (0..40)
-                .map(|index| format!("- announcement line {index}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            preview: false,
-        });
-    state.set_snapshot(Box::new(endpoint_snapshot.clone()));
+fn retired_announcement_data_does_not_open_a_modal_or_disable_live_overlays() {
+    let mut config = Config::default();
+    config.keys.help = crate::config::BindingConfig::one("f2");
+    config.keys.settings = crate::config::BindingConfig::one("f3");
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    assert!(state.overlay.is_none());
+    let mut projection = snapshot();
+    // The shared payload still has this field, but this Core-only UI no longer
+    // implements its modal. Receiving it must not swallow ordinary pane input.
+    projection.product_announcement = Some(crate::protocol::ClientShellProductAnnouncement {
+        version: "legacy".into(),
+        id: "unused".into(),
+        title: "unused".into(),
+        body: "unused".into(),
+        preview: false,
+    });
+    state.set_snapshot(Box::new(projection));
     state.set_pane_surface(surface());
-
-    let frame = state.compose(106, 30).expect("announcement frame");
-    let text = frame
-        .cells
-        .chunks(frame.width as usize)
-        .map(|row| {
-            row.iter()
-                .map(|cell| cell.symbol.as_str())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("A client-owned announcement"));
-    assert!(text.contains("product announcement · v0.8.2"));
-    assert!(!state.hits.product_announcement_scrollbar.is_empty());
-
-    let popup_key = state.handle_input_bytes(b"x");
-    assert!(popup_key.requests.is_empty());
-    let popup_paste = state.handle_raw_events(vec![RawInputEvent::Paste("secret".into())]);
-    assert!(popup_paste.requests.is_empty());
-
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::ScrollDown,
-        column: 0,
-        row: 0,
-        modifiers: KeyModifiers::NONE,
-    })]);
-    state.handle_input_bytes(b"\x1b[6~");
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::ProductAnnouncement(
-            crate::app::state::ProductAnnouncementState { scroll: 11, .. }
-        ))
-    ));
-    let repeated = state.handle_raw_events(vec![RawInputEvent::Key(
-        crate::input::TerminalKey::new(KeyCode::PageDown, KeyModifiers::empty())
-            .with_kind(crossterm::event::KeyEventKind::Repeat),
-    )]);
-    assert!(repeated.actions.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::ProductAnnouncement(
-            crate::app::state::ProductAnnouncementState { scroll: 11, .. }
-        ))
-    ));
-
-    let dismissed = state.handle_input_bytes(b"\r");
     assert!(state.overlay.is_none());
+    let input = state.handle_input_bytes(b"x");
     assert!(matches!(
-        &dismissed.actions[..],
-        [ClientShellAction::Endpoint { request, .. }]
-            if matches!(
-                &request.method,
-                crate::api::schema::Method::ProductAnnouncementDismiss(params)
-                    if params.version == "0.8.2" && params.id == "client-shell"
-            )
+        input.requests.as_slice(),
+        [ClientMessage::ClientShellPaneInput { pane_id, .. }] if pane_id == "pane_1"
     ));
-
-    state.set_snapshot(Box::new(endpoint_snapshot.clone()));
-    assert!(state.overlay.is_none(), "same announcement stays dismissed");
-    endpoint_snapshot
-        .product_announcement
-        .as_mut()
-        .expect("announcement")
-        .id = "new-announcement".into();
-    state.set_snapshot(Box::new(endpoint_snapshot.clone()));
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::ProductAnnouncement(_))
-    ));
-    state.chrome_drag = Some(ClientChromeDrag::ProductAnnouncementScrollbar { grab_row_offset: 0 });
-    endpoint_snapshot.product_announcement = None;
-    state.set_snapshot(Box::new(endpoint_snapshot));
-    assert!(state.overlay.is_none());
-    assert!(state.chrome_drag.is_none());
-    assert!(state.dismissed_product_announcement.is_none());
-}
-
-#[test]
-fn failed_product_announcement_dismiss_reopens_authoritative_snapshot() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut endpoint_snapshot = snapshot();
-    endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
-            version: "0.8.2".into(),
-            id: "client-shell".into(),
-            title: "Client shell".into(),
-            body: "announcement".into(),
-            preview: false,
-        });
-    state.set_snapshot(Box::new(endpoint_snapshot));
-    let dismissed = state.handle_input_bytes(b"\r");
-    let request_id = match &dismissed.actions[..] {
-        [ClientShellAction::Endpoint { request, .. }] => request.id.clone(),
-        actions => panic!("unexpected actions: {actions:?}"),
-    };
-
-    let (repaint, actions) = state.handle_endpoint_result(
-        "boot-1",
-        &request_id,
-        Err(ClientShellEndpointError {
-            code: Some("stale_announcement".into()),
-            message: "dismiss failed".into(),
-        }),
-    );
-    assert!(repaint);
-    assert!(actions.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::ProductAnnouncement(_))
-    ));
-    assert!(state.dismissed_product_announcement.is_none());
+    for (code, kind) in [
+        (KeyCode::F(2), ClientShellOverlayKind::Help),
+        (KeyCode::F(3), ClientShellOverlayKind::Settings),
+    ] {
+        state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+            code,
+            KeyModifiers::NONE,
+        ))]);
+        assert_eq!(
+            state.overlay.as_ref().map(ClientShellOverlay::kind),
+            Some(kind)
+        );
+        assert!(state.compose(106, 30).is_some());
+        state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        ))]);
+        assert!(state.overlay.is_none());
+    }
 }
 
 #[test]
@@ -185,272 +100,6 @@ fn release_notes_reconcile_and_failed_dismiss_reopens_authoritative_snapshot() {
             crate::app::state::ReleaseNotesState { ref version, .. }
         )) if version == "0.8.5"
     ));
-}
-
-#[test]
-fn product_announcement_mouse_is_modal_and_closes_only_from_its_button() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut endpoint_snapshot = snapshot();
-    endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
-            version: "0.8.2".into(),
-            id: "client-shell".into(),
-            title: "Client shell".into(),
-            body: (0..40)
-                .map(|index| format!("- line {index}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            preview: false,
-        });
-    state.set_snapshot(Box::new(endpoint_snapshot));
-    state.set_pane_surface(surface());
-    state.compose(106, 30).expect("announcement frame");
-
-    let outside =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: 0,
-            row: 0,
-            modifiers: KeyModifiers::NONE,
-        })]);
-    assert!(outside.requests.is_empty());
-    assert!(outside.actions.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::ProductAnnouncement(_))
-    ));
-
-    let metrics = state
-        .hits
-        .product_announcement_scroll_metrics
-        .expect("scroll metrics");
-    let track = state.hits.product_announcement_scrollbar;
-    let thumb = crate::ui::scrollbar_thumb(metrics, track).expect("thumb");
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: track.x,
-        row: thumb.top,
-        modifiers: KeyModifiers::NONE,
-    })]);
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Drag(MouseButton::Left),
-        column: track.x,
-        row: track.bottom().saturating_sub(1),
-        modifiers: KeyModifiers::NONE,
-    })]);
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Up(MouseButton::Left),
-        column: track.x,
-        row: track.bottom().saturating_sub(1),
-        modifiers: KeyModifiers::NONE,
-    })]);
-    assert!(state.chrome_drag.is_none());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::ProductAnnouncement(
-            crate::app::state::ProductAnnouncementState { scroll, .. }
-        )) if usize::from(scroll) == state.hits.product_announcement_max_scroll
-    ));
-
-    let close = state.hits.overlay_primary;
-    let closed =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: close.x,
-            row: close.y,
-            modifiers: KeyModifiers::NONE,
-        })]);
-    assert!(state.overlay.is_none());
-    assert!(matches!(
-        &closed.actions[..],
-        [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::ProductAnnouncementDismiss(_))
-    ));
-}
-
-#[test]
-fn onboarding_has_priority_over_endpoint_product_announcement() {
-    let config = ClientShellConfig::from_config(&Config::default()).with_startup_onboarding(true);
-    let mut state = ClientShellState::new(config);
-    let mut endpoint_snapshot = snapshot();
-    endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
-            version: "0.8.2".into(),
-            id: "client-shell".into(),
-            title: "Hidden until a later launch".into(),
-            body: "announcement body".into(),
-            preview: false,
-        });
-    state.set_snapshot(Box::new(endpoint_snapshot));
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Onboarding)
-    ));
-}
-
-#[test]
-fn startup_onboarding_is_client_rendered_and_modal() {
-    let config = ClientShellConfig::from_config(&Config::default()).with_startup_onboarding(true);
-    let mut state = ClientShellState::new(config);
-    let early = state.handle_input_bytes(b"\r");
-    assert!(early.actions.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Onboarding)
-    ));
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-
-    let frame = state.compose(106, 20).expect("onboarding frame");
-    let text = frame
-        .cells
-        .chunks(frame.width as usize)
-        .map(|row| {
-            row.iter()
-                .map(|cell| cell.symbol.as_str())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("terminal workspace manager for coding agents"));
-    assert!(text.contains("this is a mouse-first terminal"));
-    assert!(text.contains("ctrl+b enters prefix mode"));
-    assert!(text.contains("open settings to pick a theme and status indicators"));
-    assert_eq!(state.hits.overlay_primary.width, 12);
-
-    let ignored = state.handle_input_bytes(b"x");
-    assert!(ignored.requests.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Onboarding)
-    ));
-    let outside =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: 0,
-            row: 0,
-            modifiers: KeyModifiers::NONE,
-        })]);
-    assert!(outside.actions.is_empty());
-    assert!(outside.requests.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Onboarding)
-    ));
-
-    state.set_pane_surface(surface());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Onboarding)
-    ));
-    let popup_input = state.handle_input_bytes(b"hidden-popup-input");
-    assert!(popup_input.requests.is_empty());
-    let popup_paste = state.handle_raw_events(vec![RawInputEvent::Paste("secret".into())]);
-    assert!(popup_paste.requests.is_empty());
-}
-
-#[test]
-fn startup_onboarding_shows_configured_prefix() {
-    let mut config = Config::default();
-    config.keys.prefix = crate::config::BindingConfig::one("ctrl+shift+b");
-    let config = ClientShellConfig::from_config(&config).with_startup_onboarding(true);
-    let mut state = ClientShellState::new(config);
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-
-    let frame = state.compose(70, 20).expect("onboarding frame");
-    let text = frame
-        .cells
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect::<String>();
-    assert!(text.contains("ctrl+shift+b enters prefix mode"));
-    assert!(text.contains("shows keybinds and settings"));
-    assert!(!text.contains("ctrl+b enters prefix mode"));
-}
-
-#[test]
-fn onboarding_completion_persists_and_opens_settings() {
-    let path = std::env::temp_dir().join(format!(
-        "herdr-client-onboarding-{}-{}.toml",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
-    ));
-    std::fs::write(&path, "[terminal]\ndefault_shell = \"fish\"\n")
-        .expect("write onboarding config");
-    let onboarding_config = || {
-        let mut config =
-            ClientShellConfig::from_config(&Config::default()).with_startup_onboarding(true);
-        config.local_config_path = path.clone();
-        config
-    };
-
-    let config = onboarding_config();
-    let mut state = ClientShellState::new(config);
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    let outcome = state.handle_input_bytes(b"\r");
-
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
-            section: ClientSettingsSection::Theme,
-            ..
-        }))
-    ));
-    assert!(outcome.actions.is_empty());
-    let persisted = std::fs::read_to_string(&path).expect("read onboarding config");
-    assert!(persisted.contains("onboarding = false"));
-    assert!(persisted.contains("default_shell = \"fish\""));
-
-    let config = onboarding_config();
-    let mut state = ClientShellState::new(config);
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    state.compose(106, 20).expect("onboarding mouse frame");
-    let button = state.hits.overlay_primary;
-    let click = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: button.x,
-        row: button.y,
-        modifiers: KeyModifiers::NONE,
-    })]);
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
-            section: ClientSettingsSection::Theme,
-            ..
-        }))
-    ));
-    assert!(click.actions.is_empty());
-
-    let unreadable_path = path.with_extension("dir");
-    std::fs::create_dir(&unreadable_path).expect("create unreadable config path");
-    let mut config = onboarding_config();
-    config.local_config_path = unreadable_path.clone();
-    let mut state = ClientShellState::new(config);
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    let failed_write = state.handle_input_bytes(b"\r");
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
-            section: ClientSettingsSection::Theme,
-            ..
-        }))
-    ));
-    assert!(failed_write.actions.is_empty());
-    assert!(state
-        .config_diagnostic
-        .as_deref()
-        .is_some_and(|diagnostic| diagnostic.contains("failed to read config")));
-    assert!(unreadable_path.is_dir());
-    std::fs::remove_dir(&unreadable_path).expect("remove unreadable config path");
-
-    std::fs::remove_file(path).expect("remove onboarding config");
 }
 
 #[test]

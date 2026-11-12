@@ -463,7 +463,7 @@ fn retained_projection_keeps_hidden_status_updates_from_freezing_client_overlays
         rows: 40,
     };
     let first = renderer.compose(&model, &views, size, &chrome).unwrap();
-    let config = toml::from_str("onboarding = false\n[keys]\nrename_workspace = 'f8'\n").unwrap();
+    let config = toml::from_str("[keys]\nrename_workspace = 'f8'\n").unwrap();
     let mut shell = ClientShellState::new(ClientShellConfig::from_config(&config));
     shell.set_snapshot(Box::new(model.snapshot()));
     shell.set_pane_surface(first.clone());
@@ -518,7 +518,7 @@ fn pane_name_updates_reuse_retained_surface_and_original_rename_dialog() {
     let retained = renderer.retain_projection(&model).unwrap();
     assert_eq!(retained.frame, first.frame);
     assert_eq!(retained.panes, first.panes);
-    let config = toml::from_str("onboarding = false\n[keys]\nrename_pane = 'f8'\n").unwrap();
+    let config = toml::from_str("[keys]\nrename_pane = 'f8'\n").unwrap();
     let mut shell = ClientShellState::new(ClientShellConfig::from_config(&config));
     shell.set_snapshot(Box::new(model.snapshot()));
     shell.set_pane_surface(retained);

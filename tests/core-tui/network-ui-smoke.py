@@ -93,7 +93,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="hc-network-ui-",dir="/var/tmp") as scratch:
         home=Path(scratch);core=home/"core"
         env=H.isolated_env(home,core)
-        (home/"config.toml").write_text('onboarding=false\n[experimental]\nallow_nested=true\n[keys]\ncopy_mode="f7"\ndetach="f10"\n')
+        (home/"config.toml").write_text('[experimental]\nallow_nested=true\n[keys]\ncopy_mode="f7"\ndetach="f10"\n')
         script=home/"fixture.py"
         script.write_text('''import os,sys,time,tty
 tty.setraw(0)

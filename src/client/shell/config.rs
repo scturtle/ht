@@ -133,21 +133,14 @@ impl ClientShellConfig {
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
-            local_config_path: crate::config::config_path(),
             preferences_path: None,
             preferences: preferences::ClientChromePreferences::default(),
             startup_config_diagnostic: None,
-            startup_onboarding: false,
         }
     }
 
     pub(crate) fn with_startup_config_diagnostic(mut self, diagnostic: Option<String>) -> Self {
         self.startup_config_diagnostic = diagnostic;
-        self
-    }
-
-    pub(crate) fn with_startup_onboarding(mut self, show: bool) -> Self {
-        self.startup_onboarding = show;
         self
     }
 

@@ -1,5 +1,4 @@
 //! Pure client-side drawing and geometry.
-mod onboarding;
 mod panes;
 mod release_notes;
 mod scrollbar;
@@ -7,18 +6,12 @@ mod sidebar;
 mod status;
 mod text;
 mod widgets;
-pub(crate) use onboarding::{
-    onboarding_welcome_continue_rect, ONBOARDING_DESCRIPTION, ONBOARDING_HELP_LABEL,
-    ONBOARDING_HELP_SUFFIX, ONBOARDING_NEXT, ONBOARDING_PREFIX_SUFFIX, ONBOARDING_SUBTITLE,
-    ONBOARDING_TITLE,
-};
 pub(crate) use panes::{
     apply_pane_chrome, pane_inner_rect, render_selection_highlight, zoomed_pane_info,
 };
 pub(crate) use release_notes::{
-    product_announcement_display_lines, product_announcement_scroll_metrics,
     release_notes_close_button_rect, release_notes_display_lines, release_notes_scroll_metrics,
-    PRODUCT_ANNOUNCEMENT_MODAL_SIZE, RELEASE_NOTES_MODAL_SIZE,
+    RELEASE_NOTES_MODAL_SIZE,
 };
 pub(crate) use scrollbar::{
     release_notes_scrollbar_rect, render_scrollbar_buffer, scrollbar_offset_from_drag_row,

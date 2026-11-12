@@ -230,14 +230,7 @@ impl ClientShellState {
                 }
                 RawInputEvent::Text(text) => {
                     let text = text.into_string();
-                    if matches!(
-                        self.overlay,
-                        Some(
-                            ClientShellOverlay::Onboarding
-                                | ClientShellOverlay::ProductAnnouncement(_)
-                                | ClientShellOverlay::ReleaseNotes(_)
-                        )
-                    ) {
+                    if matches!(self.overlay, Some(ClientShellOverlay::ReleaseNotes(_))) {
                         continue;
                     }
                     if self.prepare_committed_text(&text, &mut outcome) {
@@ -261,14 +254,7 @@ impl ClientShellState {
                     }
                 }
                 RawInputEvent::Paste(text) => {
-                    if matches!(
-                        self.overlay,
-                        Some(
-                            ClientShellOverlay::Onboarding
-                                | ClientShellOverlay::ProductAnnouncement(_)
-                                | ClientShellOverlay::ReleaseNotes(_)
-                        )
-                    ) {
+                    if matches!(self.overlay, Some(ClientShellOverlay::ReleaseNotes(_))) {
                         continue;
                     }
                     if self.prepare_committed_text(&text, &mut outcome) {
@@ -572,14 +558,7 @@ impl ClientShellState {
         {
             return None;
         }
-        if matches!(
-            self.overlay,
-            Some(
-                ClientShellOverlay::Onboarding
-                    | ClientShellOverlay::ProductAnnouncement(_)
-                    | ClientShellOverlay::ReleaseNotes(_)
-            )
-        ) {
+        if matches!(self.overlay, Some(ClientShellOverlay::ReleaseNotes(_))) {
             if key.kind == KeyEventKind::Press {
                 self.route_overlay_key(key, outcome);
             }

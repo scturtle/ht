@@ -46,7 +46,7 @@ impl ConfigEdit<'_> {
     }
 }
 
-pub(crate) fn update_file_at(
+fn update_file_at(
     path: &std::path::Path,
     description: &str,
     update: impl FnOnce(&str) -> Result<String, String>,
@@ -89,12 +89,8 @@ mod tests {
         )
         .unwrap();
 
-        update_file_at(&path, "onboarding setting", |content| {
-            Ok(crate::config::upsert_top_level_bool(
-                content,
-                "onboarding",
-                false,
-            ))
+        update_file_at(&path, "sound setting", |content| {
+            Ok(ConfigEdit::Sound(false).apply(content))
         })
         .unwrap();
 

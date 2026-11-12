@@ -1,6 +1,5 @@
 # Optional, isolated UI configuration for trying the Core-backed TUI.
 # Never copied over ~/.config/herdr/config.toml.
-onboarding = false
 
 [experimental]
 allow_nested = true

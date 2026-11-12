@@ -98,12 +98,3 @@ pub(crate) fn close_button_rect(area: Rect) -> Rect {
     let width = action_button_width(Some("esc"), "close");
     Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
 }
-
-pub(crate) fn continue_button_rect(area: Rect) -> Rect {
-    Rect::new(
-        area.x,
-        area.y,
-        action_button_width(Some("↵"), "continue"),
-        1,
-    )
-}

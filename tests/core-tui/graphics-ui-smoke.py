@@ -154,7 +154,7 @@ def main():
             HERDR_CONFIG_PATH=str(home / "config.toml"),
         )
         (home / "config.toml").write_text(
-            'onboarding = false\n[experimental]\nallow_nested = true\n[keys]\ndetach = "f10"\n'
+            '[experimental]\nallow_nested = true\n[keys]\ndetach = "f10"\n'
         )
         # A registry entry exists before ht has attached and painted the shell.
         # Input sent in that gap can be discarded by initial bootstrap recovery.

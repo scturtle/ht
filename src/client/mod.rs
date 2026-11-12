@@ -135,7 +135,6 @@ pub fn run_core_client() -> io::Result<()> {
         .with_startup_config_diagnostic(crate::config::config_diagnostic_summary(
             &loaded_config.diagnostics,
         ))
-        .with_startup_onboarding(false)
         .with_keybinding_source(shell::ClientShellKeybindingSource::Local)
         .with_process_endpoint_preferences(&preference_key);
     let mouse_capture = loaded_config.config.ui.mouse_capture;

@@ -91,8 +91,7 @@ def main():
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"), XDG_CONFIG_HOME=str(home / "config"),
                    HERDR_CONFIG_PATH=str(home / "config.toml"), HERDR_SOCKET_PATH=str(home / "forbidden-old.sock"),
                    HERDR_CLIENT_SOCKET_PATH=str(home / "forbidden-client.sock"))
-        (home / "config.toml").write_text('''onboarding = false
-[experimental]
+        (home / "config.toml").write_text('''[experimental]
 allow_nested = true
 [ui]
 confirm_close = false

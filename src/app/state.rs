@@ -672,13 +672,3 @@ pub struct ReleaseNotesState {
     pub scroll: u16,
     pub preview: bool,
 }
-
-#[derive(Debug)]
-pub struct ProductAnnouncementState {
-    pub version: String,
-    pub id: String,
-    pub title: String,
-    pub body: String,
-    pub scroll: u16,
-    pub preview: bool,
-}

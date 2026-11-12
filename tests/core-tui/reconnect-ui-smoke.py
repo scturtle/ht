@@ -174,7 +174,7 @@ def main():
             HERDR_CONFIG_PATH=str(home / "config.toml"),
         )
         (home / "config.toml").write_text(
-            'onboarding = false\n[experimental]\nallow_nested = true\n[keys]\ndetach = "f10"\n'
+            '[experimental]\nallow_nested = true\n[keys]\ndetach = "f10"\n'
         )
 
         def hc(*args):

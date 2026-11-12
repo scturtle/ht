@@ -544,32 +544,6 @@ impl ClientShellState {
         match pending.kind {
             PendingEndpointKind::Generic => {}
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
-            PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
-                return match result {
-                    Ok(_) => (false, Vec::new()),
-                    Err(_) => {
-                        let key = (version.clone(), id.clone());
-                        if self.dismissed_product_announcement.as_ref() == Some(&key) {
-                            self.dismissed_product_announcement = None;
-                        }
-                        if self.overlay.is_none() {
-                            if let Some(announcement) = self
-                                .snapshot
-                                .as_deref()
-                                .and_then(|snapshot| snapshot.product_announcement.as_ref())
-                                .filter(|announcement| {
-                                    announcement.version == version && announcement.id == id
-                                })
-                            {
-                                self.overlay = Some(ClientShellOverlay::ProductAnnouncement(
-                                    product_announcement_state(announcement),
-                                ));
-                            }
-                        }
-                        (true, Vec::new())
-                    }
-                };
-            }
             PendingEndpointKind::ReleaseNotesDismiss => {
                 return match result {
                     Ok(_) => (false, Vec::new()),

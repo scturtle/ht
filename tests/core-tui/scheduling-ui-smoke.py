@@ -115,7 +115,7 @@ while True:
                    XDG_CONFIG_HOME=str(core / "config"), HERDR_CONFIG_PATH=str(home / "config.toml"))
         if "HERDR_ENV" in os.environ:
             env["HERDR_ENV"] = os.environ["HERDR_ENV"]
-        (home / "config.toml").write_text('onboarding=false\n[experimental]\nallow_nested=true\n[keys]\ndetach="f10"\n')
+        (home / "config.toml").write_text('[experimental]\nallow_nested=true\n[keys]\ndetach="f10"\n')
         (core / "config/herdr-core").mkdir(parents=True)
         (core / "config/herdr-core/config.toml").write_text(
             "shell=" + json.dumps([sys.executable, "-u", str(script)]) + "\nnotes=false\n")

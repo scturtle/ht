@@ -208,7 +208,6 @@ pub fn validated_sidebar_bounds(min: u16, max: u16) -> Option<(u16, u16)> {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    pub onboarding: Option<bool>,
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
     pub keys: KeysConfig,
@@ -1542,18 +1541,6 @@ delay_seconds = {}
         let error = toml::from_str::<Config>(&toml).unwrap_err().to_string();
 
         assert!(error.contains("ui.toast.delay_seconds must be between 0 and 3600"));
-    }
-
-    #[test]
-    fn missing_onboarding_shows_setup() {
-        let config = Config::default();
-        assert!(config.should_show_onboarding());
-    }
-
-    #[test]
-    fn onboarding_false_skips_setup() {
-        let config: Config = toml::from_str("onboarding = false").unwrap();
-        assert!(!config.should_show_onboarding());
     }
 
     #[test]

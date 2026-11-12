@@ -8,7 +8,6 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
     "experimental",
     "keys",
-    "onboarding",
     "terminal",
     "theme",
     "ui",
@@ -237,15 +236,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
     let mut diagnostics = unknown_top_level_section_diagnostics(table);
     diagnostics.extend(unknown_top_level_config_key_diagnostics(table));
     let mut invalid_sections = Vec::new();
-
-    if let Some(value) = table.get("onboarding") {
-        match value.clone().try_into::<Option<bool>>() {
-            Ok(onboarding) => config.onboarding = onboarding,
-            Err(err) => diagnostics.push(format!(
-                "invalid onboarding setting: {err}; keeping current onboarding state"
-            )),
-        }
-    }
 
     load_live_section(
         table,
@@ -486,33 +476,6 @@ fn load_live_section<T>(
     }
 }
 
-pub(crate) fn upsert_top_level_bool(content: &str, key: &str, value: bool) -> String {
-    let replacement = format!("{key} = {value}");
-    let mut lines: Vec<String> = content.lines().map(|line| line.to_string()).collect();
-    let mut in_section = false;
-
-    for line in &mut lines {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_section = true;
-            continue;
-        }
-        if in_section {
-            continue;
-        }
-        if trimmed.starts_with(&format!("{key} ")) || trimmed.starts_with(&format!("{key}=")) {
-            *line = replacement.clone();
-            return lines.join("\n") + "\n";
-        }
-    }
-
-    if lines.is_empty() {
-        format!("{replacement}\n")
-    } else {
-        format!("{replacement}\n{}\n", lines.join("\n").trim_end())
-    }
-}
-
 /// Write a key = value pair in a TOML section (creates section if missing).
 pub fn upsert_section_value(content: &str, section: &str, key: &str, value: &str) -> String {
     upsert_section_raw(content, section, key, value)
@@ -671,14 +634,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn upsert_top_level_bool_replaces_existing_value() {
-        let content = "onboarding = true\n[keys]\nprefix = \"ctrl+b\"\n";
-        let updated = upsert_top_level_bool(content, "onboarding", false);
-        assert!(updated.contains("onboarding = false"));
-        assert!(!updated.contains("onboarding = true"));
-    }
-
-    #[test]
     fn upsert_section_bool_adds_missing_section() {
         let updated = upsert_section_bool("", "ui.toast", "enabled", true);
         assert!(updated.contains("[ui.toast]"));
@@ -818,6 +773,7 @@ mod tests {
         // Even obsolete values of the wrong type must be ignored, not invalidate
         // neighboring active settings. Both startup and live parsing are covered.
         let content = r#"
+onboarding = "unused"
 [remote]
 manage_ssh_config = "unused"
 [server]
@@ -862,6 +818,7 @@ detach = "f10"
         let mut expected = ["remote", "server", "session"]
             .map(|section| format!("unknown config section [{section}]; ignoring section"))
             .to_vec();
+        expected.push("unknown config key onboarding; ignoring key".into());
         expected.extend(
             [
                 "terminal.shell_mode",
@@ -1309,7 +1266,7 @@ mouse_capture = false
         ));
         std::fs::write(
             &path,
-            b"onboarding = false\n\xEF\xBB\xBF[terminal]\ndefault_shell = \"pwsh.exe\"\n",
+            b"[ui]\nmouse_capture = false\n\xEF\xBB\xBF[terminal]\ndefault_shell = \"pwsh.exe\"\n",
         )
         .unwrap();
         std::env::set_var(CONFIG_PATH_ENV_VAR, &path);

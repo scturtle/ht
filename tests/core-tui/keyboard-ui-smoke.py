@@ -48,7 +48,7 @@ def main():
     for path in [core / "run", core / "config", core / "state"]:
         path.mkdir(parents=True, mode=0o700)
     config = private / "ui.toml"
-    config.write_text('onboarding = false\n[experimental]\nallow_nested = true\n[ui]\nsidebar_start_collapsed = true\nsidebar_collapsed_mode = "hidden"\n[keys]\ndetach = "f10"\n')
+    config.write_text('[experimental]\nallow_nested = true\n[ui]\nsidebar_start_collapsed = true\nsidebar_collapsed_mode = "hidden"\n[keys]\ndetach = "f10"\n')
     (core / "config/herdr-core").mkdir(mode=0o700)
     (core / "config/herdr-core/config.toml").write_text('notes = false\n')
     env.update(HOME=str(private), XDG_RUNTIME_DIR=str(core / "run"),
