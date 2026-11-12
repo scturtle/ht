@@ -106,6 +106,22 @@ CORE_UI_BASELINE=/absolute/path/to/old-ht just core-scheduling-smoke
 这些是**本机 PTY 调度/输出测量，不是 WAN RTT，也不是物理终端绘制时间或整机 CPU 指标**。
 测试只运行本地原始终端 fixture，不调用模型；Core、程序及临时文件均属于本次测试。
 
+## 同步输出与中间空屏
+
+`just core-synchronized-smoke` 用私有 Core/PTY 的合成输出，不调用模型，逐幅解码
+**已经结束的外层 2026 帧**。覆盖同步前有普通输出、分片 clear/repaint、干净同步块、
+块内填充，以及忘记结束同步时的 1 秒超时；普通非同步 clear 是能观察到空屏的正对照。
+测试主动把正常事务拉到 220ms 便于观察，并核对程序 PID、网格不变且没有 resize 救援。
+还重放 Pi 的 OSC 7501 `working → done/error/blocked/idle/clear`，逐帧核对任务结束
+不会清空窗格或重连 relay；`turn.state` 是任务状态，不能覆盖终端的 `state=live`。
+该门禁本身不调用 Pi/模型，不等于实际 Pi 事件录制、WAN 或物理显示延迟测量。
+
+未结束的同步输出只保留该窗格上一次已提交的文字、光标、链接和图片，不阻塞其他窗格、
+输入协议、查询回复、BEL 或 OSC 52。resize 仍跟随 Core 的权威网格，对旧画面裁剪/补白。
+客户端通过实际 deadline 唤醒，超过 1 秒时仅解除本地解析器的 2026 绘制等待；不向程序
+发送输入，不更改 Core 的 PTY。正常路径不额外复制画面，只有合成与未完成同步相遇时
+才懒捕获该窗格；关闭、换 attach channel、隐藏或连接恢复会清理相应缓存。
+
 ## 客户端 scrollback
 
 `[advanced] scrollback_limit_lines` 默认 `1000`，按物理历史行计数；例如设为

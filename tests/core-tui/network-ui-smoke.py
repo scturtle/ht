@@ -124,7 +124,9 @@ while True:
             return p.stdout.decode(errors="replace")
         try:
             viewer=ImpairedViewer(env)
-            H.until(lambda:b"NETWORK_READY" in viewer.read(),"ready over fragmented delayed output")
+            # Diff output may reuse unchanged letters, so a fully visible token
+            # need not occur contiguously in the raw ANSI tape. Check the screen.
+            H.until(lambda:"NETWORK_READY" in screen(),"ready over fragmented delayed output")
             address=hc("ls")["terminals"][0]["address"];pid=hc("get",address)["pid"]
             original_grid=(hc("get",address)["cols"],hc("get",address)["rows"])
             viewer.send(b"\x1b[18~")
@@ -143,7 +145,7 @@ while True:
             viewer.paused_until=time.monotonic()+.65
             time.sleep(.65)  # Deliberately stop host reads while the owned fixture streams.
             wait_channel=Path(f"/proc/{viewer.pid}/wchan").read_text().strip()
-            H.until(lambda:b"BURST_END" in viewer.read(),"slow-host backlog drains without geometry recovery")
+            H.until(lambda:"BURST_END" in screen(),"slow-host backlog drains without geometry recovery")
             pump(viewer,.2)
             for index in range(8):
                 offset=len(viewer.output)

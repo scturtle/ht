@@ -7,6 +7,7 @@ mod events;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use super::{
     model::{invalid, Model},
@@ -16,6 +17,9 @@ use super::{
 use crate::layout::PaneId;
 use crate::protocol::*;
 
+#[cfg(test)]
+#[path = "synchronized_tests.rs"]
+mod synchronized_tests;
 #[cfg(test)]
 #[path = "session_tests.rs"]
 mod tests;
@@ -71,6 +75,7 @@ pub(in crate::client) struct Session {
     renderer: Renderer,
     pub dirty: bool,
     pub snapshot_dirty: bool,
+    synchronized_deadline: Option<Instant>,
     pub focused: bool,
     last_focus: Option<PaneId>,
     pub home: Option<PathBuf>,
@@ -146,6 +151,7 @@ impl Session {
             renderer,
             dirty: true,
             snapshot_dirty: true,
+            synchronized_deadline: None,
             focused: true,
             last_focus: None,
             home,
@@ -224,6 +230,7 @@ impl Session {
         // Channels belong to the dead connection; every pane re-attaches with an
         // authoritative grid, exactly like a first attach.
         self.views.clear();
+        self.synchronized_deadline = None;
         self.channels.clear();
         self.events.clear();
         self.renderer.resume_connection();
@@ -396,6 +403,7 @@ impl Session {
                 }
             }
             self.views.insert(id, view);
+            self.update_synchronized_deadline();
             return Ok(());
         }
         let result=self.core.request("terminal.attach_ordered",json!({"terminal":address,"cols":cols,"rows":rows,"history":self.scrollback.scrollback_limit_lines,"resize_notifications":true,"resumed":!visible,"display":self.display}))?;
@@ -427,6 +435,7 @@ impl Session {
             }
         }
         self.channels.insert(channel, id);
+        self.update_synchronized_deadline();
         if self.last_focus == Some(id) {
             self.last_focus = None;
         }
@@ -436,6 +445,7 @@ impl Session {
 
     pub(super) fn close_view(&mut self, id: PaneId) -> io::Result<()> {
         if let Some(view) = self.views.remove(&id) {
+            self.update_synchronized_deadline();
             self.channels.remove(&view.channel);
             if !view.closed {
                 self.core.send(view.channel, CLOSE, &[])?;
@@ -570,7 +580,40 @@ impl Session {
         Ok(())
     }
 
+    fn update_synchronized_deadline(&mut self) {
+        // Only synchronization transitions/lifecycle changes rescan these scalar
+        // deadlines, never terminal state or screen contents on every DATA frame.
+        self.synchronized_deadline = self
+            .views
+            .values()
+            .filter_map(View::synchronized_deadline)
+            .min();
+    }
+
+    pub fn wait_deadline(&self) -> Option<Instant> {
+        self.core
+            .write_deadline()
+            .into_iter()
+            .chain(self.synchronized_deadline)
+            .min()
+    }
+
+    fn expire_synchronized(&mut self, now: Instant) {
+        if self.synchronized_deadline.is_none_or(|until| now < until) {
+            return;
+        }
+        for view in self.views.values_mut() {
+            if view.expire_synchronized(now) {
+                self.dirty |= view.visible && !view.closed;
+            }
+        }
+        self.update_synchronized_deadline();
+    }
+
     pub fn publish(&mut self) -> io::Result<Vec<ServerMessage>> {
+        if self.synchronized_deadline.is_some() {
+            self.expire_synchronized(Instant::now());
+        }
         if !self.dirty && !self.snapshot_dirty {
             return Ok(Vec::new());
         }

@@ -445,7 +445,7 @@ pub(super) fn start(
                         if should_wait_for_work(worked,session) {
                             // Reader, writer completion, commands and stop all retain a
                             // wake token. A stalled asynchronous credit keeps its deadline.
-                            connection_wake.wait(session.core.write_deadline());
+                            connection_wake.wait(session.wait_deadline());
                         }
                     }
                     Ok(SessionEnd::Finished)

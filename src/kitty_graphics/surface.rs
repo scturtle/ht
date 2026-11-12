@@ -17,7 +17,7 @@ use crate::protocol::{
     SurfaceGraphicsScene, SurfaceGraphicsSource, SurfaceGraphicsTarget,
 };
 
-const MAX_SURFACE_GRAPHICS_PLACEMENTS: usize = 4_096;
+pub(crate) const MAX_SURFACE_GRAPHICS_PLACEMENTS: usize = 4_096;
 const MAX_OFFSCREEN_IMAGES: usize = 16;
 const MAX_OFFSCREEN_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -33,6 +33,16 @@ pub(crate) type SourceFiles =
     HashMap<SurfaceGraphicsAssetKey, Arc<crate::pane_graphics_files::OwnedExport>>;
 
 impl DeliveryCache {
+    pub(crate) fn contains(&self, key: &SurfaceGraphicsAssetKey) -> bool {
+        self.assets.contains(key)
+    }
+
+    /// A synchronized pane still displays these already-delivered assets even
+    /// if its live parser has removed/replaced them inside an unfinished update.
+    pub(crate) fn retain_committed(&mut self, key: &SurfaceGraphicsAssetKey) {
+        self.assets.insert(key.clone());
+    }
+
     /// Assets still waiting for a later scene: the byte budget bounded this one.
     pub(crate) fn has_pending(&self) -> bool {
         self.pending
@@ -213,6 +223,24 @@ pub(crate) fn collect_scene(
     cell_size: HostCellSize,
     delivered: &DeliveryCache,
 ) -> (SurfaceGraphicsScene, DeliveryCache, SourceFiles) {
+    collect_scene_with_limit(
+        surface,
+        retained,
+        cell_size,
+        delivered,
+        MAX_SURFACE_GRAPHICS_PLACEMENTS,
+    )
+}
+
+/// Reserve placement slots for already-committed synchronized panes before
+/// budgeting new assets; do not transmit/cache assets for pruned placements.
+pub(crate) fn collect_scene_with_limit(
+    surface: &[ScenePane<'_>],
+    retained: &[ScenePane<'_>],
+    cell_size: HostCellSize,
+    delivered: &DeliveryCache,
+    placement_limit: usize,
+) -> (SurfaceGraphicsScene, DeliveryCache, SourceFiles) {
     if !cell_size.is_known() {
         return (
             SurfaceGraphicsScene::default(),
@@ -270,7 +298,7 @@ pub(crate) fn collect_scene(
     let mut asset_data = HashMap::<SurfaceGraphicsAssetKey, Vec<u8>>::new();
     let mut sources = SourceFiles::default();
     for mut placement in host_placements {
-        if placements.len() == MAX_SURFACE_GRAPHICS_PLACEMENTS {
+        if placements.len() == placement_limit.min(MAX_SURFACE_GRAPHICS_PLACEMENTS) {
             break;
         }
         let Some(target) = targets.get(&placement.pane_id).cloned() else {

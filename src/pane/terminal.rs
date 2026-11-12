@@ -170,6 +170,8 @@ impl InputState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProcessBytesResult {
     pub request_render: bool,
+    /// Parser mode after this DATA chunk; presentation must also honor an open update.
+    pub synchronized_output: bool,
     pub render_delay: Option<Duration>,
     pub terminal_title_changed: bool,
     pub terminal_bells: u16,
@@ -230,6 +232,10 @@ impl PaneTerminal {
 
     pub fn process_pty_bytes(&self, pane_id: PaneId, bytes: &[u8]) -> ProcessBytesResult {
         self.ghostty.process_pty_bytes(pane_id, bytes)
+    }
+
+    pub fn end_synchronized_output(&self) {
+        self.ghostty.end_synchronized_output();
     }
 
     pub fn resize(
@@ -1191,6 +1197,7 @@ impl GhosttyPaneTerminal {
             error!(pane = pane_id.raw(), "ghostty core lock poisoned in reader");
             return ProcessBytesResult {
                 request_render: false,
+                synchronized_output: false,
                 render_delay: None,
                 terminal_title_changed: false,
                 terminal_bells: 0,
@@ -1291,6 +1298,7 @@ impl GhosttyPaneTerminal {
         }
         ProcessBytesResult {
             request_render,
+            synchronized_output,
             render_delay,
             terminal_title_changed,
             terminal_bells,
@@ -1778,6 +1786,30 @@ impl GhosttyPaneTerminal {
         let mut core = self.core.lock().ok()?;
         let current = current_cursor_state(&mut core);
         effective_cursor_state(&mut core, current)
+    }
+
+    /// Runtime timeout, never a drawing side effect. Release just this local
+    /// parser's paint hold; no PTY input, reply, keyboard or mouse mode changes.
+    fn end_synchronized_output(&self) {
+        let Ok(mut core) = self.core.lock() else {
+            error!("ghostty core lock poisoned while expiring synchronized output");
+            return;
+        };
+        if core
+            .terminal
+            .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
+            .unwrap_or(false)
+        {
+            match core
+                .terminal
+                .mode_set(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT, false)
+            {
+                Ok(()) => {
+                    core.synchronized_output_epoch = core.synchronized_output_epoch.wrapping_add(1)
+                }
+                Err(error) => tracing::warn!(%error, "could not expire synchronized output"),
+            }
+        }
     }
 
     #[cfg(test)]

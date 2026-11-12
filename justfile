@@ -57,6 +57,11 @@ core-diagnostics-smoke: build core-source-build core-ui-oracle
 core-scheduling-smoke: build core-source-build
     CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/scheduling-ui-smoke.py
 
+# Completed-host-frame synchronized output atomicity and bounded paint timeout.
+[unix]
+core-synchronized-smoke: build core-source-build core-ui-oracle
+    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/synchronized-ui-smoke.py
+
 # Private userspace RTT/jitter/fragmentation/slow-read plus relay-recovery gate.
 [unix]
 core-network-smoke: build core-source-build core-ui-oracle

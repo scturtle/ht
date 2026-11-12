@@ -1,6 +1,10 @@
 //! Presentation-only terminals. No PTYs, process inspection or agent detection.
 use std::collections::HashMap;
 use std::io;
+use std::time::Instant;
+
+mod synchronized;
+use synchronized::{FrozenPane, RetainedPane};
 
 use ratatui::{
     backend::TestBackend,
@@ -43,6 +47,7 @@ pub(in crate::client) struct View {
     pub requested: (u16, u16, u32, u32),
     pub closed: bool,
     pub visible: bool,
+    synchronized: synchronized::Update,
 }
 
 impl View {
@@ -95,9 +100,34 @@ impl View {
     }
     pub fn process_output(&mut self, id: PaneId, bytes: &[u8]) -> crate::pane::ProcessBytesResult {
         let mut result = self.terminal.process_pty_bytes(id, bytes);
+        self.synchronized.observe(result.synchronized_output);
         self.revision = self.revision.saturating_add(2);
         result.request_render &= self.visible;
         result
+    }
+
+    pub fn synchronized_deadline(&self) -> Option<Instant> {
+        (!self.closed)
+            .then(|| self.synchronized.deadline())
+            .flatten()
+    }
+
+    pub fn expire_synchronized(&mut self, now: Instant) -> bool {
+        let expired = self.synchronized.expire(now);
+        if expired {
+            self.terminal.end_synchronized_output();
+        }
+        expired
+    }
+
+    pub fn close(&mut self) {
+        self.closed = true;
+        self.synchronized.observe(false);
+        self.terminal.end_synchronized_output();
+    }
+
+    fn synchronized_held(&self) -> bool {
+        self.synchronized_deadline().is_some()
     }
 
     #[cfg(test)]
@@ -131,6 +161,7 @@ impl View {
             requested: (cols, rows, 0, 0),
             closed: false,
             visible: true,
+            synchronized: Default::default(),
         })
     }
 }
@@ -171,7 +202,7 @@ pub(super) fn apply_frame(
             Ok(Some(FrameOutcome::Changed))
         }
         CLOSE => {
-            view.closed = true;
+            view.close();
             Ok(Some(FrameOutcome::Changed))
         }
         _ => Err(super::model::invalid("unexpected Core presentation frame")),
@@ -259,7 +290,7 @@ pub(super) fn api_layout_snapshot(
 }
 
 struct RetainedSurface {
-    panes: Vec<PaneSurfacePane>,
+    panes: Vec<RetainedPane>,
     splits: Vec<PaneSurfaceSplit>,
     cursor: Option<CursorState>,
     hyperlinks: Vec<((u16, u16), String, String)>,
@@ -276,6 +307,7 @@ pub(super) struct Renderer {
     pub profile_ns: [u128; 5],
     revision: u64,
     retained: Option<RetainedSurface>,
+    frozen: Vec<FrozenPane>,
     /// Host cell pixels; the graphics collector scales placements with it.
     cell_size: crate::kitty_graphics::HostCellSize,
     /// One delivery record per client connection, exactly like the server's.
@@ -293,6 +325,7 @@ impl Renderer {
     /// not re-transmit them, and drop the stale frame/pane geometry.
     pub fn resume_connection(&mut self) {
         self.retained = None;
+        self.frozen.clear();
     }
 
     /// Host cell pixels come from the client surface, like the server's grid.
@@ -310,6 +343,7 @@ impl Renderer {
             profile_ns: [0; 5],
             revision: 0,
             retained: None,
+            frozen: Vec::new(),
             cell_size: crate::kitty_graphics::HostCellSize::default(),
             delivery: crate::kitty_graphics::surface::DeliveryCache::default(),
         })
@@ -329,7 +363,7 @@ impl Renderer {
                 retained.cursor.clone(),
                 &retained.hyperlinks,
             ),
-            panes: retained.panes.clone(),
+            panes: retained.panes.iter().map(|p| p.pane.clone()).collect(),
             splits: retained.splits.clone(),
             graphics: retained.graphics.clone(),
         })
@@ -345,11 +379,39 @@ impl Renderer {
         #[cfg(test)]
         let mut stage = std::time::Instant::now();
         let area = Rect::new(0, 0, size.cols.max(1), size.rows.max(1));
+        let infos = pane_infos(model, area, config);
+        self.frozen.retain(|pane| {
+            views
+                .get(&pane.id)
+                .is_some_and(|v| v.visible && v.channel == pane.channel && v.synchronized_held())
+        });
+        for p in &infos {
+            let Some(view) = views.get(&p.id).filter(|v| v.synchronized_held()) else {
+                continue;
+            };
+            if self.frozen.iter().any(|f| f.id == p.id) {
+                continue;
+            }
+            let previous = self.retained.as_ref().and_then(|surface| {
+                surface
+                    .panes
+                    .iter()
+                    .find(|old| old.id == p.id && old.channel == view.channel)
+                    .map(|old| (old, surface))
+            });
+            self.frozen.push(FrozenPane::capture(
+                p.id,
+                view.channel,
+                previous,
+                self.terminal.current_buffer_mut(),
+                &self.delivery,
+            ));
+        }
+        // Capture held regions before replacing the canvas on a geometry change.
         if self.terminal.size().map_err(io::Error::other)? != area.as_size() {
             self.terminal = Terminal::new(TestBackend::new(area.width, area.height))
                 .map_err(io::Error::other)?;
         }
-        let infos = pane_infos(model, area, config);
         #[cfg(test)]
         {
             self.profile_ns[0] += stage.elapsed().as_nanos();
@@ -358,7 +420,12 @@ impl Renderer {
         let mut cursor = None;
         let mut hyperlinks = Vec::new();
         for p in &infos {
-            if let Some(view) = views.get(&p.id) {
+            if let Some(frozen) = self.frozen.iter().find(|f| f.id == p.id) {
+                hyperlinks.extend(frozen.links(p.inner_rect));
+                if p.is_focused {
+                    cursor = frozen.cursor(p.inner_rect);
+                }
+            } else if let Some(view) = views.get(&p.id) {
                 hyperlinks.extend(view.terminal.visible_hyperlinks(p.inner_rect));
                 if p.is_focused {
                     cursor = view.terminal.cursor_state().map(|c| CursorState {
@@ -388,7 +455,9 @@ impl Renderer {
                     })),
                 p.rect,
             );
-            if let Some(view) = views.get(&p.id) {
+            if let Some(frozen) = self.frozen.iter().find(|f| f.id == p.id) {
+                frozen.paint(canvas.buffer_mut(), p.inner_rect);
+            } else if let Some(view) = views.get(&p.id) {
                 view.terminal
                     .render(&mut canvas, p.inner_rect, p.is_focused);
             }
@@ -413,27 +482,35 @@ impl Renderer {
             .filter_map(|p| {
                 let view = views.get(&p.id)?;
                 let record = model.records.get(&p.id)?;
-                let scroll = view
-                    .terminal
-                    .scroll_metrics()
-                    .map(|s| PaneSurfaceScrollMetrics {
-                        offset_from_bottom: s.offset_from_bottom as u64,
-                        max_offset_from_bottom: s.max_offset_from_bottom as u64,
-                        viewport_rows: s.viewport_rows as u64,
-                    });
-                Some(PaneSurfacePane {
-                    pane_id: record.address.clone(),
-                    content_revision: view.revision,
-                    rect: p.rect.into(),
-                    inner_rect: p.inner_rect.into(),
-                    scrollbar_rect: None,
-                    scroll,
-                    focused: p.is_focused,
-                    mouse_reporting: !view.closed && view.terminal.mouse_reporting_enabled(),
-                    sgr_pixel_mouse: !view.closed && view.terminal.sgr_pixel_mouse_enabled(),
-                    alternate_screen_active: view.terminal.alternate_screen_active(),
-                    pixel_width: view.size.2.saturating_mul(u32::from(view.size.0)),
-                    pixel_height: view.size.3.saturating_mul(u32::from(view.size.1)),
+                let frozen = self.frozen.iter().find(|f| f.id == p.id);
+                let scroll = if let Some(frozen) = frozen {
+                    frozen.scroll
+                } else {
+                    view.terminal
+                        .scroll_metrics()
+                        .map(|s| PaneSurfaceScrollMetrics {
+                            offset_from_bottom: s.offset_from_bottom as u64,
+                            max_offset_from_bottom: s.max_offset_from_bottom as u64,
+                            viewport_rows: s.viewport_rows as u64,
+                        })
+                };
+                Some(RetainedPane {
+                    id: p.id,
+                    channel: view.channel,
+                    pane: PaneSurfacePane {
+                        pane_id: record.address.clone(),
+                        content_revision: frozen.map_or(view.revision, |f| f.revision),
+                        rect: p.rect.into(),
+                        inner_rect: p.inner_rect.into(),
+                        scrollbar_rect: None,
+                        scroll,
+                        focused: p.is_focused,
+                        mouse_reporting: !view.closed && view.terminal.mouse_reporting_enabled(),
+                        sgr_pixel_mouse: !view.closed && view.terminal.sgr_pixel_mouse_enabled(),
+                        alternate_screen_active: view.terminal.alternate_screen_active(),
+                        pixel_width: view.size.2.saturating_mul(u32::from(view.size.0)),
+                        pixel_height: view.size.3.saturating_mul(u32::from(view.size.1)),
+                    },
                 })
             })
             .collect();
@@ -476,8 +553,9 @@ impl Renderer {
             })
             .unwrap_or_default();
         let graphics = self.compose_graphics(model, views, &infos);
+        let public_panes = panes.iter().map(|p| p.pane.clone()).collect();
         self.retained = Some(RetainedSurface {
-            panes: panes.clone(),
+            panes,
             splits: splits.clone(),
             cursor: cursor.clone(),
             hyperlinks,
@@ -493,7 +571,7 @@ impl Renderer {
             projection_revision: model.revision,
             surface_revision: self.revision,
             frame,
-            panes,
+            panes: public_panes,
             splits,
             graphics,
         })
@@ -512,6 +590,9 @@ impl Renderer {
             return SurfaceGraphicsScene::default();
         }
         let pane = |info: &PaneInfo| {
+            if self.frozen.iter().any(|f| f.id == info.id) {
+                return None;
+            }
             let view = views.get(&info.id)?;
             let record = model.records.get(&info.id)?;
             Some(crate::kitty_graphics::surface::ScenePane {
@@ -525,7 +606,10 @@ impl Renderer {
         let retained = model
             .records
             .iter()
-            .filter(|(id, _)| !infos.iter().any(|info| info.id == **id))
+            .filter(|(id, _)| {
+                !infos.iter().any(|info| info.id == **id)
+                    && !self.frozen.iter().any(|f| f.id == **id)
+            })
             .filter_map(|(id, record)| {
                 views
                     .get(id)
@@ -537,12 +621,29 @@ impl Renderer {
                     })
             })
             .collect::<Vec<_>>();
-        let (scene, delivery, _sources) = crate::kitty_graphics::surface::collect_scene(
-            &surface,
-            &retained,
-            self.cell_size,
-            &self.delivery,
-        );
+        let placement_limit = crate::kitty_graphics::surface::MAX_SURFACE_GRAPHICS_PLACEMENTS
+            .saturating_sub(self.frozen.iter().map(FrozenPane::placement_count).sum());
+        let (mut scene, mut delivery, _sources) = if self.frozen.is_empty() {
+            crate::kitty_graphics::surface::collect_scene(
+                &surface,
+                &retained,
+                self.cell_size,
+                &self.delivery,
+            )
+        } else {
+            crate::kitty_graphics::surface::collect_scene_with_limit(
+                &surface,
+                &retained,
+                self.cell_size,
+                &self.delivery,
+                placement_limit,
+            )
+        };
+        for frozen in &self.frozen {
+            if let Some(info) = infos.iter().find(|p| p.id == frozen.id) {
+                frozen.graphics(info.inner_rect, &mut scene, &mut delivery);
+            }
+        }
         self.delivery = delivery;
         scene
     }

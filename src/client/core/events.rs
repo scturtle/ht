@@ -78,11 +78,34 @@ impl Session {
                 if p["data"]["record"].is_object() {
                     terminal = p["data"]["record"].clone();
                 }
-                if let (Some(target), Some(data)) =
-                    (terminal.as_object_mut(), p["data"].as_object())
-                {
-                    for (key, value) in data {
-                        target.insert(key.clone(), value.clone());
+                if let Some(target) = terminal.as_object_mut() {
+                    match p["type"].as_str() {
+                        // A turn's state is the program's OSC 7501 word, NOT
+                        // terminal lifecycle state (live/finished). Flattening
+                        // done/blocked/null here closes a still-running view.
+                        Some("turn") => {
+                            if let Some(turn) = p["data"].get("turn") {
+                                target.insert("turn".into(), turn.clone());
+                            }
+                        }
+                        // Foreground PID/argv/cwd describe a nested process,
+                        // not the terminal's original program. Null clears it;
+                        // Core preserves the last known cwd when it disappears.
+                        Some("foreground") => {
+                            if let Some(cwd) = p["data"]["cwd"].as_str() {
+                                target.insert("last_cwd".into(), json!(cwd));
+                            }
+                            target.insert("foreground".into(), p["data"].clone());
+                        }
+                        _ => {
+                            if let Some(data) = p["data"].as_object() {
+                                for (key, value) in data {
+                                    if key != "record" {
+                                        target.insert(key.clone(), value.clone());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 if matches!(p["type"].as_str(), Some("lost" | "restarted")) {
@@ -101,6 +124,7 @@ impl Session {
             let cells = self.cells;
             let visible = self.views.get(&id).is_some_and(|view| view.visible);
             if let Some(view) = self.views.get_mut(&id) {
+                let old_deadline = view.synchronized_deadline();
                 let outcome = view::apply_frame(view, id, frame.kind, &frame.payload, cells)?;
                 match outcome {
                     Some(view::FrameOutcome::Output(result)) => {
@@ -112,6 +136,9 @@ impl Session {
                     }
                     Some(view::FrameOutcome::Changed) => self.dirty |= visible,
                     None => {}
+                }
+                if old_deadline != view.synchronized_deadline() {
+                    self.update_synchronized_deadline();
                 }
             }
         }
@@ -139,8 +166,12 @@ impl Session {
         self.snapshot_dirty = true;
         if !ready {
             if let Some(view) = self.views.get_mut(&id) {
-                view.closed = true;
+                let had_deadline = view.synchronized_deadline().is_some();
+                view.close();
                 self.dirty |= view.visible;
+                if had_deadline {
+                    self.update_synchronized_deadline();
+                }
             }
             if self.last_focus == Some(id) {
                 self.last_focus = None;

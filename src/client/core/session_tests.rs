@@ -59,6 +59,7 @@ fn graphics_over_budget_finish_without_another_input_or_core_event() {
         renderer,
         dirty: true,
         snapshot_dirty: true,
+        synchronized_deadline: None,
         focused: true,
         last_focus: None,
         home: None,
