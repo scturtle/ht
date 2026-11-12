@@ -66,6 +66,60 @@ class SourcePreparationTests(unittest.TestCase):
         self.assertIn("refusing to discard edits", refused.stderr)
         self.assertEqual((source / "README").read_text(), "local edits\n")
 
+    def test_upgrading_a_pin_keeps_previous_sources_and_archives(self):
+        first = self.prepare()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        old_source = Path(first.stdout.strip())
+        manifest_path = self.here / "source.json"
+        manifest = json.loads(manifest_path.read_text())
+        old_sha = manifest["core"]["sha256"]
+        downloads = self.root / ".local/core-runtime/downloads"
+        old_archive = downloads / f"core-{old_sha}.tar.gz"
+        old_bytes = old_archive.read_bytes()
+        (self.root / "inputs/core/new-file").write_text("new pin\n")
+        upgraded = self.root / "core-v2.tar.gz"
+        with tarfile.open(upgraded, "w:gz") as output:
+            output.add(self.root / "inputs/core", arcname="core")
+        new_sha = hashlib.sha256(upgraded.read_bytes()).hexdigest()
+        manifest["core"] = {"commit": "fixture-v2", "url": upgraded.as_uri(), "sha256": new_sha}
+        manifest_path.write_text(json.dumps(manifest))
+        second = self.prepare()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        new_source = Path(second.stdout.strip())
+        self.assertNotEqual(old_source, new_source)
+        self.assertEqual((old_source / "README").read_text(), "new\n")
+        self.assertEqual((new_source / "new-file").read_text(), "new pin\n")
+        self.assertEqual(old_archive.read_bytes(), old_bytes)
+        self.assertEqual((downloads / f"core-{new_sha}.tar.gz").read_bytes(), upgraded.read_bytes())
+
+    def test_matching_legacy_archive_is_reused_without_overwriting_it(self):
+        downloads = self.root / ".local/core-runtime/downloads"
+        downloads.mkdir(parents=True)
+        legacy = downloads / "core.tar.gz"
+        original = self.root / "core.tar.gz"
+        original_bytes = original.read_bytes()
+        legacy.write_bytes(original_bytes)
+        original.unlink()  # Download would fail; the verified legacy cache must suffice.
+        prepared = self.prepare()
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertEqual(legacy.read_bytes(), original_bytes)
+        sha = hashlib.sha256(original_bytes).hexdigest()
+        self.assertEqual((downloads / f"core-{sha}.tar.gz").read_bytes(), original_bytes)
+
+    def test_corrupt_pinned_archive_is_refused_not_overwritten(self):
+        prepared = self.prepare()
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        manifest_path = self.here / "source.json"
+        manifest = json.loads(manifest_path.read_text())
+        archive = self.root / ".local/core-runtime/downloads" / f"core-{manifest['core']['sha256']}.tar.gz"
+        archive.write_bytes(b"corrupt cache")
+        # Force a fresh bundle so preparation must read its archives again.
+        manifest_path.write_text(manifest_path.read_text() + "\n")
+        refused = self.prepare()
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("cached archive changed", refused.stderr)
+        self.assertEqual(archive.read_bytes(), b"corrupt cache")
+
 
 if __name__ == "__main__":
     unittest.main()

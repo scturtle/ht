@@ -46,8 +46,13 @@ def source_digest(source):
 
 
 def archive(name, spec):
-    path = CACHE / "downloads" / (name + ".tar.gz")
+    path = CACHE / "downloads" / f"{name}-{spec['sha256']}.tar.gz"
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Keep previous pins available for rollback; never overwrite their archives.
+    # Reuse the old, unkeyed cache only when it matches this exact pin.
+    legacy = path.parent / (name + ".tar.gz")
+    if not path.exists() and legacy.exists() and digest(legacy) == spec["sha256"]:
+        shutil.copy2(legacy, path)
     if not path.exists():
         with tempfile.NamedTemporaryFile(dir=path.parent, prefix=name + "-", delete=False) as stream:
             pending = Path(stream.name)

@@ -156,6 +156,11 @@ def main():
         (home / "config.toml").write_text(
             'onboarding = false\n[experimental]\nallow_nested = true\n[keys]\ndetach = "f10"\n'
         )
+        # A registry entry exists before ht has attached and painted the shell.
+        # Input sent in that gap can be discarded by initial bootstrap recovery.
+        # Wait for a prompt actually rendered by this private client instead.
+        for profile in (".bashrc", ".bash_profile"):
+            (home / profile).write_text("PS1='CORE_GRAPHICS_READY> '\n")
         viewers = []
 
         def hc(*args):
@@ -172,8 +177,8 @@ def main():
         try:
             view = Viewer(env)
             viewers.append(view)
-            until(lambda: "core-tui" in view.read().decode("utf-8", "replace") or hc("ls")["terminals"],
-                  "private core and first pane")
+            until(lambda: b"CORE_GRAPHICS_READY>" in view.read(),
+                  "private shell prompt painted by the client")
             address = hc("ls")["terminals"][0]["address"]
             pid = hc("get", address)["pid"]
 

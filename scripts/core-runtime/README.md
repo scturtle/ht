@@ -1,7 +1,10 @@
 # Pinned local Core runtime
 
-This personal-fork runtime extends **Core 0.1.20** without reinstating Herdr's
-retired PTY server. It is not an upstream release or an installation/update tool.
+This personal-fork runtime extends **Core `f0828f1e40fac656a5bac077e20c605d38760164`**
+(post-0.1.20) without reinstating Herdr's retired PTY server. It is not an upstream
+release or an installation/update tool. The upstream package version still says
+`0.1.20`; use `source.json` and the running ELF build identity, not that version
+number alone, to distinguish builds.
 
 ```sh
 just core-source-build
@@ -19,11 +22,37 @@ project's Rust toolchain and Zig 0.16.0.
 - Per-bundle Cargo/native artifacts: `.local/core-runtime/artifacts/<bundle-id>/`
 - Atomically published executable: `.local/core-runtime/target/release/herdr-core`
 
+Downloaded archives are keyed by their pinned SHA-256, so upgrading a pin keeps
+previous downloads and prepared bundles available rather than replacing them.
+A matching historical unkeyed archive is reused only after digest verification;
+a corrupt keyed archive is refused, not overwritten.
+
 Native artifacts must not be shared across different bundles: Cargo's build
 script cache can otherwise retain the previous bundle's Ghostty static library.
 A failed build never replaces the published executable. No command installs to
 PATH, changes systemd/linger, restarts an existing server, or migrates a session.
 Tests use their own disposable runtimes.
+
+## Current upstream update
+
+The full Core source pin, not just the query-reply changes, moved from `de97ea5`
+to `f0828f1`. Ghostty's submodule pin is unchanged. This includes the upstream
+`1c22a51` / `f0828f1` image-answer/DA1 ordering fixes, hidden-primary-screen replay,
+waiter cleanup, and Linux login-environment fixes. All three local patches below
+are rebased on that source; there is no extra local image-answer patch.
+
+The image fix holds only DA1 behind a complete correlated viewer image answer,
+with a default 100 ms deadline and one shared timer task. Cursor/status replies
+remain immediate. It does **not** deduplicate image answers from multiple viewers:
+private two-TUI testing still observes `image answer → DA1 → second image answer`.
+Thus the single-viewer ordering fix must not be presented as a complete
+multi-client Emacs fix.
+
+Building atomically replaces the executable used for **new** Core processes; it
+does not replace a running Core. A fresh ht connection to an existing socket also
+keeps using that existing Core. Test with an unused `--core-home` **and** a private
+`--core-session` (unset an inherited `HC_SOCKET`), or arrange an explicit manual
+handover for your actual session. No build/test command performs that handover.
 
 ## Local patch inventory
 
@@ -58,7 +87,9 @@ new frozen Herdr codec nor an old endpoint method shape is changed.
 
 Verification: a failing characterization first demonstrated dirty-viewer flags
 leaking after a pop. New tests cover fresh/dirty viewers, overflow, later pops,
-inactive-screen transitions and binary snapshot round trips. Existing
+inactive-screen transitions and binary snapshot round trips. With the current
+upstream hidden-primary replay, the alternate stack is restored after its DECSTR,
+and tests compare both screens' contents as well as later keyboard pops. Existing
 screen/cursor/mode tests pass. `just core-keyboard-smoke` verifies real semantic
 press/repeat/release, client replacement, nested pops and eventual legacy input.
 
@@ -107,7 +138,7 @@ under `.local/core-only/retired-patches/` and are never applied again.
   VT over plain attach is viable without it.
 
 Evidence that the reduced bundle is sufficient: `build.py prepare` applies
-`0001` then `0002` with zero fuzz, and the prepared `hello` advertises exactly
+`0001`, `0002`, then `0003` with zero fuzz, and the prepared `hello` advertises
 `ordered_attach` + `keyboard_stacks_v1` with no attach_painted/attach_cells.
 
 ## Geometry policy: `latest`
