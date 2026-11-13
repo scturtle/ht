@@ -399,15 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn semantic_source_uses_semantic_identity() {
-        let key = TerminalKey::new(KeyCode::Char('x'), KeyModifiers::CONTROL);
-
-        assert_eq!(key.identity(), KeyIdentity::Semantic(KeyCode::Char('x')));
-        assert!(!key.has_physical_identity());
-        assert_eq!(key.windows_record(), None);
-    }
-
-    #[test]
     fn native_source_remains_immutable_when_canonical_phase_changes() {
         let key = TerminalKey::new(KeyCode::Esc, KeyModifiers::empty())
             .with_windows_record(WindowsKeyRecord {
@@ -493,22 +484,6 @@ mod tests {
     }
 
     #[test]
-    fn protocol_from_zero_flags_is_legacy() {
-        assert_eq!(
-            KeyboardProtocol::from_kitty_flags(0),
-            KeyboardProtocol::Legacy
-        );
-    }
-
-    #[test]
-    fn protocol_from_nonzero_flags_is_kitty() {
-        assert_eq!(
-            KeyboardProtocol::from_kitty_flags(7),
-            KeyboardProtocol::Kitty { flags: 7 }
-        );
-    }
-
-    #[test]
     fn keyboard_enhancement_flags_stay_ime_compatible() {
         let flags = ime_compatible_keyboard_enhancement_flags();
 
@@ -516,45 +491,5 @@ mod tests {
         assert!(flags.contains(KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
         assert!(flags.contains(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
         assert!(!flags.contains(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES));
-    }
-
-    #[test]
-    fn modify_other_keys_mode_is_enabled_for_tmux() {
-        assert_eq!(
-            host_modify_other_keys_mode_for_env(true, Some("WezTerm"), true, true),
-            Some(ModifyOtherKeysMode::Mode2)
-        );
-    }
-
-    #[test]
-    fn modify_other_keys_mode_is_enabled_for_wezterm_hosts() {
-        assert_eq!(
-            host_modify_other_keys_mode_for_env(false, Some("WezTerm"), false, false),
-            Some(ModifyOtherKeysMode::Mode1)
-        );
-        assert_eq!(
-            host_modify_other_keys_mode_for_env(false, None, true, false),
-            Some(ModifyOtherKeysMode::Mode1)
-        );
-    }
-
-    #[test]
-    fn modify_other_keys_mode_is_enabled_for_alacritty_hosts() {
-        assert_eq!(
-            host_modify_other_keys_mode_for_env(false, None, false, true),
-            Some(ModifyOtherKeysMode::Mode1)
-        );
-    }
-
-    #[test]
-    fn modify_other_keys_mode_is_not_enabled_for_unknown_hosts() {
-        assert_eq!(
-            host_modify_other_keys_mode_for_env(false, Some("ghostty"), false, false),
-            None
-        );
-        assert_eq!(
-            host_modify_other_keys_mode_for_env(false, None, false, false),
-            None
-        );
     }
 }

@@ -23,13 +23,9 @@ mod shell;
 mod shell_runtime;
 mod state;
 mod terminal_geometry;
-#[cfg(test)]
-mod terminal_sessions;
 mod terminal_setup;
 mod timer;
 
-#[cfg(test)]
-use clipboard_forwarding::decode_clipboard_payload;
 use clipboard_forwarding::forward_clipboard;
 use events::ClientLoopEvent;
 use loop_config::ClientLoopConfig;
@@ -41,8 +37,7 @@ use terminal_geometry::query_host_terminal_appearance;
 #[cfg(test)]
 use terminal_geometry::{
     cell_size_fallback, current_terminal_geometry_with, ioctl_cell_size, pack_cell_size,
-    resize_report_required, should_query_host_cell_size, write_host_cell_size_query,
-    write_host_terminal_appearance_query, write_host_terminal_theme_query,
+    resize_report_required,
 };
 use terminal_geometry::{
     host_cell_size_query_required, initial_terminal_geometry, query_host_cell_size,
@@ -74,12 +69,6 @@ fn refresh_host_keyboard_protocol(
     }
 }
 
-#[cfg(test)]
-use terminal_setup::{
-    windows_virtual_terminal_input_mode, windows_win32_input_mode_enabled,
-    write_host_color_scheme_report_mode, write_terminal_restore_postlude,
-};
-
 pub use errors::ClientError;
 #[cfg(test)]
 use frame_output::{clear_received_kitty_graphics, kitty_graphics_image_ids};
@@ -90,8 +79,6 @@ use frame_output::{
 #[cfg(test)]
 use notifications::handle_notify_with_notifiers;
 use notifications::handle_shell_notification_effects;
-#[cfg(test)]
-use terminal_sessions::terminal_control_command_from_json;
 
 use std::collections::HashMap;
 use std::io::{self, Write as _};
@@ -104,7 +91,7 @@ use tracing::{debug, info, warn};
 
 use crate::protocol::render_ansi;
 #[cfg(test)]
-use crate::protocol::{AttachScrollDirection, AttachScrollSource, NotifyKind};
+use crate::protocol::NotifyKind;
 use crate::protocol::{ClientMessage, ServerMessage};
 
 pub fn run_core_client() -> io::Result<()> {

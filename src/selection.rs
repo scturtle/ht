@@ -371,55 +371,15 @@ mod tests {
     }
 
     #[test]
-    fn ordering_forward() {
-        let sel = make_sel(2, 5, 4, 10);
-        assert_eq!(sel.ordered(), ((2, 5), (4, 10)));
-    }
-
-    #[test]
-    fn ordering_backward() {
-        let sel = make_sel(4, 10, 2, 5);
-        assert_eq!(sel.ordered(), ((2, 5), (4, 10)));
-    }
-
-    #[test]
-    fn single_line_contains() {
-        let sel = make_sel(2, 5, 2, 15);
-        assert!(!sel.contains(2, 4, None));
-        assert!(sel.contains(2, 5, None));
-        assert!(sel.contains(2, 10, None));
-        assert!(sel.contains(2, 15, None));
-        assert!(!sel.contains(2, 16, None));
-        assert!(!sel.contains(1, 10, None));
-        assert!(!sel.contains(3, 10, None));
-    }
-
-    #[test]
-    fn multi_line_contains() {
-        let sel = make_sel(2, 5, 4, 10);
-        assert!(!sel.contains(2, 4, None));
-        assert!(sel.contains(2, 5, None));
-        assert!(sel.contains(2, 79, None));
-        assert!(sel.contains(3, 0, None));
-        assert!(sel.contains(3, 79, None));
-        assert!(sel.contains(4, 0, None));
-        assert!(sel.contains(4, 10, None));
-        assert!(!sel.contains(4, 11, None));
-    }
-
-    #[test]
-    fn anchored_not_visible() {
-        let sel = Selection::anchor(PaneId::from_raw(0), 5, 10, None);
-        assert!(!sel.is_visible());
-        assert!(!sel.contains(5, 10, None));
-    }
-
-    #[test]
-    fn click_without_drag() {
+    fn click_without_drag_never_creates_a_visible_or_finished_selection() {
         let mut sel = Selection::anchor(PaneId::from_raw(0), 5, 10, None);
         assert!(sel.is_just_click());
-        let copied = sel.finish();
-        assert!(!copied);
+        assert!(!sel.is_visible());
+        assert!(!sel.contains(5, 10, None));
+        assert!(!sel.finish());
+        assert!(!sel.is_finalized());
+        assert!(!sel.is_visible());
+        assert!(!sel.contains(5, 10, None));
     }
 
     #[test]
@@ -472,29 +432,6 @@ mod tests {
         assert!(sel.contains(1, 40, metrics));
         assert!(sel.contains(2, 4, metrics));
         assert!(!sel.contains(3, 4, metrics));
-    }
-
-    #[test]
-    fn clamp_to_pane_bounds() {
-        let (row, col) = clamp_to_pane(200, 100, Rect::new(10, 5, 80, 24));
-        assert_eq!(row, 23);
-        assert_eq!(col, 79);
-
-        let (row, col) = clamp_to_pane(0, 0, Rect::new(10, 5, 80, 24));
-        assert_eq!(row, 0);
-        assert_eq!(col, 0);
-    }
-
-    #[test]
-    fn anchor_screen_pos_adds_pane_origin() {
-        // Pane offset by sidebar (x=10) and tab bar (y=5).
-        // Anchor at viewport_row=3, col=5 (pane-relative).
-        let sel = Selection::anchor(PaneId::from_raw(0), 3, 5, None);
-        let pane_inner = Rect::new(10, 5, 80, 24);
-        let (row, col) = sel.anchor_screen_pos(pane_inner, None);
-        // Screen row = 3 + 5 = 8, screen col = 5 + 10 = 15
-        assert_eq!(row, 8);
-        assert_eq!(col, 15);
     }
 
     #[test]

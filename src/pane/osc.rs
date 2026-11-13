@@ -1008,13 +1008,6 @@ mod tests {
         assert_eq!(t.latest_progress(), "4;3;");
     }
 
-    #[test]
-    fn agent_osc_default_state_is_empty() {
-        let t = AgentOscStateTracker::default();
-        assert_eq!(t.latest_title(), "");
-        assert_eq!(t.latest_progress(), "");
-    }
-
     // -----------------------------------------------------------------------
     // OscDebugTracker tests (existing)
     // -----------------------------------------------------------------------

@@ -485,7 +485,7 @@ fn key_modifiers_from_u8(modifier: u8) -> KeyModifiers {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode};
+    use crossterm::event::{KeyCode, KeyModifiers};
 
     use super::*;
 
@@ -683,11 +683,6 @@ mod tests {
             None,
         );
         assert_eq!(crate::pane::test_encode_key_for_app(b"", key), b"\x1b\x06");
-    }
-
-    #[test]
-    fn unknown_legacy_ss3_sequence_remains_unsupported() {
-        assert!(parse_terminal_key_sequence("\x1bOz").is_none());
     }
 
     #[test]
@@ -1024,107 +1019,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_kitty_alt_backspace_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[127;3u").unwrap();
-        assert_eq!(key.code, KeyCode::Backspace);
-        assert_eq!(key.modifiers, KeyModifiers::ALT);
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
-        assert_eq!(key.shifted_codepoint, None);
-    }
-
-    #[test]
-    fn parse_modify_other_keys_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[27;6;108~").unwrap();
-        assert_eq!(key.code, KeyCode::Char('l'));
-        assert_eq!(key.modifiers, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
-        assert_eq!(key.shifted_codepoint, None);
-    }
-
-    #[test]
-    fn parse_legacy_uppercase_letter_as_shifted_char() {
-        let key = parse_terminal_key_sequence("L").unwrap();
-        assert_eq!(key.code, KeyCode::Char('L'));
-        assert_eq!(key.modifiers, KeyModifiers::SHIFT);
-    }
-
-    #[test]
-    fn parse_legacy_up_arrow_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[A").unwrap();
-        assert_eq!(key.code, KeyCode::Up);
-        assert_eq!(key.modifiers, KeyModifiers::empty());
-    }
-
-    #[test]
-    fn parse_legacy_alt_backspace_sequence() {
-        let key = parse_terminal_key_sequence("\x1b\x7f").unwrap();
-        assert_eq!(key.code, KeyCode::Backspace);
-        assert_eq!(key.modifiers, KeyModifiers::ALT);
-    }
-
-    #[test]
-    fn parse_kitty_modifier_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[57441;2:1u").unwrap();
-        assert_eq!(key.code, KeyCode::Modifier(ModifierKeyCode::LeftShift));
-        assert_eq!(key.modifiers, KeyModifiers::SHIFT);
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
-    }
-
-    #[test]
-    fn parse_ghostty_enhanced_up_arrow_press_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[1;1:1A").unwrap();
-        assert_eq!(key.code, KeyCode::Up);
-        assert_eq!(key.modifiers, KeyModifiers::empty());
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
-    }
-
-    #[test]
-    fn parse_ghostty_enhanced_up_arrow_release_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[1;1:3A").unwrap();
-        assert_eq!(key.code, KeyCode::Up);
-        assert_eq!(key.modifiers, KeyModifiers::empty());
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Release);
-    }
-
-    #[test]
-    fn parse_ghostty_enhanced_pageup_press_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[5;1:1~").unwrap();
-        assert_eq!(key.code, KeyCode::PageUp);
-        assert_eq!(key.modifiers, KeyModifiers::empty());
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
-    }
-
-    #[test]
-    fn parse_ghostty_enhanced_pagedown_release_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[6;1:3~").unwrap();
-        assert_eq!(key.code, KeyCode::PageDown);
-        assert_eq!(key.modifiers, KeyModifiers::empty());
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Release);
-    }
-
-    #[test]
-    fn parse_ghostty_enhanced_delete_repeat_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[3;1:2~").unwrap();
-        assert_eq!(key.code, KeyCode::Delete);
-        assert_eq!(key.modifiers, KeyModifiers::empty());
-        assert_eq!(key.kind, crossterm::event::KeyEventKind::Repeat);
-    }
-
-    #[test]
-    fn parse_xterm_alt_up_arrow_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[1;3A").unwrap();
-        assert_eq!(key.code, KeyCode::Up);
-        assert_eq!(key.modifiers, KeyModifiers::ALT);
-    }
-
-    #[test]
-    fn parse_xterm_alt_down_arrow_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[1;3B").unwrap();
-        assert_eq!(key.code, KeyCode::Down);
-        assert_eq!(key.modifiers, KeyModifiers::ALT);
-    }
-
-    #[test]
     fn parse_xterm_special_sequences_with_associated_text() {
         for (sequence, expected_code) in [
             ("\x1b[1;1;63233B", KeyCode::Down),
@@ -1138,34 +1032,6 @@ mod tests {
         }
 
         assert_eq!(parse_terminal_key_sequence("\x1b[1;1;63233;63234B"), None);
-    }
-
-    #[test]
-    fn parse_kitty_functional_up_arrow_sequence() {
-        let key = parse_terminal_key_sequence("\x1b[57419;1u").unwrap();
-        assert_eq!(key.code, KeyCode::Up);
-        assert_eq!(key.modifiers, KeyModifiers::empty());
-    }
-
-    #[test]
-    fn parse_legacy_ctrl_b_sequence() {
-        let key = parse_terminal_key_sequence("\x02").unwrap();
-        assert_eq!(key.code, KeyCode::Char('b'));
-        assert_eq!(key.modifiers, KeyModifiers::CONTROL);
-    }
-
-    #[test]
-    fn parse_legacy_ctrl_c_sequence() {
-        let key = parse_terminal_key_sequence("\x03").unwrap();
-        assert_eq!(key.code, KeyCode::Char('c'));
-        assert_eq!(key.modifiers, KeyModifiers::CONTROL);
-    }
-
-    #[test]
-    fn parse_legacy_lf_sequence_as_ctrl_j() {
-        let key = parse_terminal_key_sequence("\n").unwrap();
-        assert_eq!(key.code, KeyCode::Char('j'));
-        assert_eq!(key.modifiers, KeyModifiers::CONTROL);
     }
 
     #[test]

@@ -55,14 +55,6 @@ pub fn show_notification(title: &str, body: Option<&str>) -> io::Result<bool> {
     Ok(true)
 }
 
-#[cfg(test)]
-pub fn split_message(message: &str) -> (&str, Option<&str>) {
-    match message.split_once(": ") {
-        Some((title, body)) if !title.is_empty() && !body.is_empty() => (title, Some(body)),
-        _ => (message, None),
-    }
-}
-
 fn build_osc9_notification(title: &str, body: Option<&str>) -> Vec<u8> {
     let message = sanitize_text(match body {
         Some(body) if !body.is_empty() => format!("{title}: {body}"),
@@ -109,19 +101,6 @@ fn wrap_tmux_passthrough(sequence: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn split_message_splits_title_and_body() {
-        assert_eq!(
-            split_message("agent done: ws · 1"),
-            ("agent done", Some("ws · 1"))
-        );
-    }
-
-    #[test]
-    fn split_message_leaves_plain_message_alone() {
-        assert_eq!(split_message("agent done"), ("agent done", None));
-    }
 
     #[test]
     fn sanitize_text_strips_control_bytes() {

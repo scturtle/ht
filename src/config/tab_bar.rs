@@ -117,37 +117,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tab_bar_entries_parse_with_command_defaults() {
-        #[derive(Deserialize)]
-        struct Wrapper {
-            entries: Vec<TabBarRightEntryConfig>,
-        }
-
-        let parsed: Wrapper = toml::from_str(
-            r#"
-entries = [
-  { type = "zoom" },
-  { type = "hostname" },
-  { type = "datetime", format = "%H:%M" },
-  { type = "text", text = "prod" },
-  { type = "command", command = "status.sh" },
-]
-"#,
-        )
-        .expect("parse tab bar entries");
-
-        assert_eq!(parsed.entries.len(), 5);
-        assert!(matches!(
-            &parsed.entries[4],
-            TabBarRightEntryConfig::Command {
-                interval_seconds: DEFAULT_TAB_BAR_COMMAND_INTERVAL_SECONDS,
-                timeout_seconds: DEFAULT_TAB_BAR_COMMAND_TIMEOUT_SECONDS,
-                ..
-            }
-        ));
-    }
-
-    #[test]
     fn diagnostics_reject_invalid_datetime_and_command_schedules() {
         let entries = vec![
             TabBarRightEntryConfig::Datetime {

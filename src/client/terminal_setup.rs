@@ -335,12 +335,6 @@ pub(super) fn should_draw_host_cursor(mode: crate::config::HostCursorModeConfig)
     }
 }
 
-#[cfg(test)]
-#[cfg(test)]
-pub(super) fn windows_virtual_terminal_input_mode(mode: u32) -> u32 {
-    mode | 0x0200
-}
-
 pub(super) fn effective_mouse_capture(server_enabled: bool, local_preference: bool) -> bool {
     server_enabled || local_preference
 }
@@ -351,23 +345,6 @@ pub(super) fn effective_sgr_pixel_mouse(
     pixel_mouse_available: bool,
 ) -> bool {
     enabled && requested && pixel_mouse_available
-}
-
-#[cfg(test)]
-fn set_windows_native_mouse_capture<W: io::Write>(
-    writer: &mut W,
-    enabled: bool,
-    sgr_pixels: bool,
-    set_console_capture: impl FnOnce(bool) -> io::Result<()>,
-) -> io::Result<()> {
-    if !enabled {
-        crate::terminal_modes::clear_host_mouse_reporting(writer)?;
-    }
-    set_console_capture(enabled)?;
-    if enabled {
-        crate::terminal_modes::set_windows_mouse_reporting(writer, true, sgr_pixels)?;
-    }
-    Ok(())
 }
 
 pub(super) fn set_mouse_capture(enabled: bool, sgr_pixels: bool) -> io::Result<()> {
@@ -444,13 +421,6 @@ fn push_keyboard_enhancement_flags() -> io::Result<()> {
 
 fn pop_keyboard_enhancement_flags() -> io::Result<()> {
     execute!(io::stdout(), PopKeyboardEnhancementFlags)
-}
-
-#[cfg(test)]
-pub(super) fn windows_win32_input_mode_enabled() -> bool {
-    std::env::var("HERDR_WINDOWS_INPUT_PROBE")
-        .map(|probe| probe.eq_ignore_ascii_case("win32"))
-        .unwrap_or(true)
 }
 
 /// Host input modes to re-assert after the host may have reset them.
@@ -568,20 +538,6 @@ impl Drop for TerminalGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[derive(Clone, Default)]
-    struct SharedOutput(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
-
-    impl io::Write for SharedOutput {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0.borrow_mut().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
 
     fn refresh_test_guard(
         kitty_confirmed: bool,
@@ -824,59 +780,6 @@ mod tests {
         assert_eq!(
             buffered,
             b"a\x1b[?7;1ub\x1b[?65536uc\x1b[?1016;5$y\x1b[?1006;2$y"
-        );
-    }
-
-    #[test]
-    fn windows_native_mouse_capture_reasserts_final_encoding_after_native_enable() {
-        let mut output = SharedOutput::default();
-        for sgr_pixels in [false, false, true, false] {
-            let start = output.0.borrow().len();
-            let native_output = output.clone();
-            let native_boundary = std::cell::Cell::new(0);
-            set_windows_native_mouse_capture(&mut output, true, sgr_pixels, |enabled| {
-                assert!(enabled);
-                // ConPTY enables host SGR during native capture, before our VT requests.
-                native_output
-                    .0
-                    .borrow_mut()
-                    .extend_from_slice(b"\x1b[?1003h\x1b[?1006h");
-                native_boundary.set(native_output.0.borrow().len());
-                Ok(())
-            })
-            .unwrap();
-
-            let bytes = output.0.borrow();
-            let before = std::str::from_utf8(&bytes[start..native_boundary.get()]).unwrap();
-            let after = std::str::from_utf8(&bytes[native_boundary.get()..]).unwrap();
-            assert!(!before.contains("\x1b[?1016l"));
-            for reset in ["\x1b[?1005l", "\x1b[?1006l"] {
-                assert!(
-                    !after.contains(reset),
-                    "mouse format reset after native capture (sgr_pixels={sgr_pixels}): {after:?}"
-                );
-            }
-            assert!(after.contains("\x1b[?1003h\x1b[?1006h"));
-            assert_eq!(after.contains("\x1b[?1016h"), sgr_pixels);
-            if !sgr_pixels {
-                assert!(after.starts_with("\x1b[?1016l"));
-            }
-        }
-    }
-
-    #[test]
-    fn windows_native_mouse_capture_disable_clears_reporting() {
-        let mut output = Vec::new();
-
-        set_windows_native_mouse_capture(&mut output, false, false, |enabled| {
-            assert!(!enabled);
-            Ok(())
-        })
-        .unwrap();
-
-        assert_eq!(
-            output,
-            b"\x1b[?1006l\x1b[?1016l\x1b[?1015l\x1b[?1005l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?9l"
         );
     }
 }

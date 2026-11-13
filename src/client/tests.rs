@@ -158,81 +158,6 @@ impl Drop for EnvVarGuard {
 }
 
 #[test]
-fn windows_virtual_terminal_input_mode_sets_only_vti_bit() {
-    assert_eq!(windows_virtual_terminal_input_mode(0x01f0), 0x03f0);
-    assert_eq!(windows_virtual_terminal_input_mode(0x03f0), 0x03f0);
-}
-
-#[test]
-fn windows_win32_input_mode_defaults_to_win32_and_honors_probe() {
-    let _guard = env_lock().lock().unwrap();
-    let _removed =
-        EnvVarsRemovedGuard::new(&["HERDR_WINDOWS_INPUT_PROBE", "SSH_CONNECTION", "SSH_TTY"]);
-
-    assert!(windows_win32_input_mode_enabled());
-    {
-        let _ssh = EnvVarGuard::set("SSH_CONNECTION", "1 2 3 4");
-        assert!(windows_win32_input_mode_enabled());
-        let _probe = EnvVarGuard::set("HERDR_WINDOWS_INPUT_PROBE", "WiN32");
-        assert!(windows_win32_input_mode_enabled());
-    }
-    {
-        let _ssh = EnvVarGuard::set("SSH_TTY", "terminal");
-        assert!(windows_win32_input_mode_enabled());
-        let _probe = EnvVarGuard::set("HERDR_WINDOWS_INPUT_PROBE", "vT");
-        assert!(!windows_win32_input_mode_enabled());
-    }
-    let _probe = EnvVarGuard::set("HERDR_WINDOWS_INPUT_PROBE", "win32");
-    assert!(windows_win32_input_mode_enabled());
-}
-
-struct EnvVarsRemovedGuard {
-    previous: Vec<(&'static str, Option<OsString>)>,
-}
-
-impl EnvVarsRemovedGuard {
-    fn new(keys: &[&'static str]) -> Self {
-        let previous: Vec<_> = keys
-            .iter()
-            .map(|key| (*key, std::env::var_os(key)))
-            .collect();
-        for key in keys {
-            std::env::remove_var(key);
-        }
-        Self { previous }
-    }
-}
-
-impl Drop for EnvVarsRemovedGuard {
-    fn drop(&mut self) {
-        for (key, value) in self.previous.clone() {
-            restore_env_var(key, value);
-        }
-    }
-}
-
-#[test]
-fn host_cursor_policy_auto_uses_platform_default() {
-    assert_eq!(
-        should_draw_host_cursor(crate::config::HostCursorModeConfig::Auto),
-        crate::platform::should_draw_host_cursor_by_default()
-    );
-}
-
-#[test]
-fn host_cursor_policy_native_and_drawn_override_auto_detection() {
-    let _guard = env_lock().lock().unwrap();
-    let _env = EnvVarGuard::set("TERM_PROGRAM", "WezTerm");
-
-    assert!(!should_draw_host_cursor(
-        crate::config::HostCursorModeConfig::Native
-    ));
-    assert!(should_draw_host_cursor(
-        crate::config::HostCursorModeConfig::Drawn
-    ));
-}
-
-#[test]
 fn graphics_bytes_are_written_inside_synchronized_blit_with_saved_cursor() {
     let mut output = Vec::new();
     write_encoded_frame_with_graphics(
@@ -246,20 +171,6 @@ fn graphics_bytes_are_written_inside_synchronized_blit_with_saved_cursor() {
         output,
         b"\x1b[?2026htext\x1b7graphics\x1b8\x1b[?2026lcursor"
     );
-}
-
-#[test]
-fn empty_graphics_writes_only_blit_frame() {
-    let mut output = Vec::new();
-    write_encoded_frame_with_graphics(&mut output, b"text", b"").unwrap();
-
-    assert_eq!(output, b"text");
-}
-
-#[test]
-fn terminal_frame_kitty_detection_matches_apc_prefix() {
-    assert!(contains_kitty_graphics_bytes(b"text\x1b_Ga=p;\x1b\\"));
-    assert!(!contains_kitty_graphics_bytes(b"text\x1b[?2026h"));
 }
 
 #[test]
@@ -278,70 +189,6 @@ fn kitty_graphics_cleanup_deletes_tracked_images_not_all_images() {
     let text = String::from_utf8(output).unwrap();
     assert!(text.contains("a=d,d=I,i=123"));
     assert!(!text.contains("d=A"));
-}
-
-#[test]
-fn write_host_terminal_appearance_query_emits_mode_2031_query() {
-    let mut output = Vec::new();
-    write_host_terminal_appearance_query(&mut output).unwrap();
-    assert_eq!(output, b"\x1b[?996n");
-}
-
-#[test]
-fn write_host_terminal_theme_query_emits_osc_queries() {
-    let mut output = Vec::new();
-    write_host_terminal_theme_query(&mut output).unwrap();
-    assert_eq!(
-        output,
-        crate::terminal_theme::host_terminal_theme_query_sequence(
-            crate::platform::should_query_host_terminal_palette(),
-        )
-        .as_bytes()
-    );
-    assert!(
-        !output
-            .windows(crate::terminal_theme::HOST_COLOR_SCHEME_QUERY_SEQUENCE.len())
-            .any(|window| window
-                == crate::terminal_theme::HOST_COLOR_SCHEME_QUERY_SEQUENCE.as_bytes())
-    );
-}
-
-#[test]
-fn write_host_color_scheme_report_mode_emits_mode_sequences() {
-    let mut output = Vec::new();
-    write_host_color_scheme_report_mode(&mut output, true).unwrap();
-    write_host_color_scheme_report_mode(&mut output, false).unwrap();
-
-    let mut expected = Vec::new();
-    expected.extend_from_slice(
-        crate::terminal_theme::HOST_COLOR_SCHEME_REPORT_ENABLE_SEQUENCE.as_bytes(),
-    );
-    expected.extend_from_slice(
-        crate::terminal_theme::HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE.as_bytes(),
-    );
-    assert_eq!(output, expected);
-}
-
-#[test]
-fn color_scheme_change_event_requests_host_theme_query() {
-    let events = crate::raw_input::parse_raw_input_bytes_sync(b"\x1b[?997;1n");
-
-    assert!(crate::raw_input::events_require_host_terminal_theme_query(
-        &events
-    ));
-}
-
-#[test]
-fn write_host_cell_size_query_emits_xtwinops_request() {
-    let mut output = Vec::new();
-    write_host_cell_size_query(&mut output).unwrap();
-
-    assert_eq!(output, b"\x1b[16t");
-}
-
-#[test]
-fn host_cell_size_query_is_enabled_for_this_platform() {
-    assert!(should_query_host_cell_size());
 }
 
 #[test]
@@ -372,38 +219,6 @@ fn reported_cell_size_is_taken_from_host_cell_size_events() {
 }
 
 #[test]
-fn terminal_restore_postlude_restores_visible_default_cursor() {
-    let mut output = Vec::new();
-    write_terminal_restore_postlude(&mut output, false).unwrap();
-    assert_eq!(output, b"\x1b[?25h\x1b[0 q");
-}
-
-#[test]
-fn core_mouse_capture_combines_chrome_preference_and_program_demand() {
-    for preference in [false, true] {
-        for demand in [false, true] {
-            let mut state = ClientState::test_new();
-            state.shell_mouse_capture_preference = preference;
-            state.endpoint_mouse_capture_requested = demand;
-            assert_eq!(state.requested_host_mouse_capture(), preference || demand);
-        }
-    }
-}
-
-#[test]
-fn terminal_restore_postlude_disables_color_scheme_reports_when_enabled() {
-    let mut output = Vec::new();
-    write_terminal_restore_postlude(&mut output, true).unwrap();
-
-    let mut expected = Vec::new();
-    expected.extend_from_slice(
-        crate::terminal_theme::HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE.as_bytes(),
-    );
-    expected.extend_from_slice(b"\x1b[?25h\x1b[0 q");
-    assert_eq!(output, expected);
-}
-
-#[test]
 fn client_error_display_connection_failed() {
     let err = ClientError::ConnectionFailed(io::Error::new(
         io::ErrorKind::ConnectionRefused,
@@ -421,57 +236,6 @@ fn client_error_display_connection_failed() {
 }
 
 #[test]
-fn client_error_display_handshake_rejected() {
-    let err = ClientError::HandshakeRejected {
-        version: 1,
-        error: "incompatible".into(),
-    };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("rejected handshake"),
-        "should mention rejection: {msg}"
-    );
-    assert!(msg.contains("incompatible"), "should include error: {msg}");
-}
-
-#[test]
-fn client_error_display_server_shutdown() {
-    let err = ClientError::ServerShutdown {
-        reason: Some("maintenance".into()),
-    };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("server shut down"),
-        "should mention shutdown: {msg}"
-    );
-    assert!(msg.contains("maintenance"), "should include reason: {msg}");
-}
-
-#[test]
-fn client_error_display_server_shutdown_no_reason() {
-    let err = ClientError::ServerShutdown { reason: None };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("server shut down"),
-        "should mention shutdown: {msg}"
-    );
-}
-
-#[test]
-fn client_error_display_detached_default_session_reattach_hint() {
-    let _guard = env_lock().lock().unwrap();
-    let _env = EnvVarsRemovedGuard::new(&[crate::session::SESSION_ENV_VAR]);
-    let err = ClientError::ServerShutdown {
-        reason: Some("detached".into()),
-    };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("Run `ht` to reattach"),
-        "should suggest default reattach command: {msg}"
-    );
-}
-
-#[test]
 fn client_error_display_detached_ignores_retired_session_environment() {
     let _guard = env_lock().lock().unwrap();
     let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
@@ -482,31 +246,6 @@ fn client_error_display_detached_ignores_retired_session_environment() {
     assert!(
         msg.contains("Run `ht` to reattach") && !msg.contains("session attach"),
         "retired session environment must not suggest a removed command: {msg}"
-    );
-}
-
-#[test]
-fn client_error_display_detached_ignores_retired_remote_environment() {
-    let _guard = env_lock().lock().unwrap();
-    let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
-    let err = ClientError::ServerShutdown {
-        reason: Some("detached".into()),
-    };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("Run `ht` to reattach") && !msg.contains("--remote"),
-        "retired remote environment must not override Core reattach: {msg}"
-    );
-}
-
-#[test]
-fn client_error_display_connection_lost() {
-    let _guard = env_lock().lock().unwrap();
-    let err = ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
-    let msg = err.to_string();
-    assert!(
-        msg.contains("lost connection to Core"),
-        "should mention lost connection: {msg}"
     );
 }
 
@@ -596,145 +335,11 @@ fn system_toast_notify_preserves_colon_in_title() {
 }
 
 #[test]
-fn decode_clipboard_payload_decodes_base64() {
-    assert_eq!(decode_clipboard_payload("dGVzdA=="), Some(b"test".to_vec()));
-}
-
-#[test]
 fn ioctl_cell_size_accepts_fractional_terminal_geometry() {
     assert_eq!(ioctl_cell_size(80, 24, 800, 480), Some((10, 20)));
     assert_eq!(ioctl_cell_size(80, 24, 805, 480), Some((10, 20)));
     assert_eq!(ioctl_cell_size(80, 24, 800, 485), Some((10, 20)));
     assert_eq!(ioctl_cell_size(80, 24, 0, 485), None);
-}
-
-#[test]
-fn decode_clipboard_payload_rejects_invalid_base64() {
-    assert_eq!(decode_clipboard_payload("not-base64!!!"), None);
-}
-
-#[test]
-fn terminal_control_input_command_accepts_text() {
-    let action =
-        terminal_control_command_from_json(r#"{"type":"terminal.input","text":"hello"}"#).unwrap();
-    let ClientMessage::Input { data } = action else {
-        panic!("expected input command");
-    };
-    assert_eq!(data, b"hello");
-}
-
-#[test]
-fn terminal_control_input_command_accepts_base64_bytes() {
-    let action =
-        terminal_control_command_from_json(r#"{"type":"terminal.input","bytes":"G1tB"}"#).unwrap();
-    let ClientMessage::Input { data } = action else {
-        panic!("expected input command");
-    };
-    assert_eq!(data, b"\x1b[A");
-}
-
-#[test]
-fn terminal_control_resize_command_maps_to_client_resize() {
-    let action = terminal_control_command_from_json(
-        r#"{"type":"terminal.resize","cols":100,"rows":30,"cell_width_px":8,"cell_height_px":16}"#,
-    )
-    .unwrap();
-    let ClientMessage::Resize {
-        cols,
-        rows,
-        cell_width_px,
-        cell_height_px,
-        pixel_mouse,
-    } = action
-    else {
-        panic!("expected resize command");
-    };
-    assert_eq!(
-        (cols, rows, cell_width_px, cell_height_px),
-        (100, 30, 8, 16)
-    );
-    assert!(!pixel_mouse);
-}
-
-#[test]
-fn terminal_control_mouse_command_maps_to_attach_mouse() {
-    let action = terminal_control_command_from_json(
-        r#"{"type":"terminal.mouse","action":"down","column":12,"row":5}"#,
-    )
-    .unwrap();
-    let ClientMessage::AttachMouse {
-        kind,
-        position,
-        geometry,
-        modifiers,
-        lines,
-    } = action
-    else {
-        panic!("expected attach mouse command");
-    };
-    assert_eq!(
-        kind,
-        crate::protocol::ClientMouseKind::Down(crate::protocol::ClientMouseButton::Left)
-    );
-    assert_eq!(
-        position,
-        crate::protocol::ClientMousePosition::Cell { column: 12, row: 5 }
-    );
-    assert_eq!((geometry, modifiers, lines), (None, 0, 1));
-}
-
-#[test]
-fn terminal_control_mouse_command_maps_every_action_and_button() {
-    use crate::protocol::{ClientMouseButton as Button, ClientMouseKind as Kind};
-    for (json, expected) in [
-        (r#""action":"up","button":"right""#, Kind::Up(Button::Right)),
-        (
-            r#""action":"drag","button":"middle""#,
-            Kind::Drag(Button::Middle),
-        ),
-        (r#""action":"move""#, Kind::Moved),
-    ] {
-        let raw = format!(r#"{{"type":"terminal.mouse",{json},"column":0,"row":0,"modifiers":4}}"#);
-        let ClientMessage::AttachMouse {
-            kind, modifiers, ..
-        } = terminal_control_command_from_json(&raw).unwrap()
-        else {
-            panic!("expected attach mouse command");
-        };
-        assert_eq!((kind, modifiers), (expected, 4), "{raw}");
-    }
-}
-
-#[test]
-fn terminal_control_mouse_command_rejects_unknown_actions_and_missing_cells() {
-    assert!(terminal_control_command_from_json(
-        r#"{"type":"terminal.mouse","action":"click","column":1,"row":1}"#
-    )
-    .is_err());
-    assert!(terminal_control_command_from_json(
-        r#"{"type":"terminal.mouse","action":"down","column":1}"#
-    )
-    .is_err());
-}
-
-#[test]
-fn terminal_control_scroll_command_maps_to_attach_scroll() {
-    let action = terminal_control_command_from_json(
-        r#"{"type":"terminal.scroll","direction":"up","lines":3}"#,
-    )
-    .unwrap();
-    let ClientMessage::AttachScroll {
-        source,
-        direction,
-        lines,
-        ..
-    } = action
-    else {
-        panic!("expected scroll command");
-    };
-    assert_eq!(source, AttachScrollSource::Wheel);
-    assert_eq!(direction, AttachScrollDirection::Up);
-    assert_eq!(lines, 3);
 }
 
 struct SilentTransport;

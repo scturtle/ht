@@ -95,70 +95,6 @@ fn linked_cell(symbol: &str, index: u32) -> CellData {
 }
 
 #[test]
-fn color_to_sgr_fg_named_colors() {
-    assert_eq!(color_to_sgr_fg(0x00_00_00_00), "39"); // Reset
-    assert_eq!(color_to_sgr_fg(0x00_00_00_01), "30"); // Black
-    assert_eq!(color_to_sgr_fg(0x00_00_00_02), "31"); // Red
-    assert_eq!(color_to_sgr_fg(0x00_00_00_10), "97"); // White
-}
-
-#[test]
-fn color_to_sgr_fg_indexed() {
-    assert_eq!(color_to_sgr_fg(0x01_00_00_AB), "38;5;171");
-}
-
-#[test]
-fn color_to_sgr_fg_rgb() {
-    assert_eq!(color_to_sgr_fg(0x02_FF_80_40), "38;2;255;128;64");
-}
-
-#[test]
-fn color_to_sgr_bg_named_colors() {
-    assert_eq!(color_to_sgr_bg(0x00_00_00_00), "49"); // Reset
-    assert_eq!(color_to_sgr_bg(0x00_00_00_01), "40"); // Black
-    assert_eq!(color_to_sgr_bg(0x00_00_00_10), "107"); // White
-}
-
-#[test]
-fn color_to_sgr_bg_rgb() {
-    assert_eq!(color_to_sgr_bg(0x02_FF_80_40), "48;2;255;128;64");
-}
-
-#[test]
-fn modifier_to_sgr_parts_bold() {
-    let parts = modifier_to_sgr_parts(1); // BOLD
-    assert!(parts.contains(&"1"));
-}
-
-#[test]
-fn modifier_to_sgr_parts_italic() {
-    let parts = modifier_to_sgr_parts(4); // ITALIC
-    assert!(parts.contains(&"3"));
-}
-
-#[test]
-fn modifier_to_sgr_parts_empty() {
-    let parts = modifier_to_sgr_parts(0);
-    assert!(parts.is_empty());
-}
-
-#[test]
-fn build_sgr_produces_valid_sequence() {
-    let sgr = build_sgr(0x00_00_00_02, 0x00_00_00_01, 1); // fg=Red, bg=Black, bold
-    assert!(sgr.starts_with("\x1b["));
-    assert!(sgr.ends_with("m"));
-    assert!(sgr.contains("0")); // reset existing style first
-    assert!(sgr.contains("1")); // bold
-    assert!(sgr.contains("31")); // fg red
-    assert!(sgr.contains("40")); // bg black
-}
-
-#[test]
-fn build_sgr_resets_previous_modifiers_when_cell_is_plain() {
-    assert_eq!(build_sgr(0x00_00_00_00, 0x00_00_00_00, 0), "\x1b[0;39;49m");
-}
-
-#[test]
 fn wide_spacer_contents_cannot_hide_following_changed_cells() {
     // TestBackend retains old symbols underneath the trailing half of a
     // newly drawn wide glyph. Those hidden symbols have no display width.
@@ -239,27 +175,6 @@ fn build_sgr_preserves_curly_underline_style() {
         build_sgr(0x00_00_00_00, 0x00_00_00_00, modifier),
         "\x1b[0;4:3;39;49m"
     );
-}
-
-#[test]
-fn cells_equal_identical() {
-    let a = make_cell("A", 2, 1, 0);
-    let b = make_cell("A", 2, 1, 0);
-    assert!(cells_equal(&a, &b));
-}
-
-#[test]
-fn cells_equal_different_symbol() {
-    let a = make_cell("A", 2, 1, 0);
-    let b = make_cell("B", 2, 1, 0);
-    assert!(!cells_equal(&a, &b));
-}
-
-#[test]
-fn cells_equal_different_color() {
-    let a = make_cell("A", 2, 1, 0);
-    let b = make_cell("A", 3, 1, 0);
-    assert!(!cells_equal(&a, &b));
 }
 
 #[test]

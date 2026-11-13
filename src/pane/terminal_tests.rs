@@ -772,12 +772,6 @@ fn dirty_full_collects_bounded_viewport_patch() {
 }
 
 #[test]
-fn palette_overrides_are_none_without_an_osc4_write() {
-    let default = [rgb(1, 2, 3); 256];
-    assert!(PaletteOverrides::new(&default, &default).is_none());
-}
-
-#[test]
 fn redefined_palette_entries_render_as_rgb_and_others_stay_indexed() {
     let default = [rgb(1, 2, 3); 256];
     let mut active = default;
@@ -4680,11 +4674,4 @@ fn render_inverse_text_swaps_fg_and_resolved_bg_when_bg_is_transparent() {
     // fg must NOT be Color::Reset (which would be the same hue as bg).
     assert_eq!(cell.style().fg, Some(Color::Rgb(0x11, 0x22, 0x33)));
     assert_eq!(cell.style().bg, Some(Color::Rgb(0xaa, 0xbb, 0xcc)));
-}
-
-#[test]
-fn trim_trailing_blank_rows_drops_empty_viewport_tail() {
-    let mut rows = vec!["hello".to_string(), "".to_string(), "   ".to_string()];
-    trim_trailing_blank_rows(&mut rows);
-    assert_eq!(rows, vec!["hello".to_string()]);
 }

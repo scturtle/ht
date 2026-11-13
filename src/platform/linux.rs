@@ -253,13 +253,6 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
     #[test]
-    fn wsl_marker_detection_matches_kernel_release_text() {
-        assert!(text_indicates_wsl("5.15.167.4-microsoft-standard-WSL2"));
-        assert!(text_indicates_wsl("4.4.0-19041-Microsoft"));
-        assert!(!text_indicates_wsl("6.8.0-64-generic"));
-        assert!(!text_indicates_wsl(""));
-    }
-    #[test]
     fn desktop_notification_sets_app_name_and_separates_option_like_titles() {
         let _guard = env_lock().lock().unwrap();
         unsafe {

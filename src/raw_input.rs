@@ -1279,4 +1279,4 @@ mod tests;
 #[cfg(test)]
 pub use tests::parse_raw_input_bytes_sync;
 #[cfg(test)]
-pub(crate) use tests::{events_require_host_terminal_theme_query, RawInputFramer};
+pub(crate) use tests::RawInputFramer;

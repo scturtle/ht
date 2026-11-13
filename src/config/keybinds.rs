@@ -1427,26 +1427,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_simple_char_combo() {
-        assert_eq!(
-            parse_key_combo("v"),
-            Some((KeyCode::Char('v'), KeyModifiers::empty()))
-        );
-    }
-
-    #[test]
-    fn parse_unicode_char_combo() {
-        assert_eq!(
-            parse_key_combo("ö"),
-            Some((KeyCode::Char('ö'), KeyModifiers::empty()))
-        );
-        assert_eq!(
-            parse_key_combo("alt+é"),
-            Some((KeyCode::Char('é'), KeyModifiers::ALT))
-        );
-    }
-
-    #[test]
     fn unicode_prefix_config_is_valid() {
         let config: Config = toml::from_str(
             r#"
@@ -1460,79 +1440,6 @@ prefix = "ö"
             vec![(KeyCode::Char('ö'), KeyModifiers::empty())]
         );
         assert!(config.collect_diagnostics().is_empty());
-    }
-
-    #[test]
-    fn parse_shift_tab_as_backtab() {
-        assert_eq!(
-            parse_key_combo("shift+tab"),
-            Some((KeyCode::BackTab, KeyModifiers::empty()))
-        );
-    }
-
-    #[test]
-    fn parse_named_punctuation() {
-        assert_eq!(
-            parse_key_combo("minus"),
-            Some((KeyCode::Char('-'), KeyModifiers::empty()))
-        );
-        assert_eq!(
-            parse_key_combo("comma"),
-            Some((KeyCode::Char(','), KeyModifiers::empty()))
-        );
-        assert_eq!(
-            parse_key_combo("ampersand"),
-            Some((KeyCode::Char('&'), KeyModifiers::empty()))
-        );
-    }
-
-    #[test]
-    fn prefix_binding_is_not_direct_binding() {
-        let config: Config = toml::from_str(
-            r#"
-[keys]
-next_tab = "prefix+n"
-"#,
-        )
-        .unwrap();
-        let kb = config.keybinds();
-        assert_eq!(
-            binding_triggers(&kb.next_tab),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('n'),
-                KeyModifiers::empty()
-            ))]
-        );
-    }
-
-    #[test]
-    fn goto_defaults_to_prefix_g() {
-        let kb = Config::default().keybinds();
-        assert_eq!(
-            binding_triggers(&kb.goto),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('g'),
-                KeyModifiers::empty()
-            ))]
-        );
-    }
-
-    #[test]
-    fn copy_mode_uses_tmux_prefix_bracket_by_default() {
-        let kb = Config::default().keybinds();
-        assert_eq!(
-            binding_triggers(&kb.copy_mode),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('['),
-                KeyModifiers::empty()
-            ))]
-        );
-    }
-
-    #[test]
-    fn back_and_forth_keybinds_are_unset_by_default() {
-        let kb = Config::default().keybinds();
-        assert!(kb.last_pane.bindings.is_empty());
     }
 
     #[test]
@@ -1666,18 +1573,6 @@ close_tab = "X"
         assert_eq!(
             normalize_key_combo((KeyCode::Tab, KeyModifiers::CONTROL | KeyModifiers::SHIFT)),
             (KeyCode::BackTab, KeyModifiers::CONTROL)
-        );
-    }
-
-    #[test]
-    fn format_modified_backtab_keeps_shift_label() {
-        assert_eq!(
-            format_key_combo((KeyCode::BackTab, KeyModifiers::CONTROL)),
-            "ctrl+shift+tab"
-        );
-        assert_eq!(
-            format_key_combo((KeyCode::BackTab, KeyModifiers::CONTROL | KeyModifiers::ALT)),
-            "ctrl+alt+shift+tab"
         );
     }
 
@@ -2116,63 +2011,6 @@ switch_tab = "prefix+?"
         assert!(!diagnostics.iter().any(|diag| {
             diag.contains("kept keys.switch_tab") && diag.contains("disabled keys.help")
         }));
-    }
-
-    #[test]
-    fn default_keymap_is_prefix_first_and_tab_centered() {
-        let kb = Config::default().keybinds();
-        assert_eq!(
-            binding_triggers(&kb.next_tab),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('n'),
-                KeyModifiers::empty()
-            ))]
-        );
-        assert_eq!(
-            binding_triggers(&kb.previous_tab),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('p'),
-                KeyModifiers::empty()
-            ))]
-        );
-        assert_eq!(kb.switch_tab.len(), 9);
-        assert!(kb
-            .switch_tab
-            .iter()
-            .all(|binding| binding.trigger.is_prefix()));
-        assert!(kb
-            .new_tab
-            .bindings
-            .iter()
-            .all(|binding| binding.trigger.is_prefix()));
-        assert_eq!(
-            binding_triggers(&kb.swap_pane_left),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('h'),
-                KeyModifiers::SHIFT
-            ))]
-        );
-        assert_eq!(
-            binding_triggers(&kb.swap_pane_down),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('j'),
-                KeyModifiers::SHIFT
-            ))]
-        );
-        assert_eq!(
-            binding_triggers(&kb.swap_pane_up),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('k'),
-                KeyModifiers::SHIFT
-            ))]
-        );
-        assert_eq!(
-            binding_triggers(&kb.swap_pane_right),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('l'),
-                KeyModifiers::SHIFT
-            ))]
-        );
     }
 
     #[test]

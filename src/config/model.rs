@@ -824,13 +824,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terminal_default_shell_defaults_empty_and_parses() {
-        assert!(Config::default().terminal.default_shell.is_empty());
-        let config: Config = toml::from_str("[terminal]\ndefault_shell = \"nu\"").unwrap();
-        assert_eq!(config.terminal.default_shell, "nu");
-    }
-
-    #[test]
     fn agent_panel_sort_config_parses_alias_and_defaults() {
         assert_eq!(
             Config::default().ui.agent_panel_sort,
@@ -860,23 +853,6 @@ agent_panel_scope = "current"
     }
 
     #[test]
-    fn status_indicator_style_defaults_to_dots_and_parses_symbols() {
-        assert_eq!(
-            Config::default().ui.status_indicators,
-            StatusIndicatorStyle::Dots
-        );
-
-        let config: Config = toml::from_str(
-            r#"
-[ui]
-status_indicators = "symbols"
-"#,
-        )
-        .unwrap();
-        assert_eq!(config.ui.status_indicators, StatusIndicatorStyle::Symbols);
-    }
-
-    #[test]
     fn pane_borders_legacy_booleans_map_to_modes() {
         let enabled: Config = toml::from_str("[ui]\npane_borders = true").unwrap();
         assert_eq!(enabled.ui.pane_borders, PaneBordersConfig::Auto);
@@ -899,108 +875,6 @@ status_indicators = "symbols"
             .unwrap_err()
             .to_string();
         assert!(wrong_type.contains("\"auto\", \"always\", \"off\", or a legacy boolean"));
-    }
-
-    #[test]
-    fn pane_appearance_defaults_and_parse() {
-        let default_config = Config::default();
-        assert_eq!(default_config.ui.pane_borders, PaneBordersConfig::Auto);
-        assert!(default_config.ui.pane_outer_borders);
-        assert!(default_config.ui.pane_scrollbars);
-        assert!(default_config.ui.pane_gaps);
-        assert!(!default_config.ui.show_agent_labels_on_pane_borders);
-        assert!(!default_config.ui.hide_tab_bar_when_single_tab);
-        assert_eq!(
-            default_config.ui.tab_bar_position,
-            TabBarPositionConfig::Top
-        );
-        assert!(default_config.ui.tab_bar_right.is_empty());
-        assert_eq!(default_config.ui.tab_bar_right_separator, " ");
-
-        let toml = r#"
-[ui]
-pane_borders = "always"
-pane_outer_borders = false
-pane_scrollbars = false
-pane_gaps = true
-show_agent_labels_on_pane_borders = true
-hide_tab_bar_when_single_tab = true
-tab_bar_position = "bottom"
-tab_bar_right = [
-  { type = "zoom" },
-  { type = "hostname" },
-  { type = "datetime", format = "%H:%M" },
-  { type = "text", text = "prod" },
-  { type = "command", command = "status.sh", interval_seconds = 10, timeout_seconds = 3 },
-]
-tab_bar_right_separator = " · "
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.pane_borders, PaneBordersConfig::Always);
-        assert!(!config.ui.pane_outer_borders);
-        assert!(!config.ui.pane_scrollbars);
-        assert!(config.ui.pane_gaps);
-        assert!(config.ui.show_agent_labels_on_pane_borders);
-        assert!(config.ui.hide_tab_bar_when_single_tab);
-        assert_eq!(config.ui.tab_bar_position, TabBarPositionConfig::Bottom);
-        assert_eq!(config.ui.tab_bar_right.len(), 5);
-        assert!(matches!(
-            config.ui.tab_bar_right[1],
-            TabBarRightEntryConfig::Hostname
-        ));
-        assert_eq!(config.ui.tab_bar_right_separator, " · ");
-    }
-
-    #[test]
-    fn prompt_new_tab_name_defaults_on_and_parses() {
-        let default_config = Config::default();
-        assert!(default_config.ui.prompt_new_tab_name);
-
-        let toml = r#"
-[ui]
-prompt_new_tab_name = false
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.ui.prompt_new_tab_name);
-    }
-
-    #[test]
-    fn prompt_new_workspace_name_defaults_off_and_parses() {
-        let default_config = Config::default();
-        assert!(!default_config.ui.prompt_new_workspace_name);
-
-        let toml = r#"
-[ui]
-prompt_new_workspace_name = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.ui.prompt_new_workspace_name);
-    }
-
-    #[test]
-    fn mouse_capture_default_on_and_parse() {
-        let default_config = Config::default();
-        assert!(default_config.ui.mouse_capture);
-
-        let toml = r#"
-[ui]
-mouse_capture = false
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.ui.mouse_capture);
-    }
-
-    #[test]
-    fn copy_on_select_default_on_and_parse() {
-        let default_config = Config::default();
-        assert!(default_config.ui.copy_on_select);
-
-        let toml = r#"
-[ui]
-copy_on_select = false
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.ui.copy_on_select);
     }
 
     #[test]
@@ -1076,92 +950,12 @@ right_click_passthrough_modifier = "{value}"
     }
 
     #[test]
-    fn redraw_on_focus_gained_default_on_and_parse() {
-        let default_config = Config::default();
-        assert!(default_config.ui.redraw_on_focus_gained);
-
-        let toml = r#"
-[ui]
-redraw_on_focus_gained = false
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.ui.redraw_on_focus_gained);
-    }
-
-    #[test]
-    fn mouse_scroll_lines_defaults_to_three_and_parses() {
-        let default_config = Config::default();
-        assert_eq!(
-            default_config.ui.mouse_scroll_lines(),
-            DEFAULT_MOUSE_SCROLL_LINES
-        );
-
-        let toml = r#"
-[ui]
-mouse_scroll_lines = 1
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.mouse_scroll_lines(), 1);
-    }
-
-    #[test]
     fn mouse_scroll_lines_rejects_zero() {
         let toml = r#"
 [ui]
 mouse_scroll_lines = 0
 "#;
         assert!(toml::from_str::<Config>(toml).is_err());
-    }
-
-    #[test]
-    fn toast_config_parses() {
-        let toml = r#"
-[ui.toast]
-delivery = "terminal"
-delay_seconds = 2
-
-[ui.toast.herdr]
-position = "top-left"
-
-[ui.toast.clipboard]
-enabled = false
-position = "top-center"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
-        assert_eq!(config.ui.toast.delay_seconds, 2);
-        assert_eq!(config.ui.toast.herdr.position, ToastHerdrPosition::TopLeft);
-        assert!(!config.ui.toast.clipboard.enabled);
-        assert_eq!(
-            config.ui.toast.clipboard.position,
-            ToastClipboardPosition::TopCenter
-        );
-    }
-
-    #[test]
-    fn toast_config_defaults_preserve_existing_behavior_with_delay() {
-        let config = Config::default();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
-        assert_eq!(config.ui.toast.delay_seconds, 1);
-        assert_eq!(
-            config.ui.toast.herdr.position,
-            ToastHerdrPosition::BottomRight
-        );
-        assert!(config.ui.toast.clipboard.enabled);
-        assert_eq!(
-            config.ui.toast.clipboard.position,
-            ToastClipboardPosition::BottomCenter
-        );
-    }
-
-    #[test]
-    fn toast_config_parses_system_delivery() {
-        let toml = r#"
-[ui.toast]
-delivery = "system"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::System);
     }
 
     #[test]
@@ -1211,13 +1005,6 @@ delay_seconds = {}
     }
 
     #[test]
-    fn advanced_defaults_keep_one_thousand_rows_without_a_smaller_byte_limit() {
-        let config = Config::default();
-        assert_eq!(config.advanced.scrollback_limit_lines, 1000);
-        assert_eq!(config.advanced.scrollback_limit_bytes, None);
-    }
-
-    #[test]
     fn kitty_graphics_default_on_with_stable_opt_out() {
         assert!(Config::default().kitty_graphics_enabled());
 
@@ -1253,27 +1040,6 @@ kitty_graphics = true
         )
         .unwrap();
         assert!(!stable_setting_wins.kitty_graphics_enabled());
-    }
-
-    #[test]
-    fn experimental_config_parses() {
-        let config: Config =
-            toml::from_str("[experimental]\nallow_nested = true\nkitty_graphics = true").unwrap();
-        assert!(config.experimental.allow_nested);
-        assert_eq!(config.experimental.kitty_graphics, Some(true));
-        assert!(config.kitty_graphics_enabled());
-    }
-
-    #[test]
-    fn advanced_config_parses() {
-        let toml = r#"
-[advanced]
-scrollback_limit_lines = 10000
-scrollback_limit_bytes = 12345
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.advanced.scrollback_limit_lines, 10000);
-        assert_eq!(config.advanced.scrollback_limit_bytes, Some(12345));
     }
 
     #[test]

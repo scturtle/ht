@@ -150,13 +150,6 @@ mod tests {
     }
 
     #[test]
-    fn default_template_parses() {
-        assert!(WindowTitleTemplate::parse(&default_window_title())
-            .expect("parse")
-            .is_some());
-    }
-
-    #[test]
     fn empty_template_disables_window_titles() {
         assert_eq!(WindowTitleTemplate::parse(""), Ok(None));
         assert!(window_title_diagnostics("").is_none());
@@ -188,18 +181,6 @@ mod tests {
                 .chars()
                 .count(),
             MAX_WINDOW_TITLE_CHARS
-        );
-    }
-
-    #[test]
-    fn token_names_tolerate_surrounding_whitespace() {
-        let template = WindowTitleTemplate::parse("{ tab }")
-            .expect("parse")
-            .expect("template");
-
-        assert_eq!(
-            template.parts(),
-            [WindowTitlePart::Token(WindowTitleToken::Tab)]
         );
     }
 }

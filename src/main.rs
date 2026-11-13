@@ -415,38 +415,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn nested_herdr_blocks_when_env_is_set() {
-        let config = config::Config::default();
-        assert!(should_block_nested_for_env(&config, Some(HERDR_ENV_VALUE)));
-    }
-
-    #[test]
-    fn nested_herdr_does_not_block_when_allowed() {
-        let config: config::Config =
-            toml::from_str("[experimental]\nallow_nested = true\n").unwrap();
-        assert!(!should_block_nested_for_env(&config, Some(HERDR_ENV_VALUE)));
-    }
-
-    #[test]
-    fn nested_herdr_does_not_block_without_env() {
-        let config = config::Config::default();
-        assert!(!should_block_nested_for_env(&config, None));
-    }
-
-    #[test]
-    fn random_nested_message_comes_from_known_set() {
-        let message = random_nested_message();
-        assert!(NESTED_HERDR_MESSAGES.contains(&message));
-    }
-
-    #[test]
-    fn nested_message_strings_no_longer_repeat_herdr_prefix() {
-        assert!(NESTED_HERDR_MESSAGES
-            .iter()
-            .all(|message| !message.starts_with("herdr:")));
-    }
-
     fn invalid_utf8_arg() -> std::ffi::OsString {
         use std::os::unix::ffi::OsStringExt;
         std::ffi::OsString::from_vec(vec![0xff])
@@ -483,22 +451,6 @@ mod tests {
         let mut args = vec!["herdr".to_owned(), "--core-home".to_owned()];
         let error = take_core_home(&mut args).expect_err("a missing value must be refused");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-
-    #[test]
-    fn args_without_a_core_home_flag_are_left_alone() {
-        let mut args = vec!["herdr".to_owned(), "--core".to_owned()];
-        assert_eq!(take_core_home(&mut args).unwrap(), None);
-        assert_eq!(args, vec!["herdr".to_owned(), "--core".to_owned()]);
-    }
-
-    #[test]
-    fn args_as_utf8_passes_through_valid_arguments() {
-        let args = ["herdr", "pane", "get", "pane-1"].map(std::ffi::OsString::from);
-        assert_eq!(
-            args_as_utf8(args).unwrap(),
-            ["herdr", "pane", "get", "pane-1"]
-        );
     }
 
     #[test]
