@@ -1,3 +1,4 @@
+use super::local_scroll::LocalScrollTarget;
 use super::*;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 
@@ -862,70 +863,13 @@ impl ClientShellState {
                     self.set_sidebar_section_from_row(mouse.row, outcome);
                     return;
                 }
-                Some(ClientChromeDrag::WorkspaceScrollbar { grab_row_offset }) => {
-                    if let Some(metrics) = self.hits.workspace_scroll_metrics {
-                        let offset = crate::ui::scrollbar_offset_from_drag_row(
-                            metrics,
-                            self.hits.workspace_scrollbar,
-                            mouse.row,
-                            *grab_row_offset,
-                        );
-                        let next = metrics.max_offset_from_bottom.saturating_sub(offset);
-                        if next != self.workspace_scroll {
-                            self.workspace_scroll = next;
-                            outcome.repaint = true;
-                        }
-                    }
-                    return;
-                }
-                Some(ClientChromeDrag::AgentScrollbar { grab_row_offset }) => {
-                    if let Some(metrics) = self.hits.agent_scroll_metrics {
-                        let offset = crate::ui::scrollbar_offset_from_drag_row(
-                            metrics,
-                            self.hits.agent_scrollbar,
-                            mouse.row,
-                            *grab_row_offset,
-                        );
-                        let next = metrics.max_offset_from_bottom.saturating_sub(offset);
-                        if next != self.agent_scroll {
-                            self.agent_scroll = next;
-                            outcome.repaint = true;
-                        }
-                    }
-                    return;
-                }
-                Some(ClientChromeDrag::NavigatorScrollbar { grab_row_offset }) => {
-                    if let Some(metrics) = self.hits.navigator_scroll_metrics {
-                        let offset = crate::ui::scrollbar_offset_from_drag_row(
-                            metrics,
-                            self.hits.navigator_scrollbar,
-                            mouse.row,
-                            *grab_row_offset,
-                        );
-                        self.scroll_navigator_to(
-                            metrics.max_offset_from_bottom.saturating_sub(offset),
-                            metrics.viewport_rows,
-                        );
-                        outcome.repaint = true;
-                    }
-                    return;
-                }
-                Some(ClientChromeDrag::HelpScrollbar { grab_row_offset }) => {
-                    if let (Some(metrics), Some(ClientShellOverlay::Help(help))) =
-                        (self.hits.help_scroll_metrics, self.overlay.as_mut())
-                    {
-                        let offset = crate::ui::scrollbar_offset_from_drag_row(
-                            metrics,
-                            self.hits.help_scrollbar,
-                            mouse.row,
-                            *grab_row_offset,
-                        );
-                        let next = metrics.max_offset_from_bottom.saturating_sub(offset);
-                        if next != help.scroll {
-                            help.scroll = next;
-                            outcome.repaint = true;
-                        }
-                    }
+                Some(ClientChromeDrag::LocalScrollbar {
+                    target,
+                    grab_row_offset,
+                }) => {
+                    let target = *target;
+                    let grab_row_offset = *grab_row_offset;
+                    self.drag_local_scrollbar(target, mouse.row, grab_row_offset, outcome);
                     return;
                 }
                 Some(ClientChromeDrag::PaneScrollbar {
@@ -1185,10 +1129,7 @@ impl ClientShellState {
                     ClientChromeDrag::SidebarWidth | ClientChromeDrag::SidebarSection => {
                         self.persist_chrome_preferences(outcome);
                     }
-                    ClientChromeDrag::WorkspaceScrollbar { .. }
-                    | ClientChromeDrag::AgentScrollbar { .. }
-                    | ClientChromeDrag::HelpScrollbar { .. }
-                    | ClientChromeDrag::NavigatorScrollbar { .. } => {}
+                    ClientChromeDrag::LocalScrollbar { .. } => {}
                 }
                 return;
             }
@@ -1334,28 +1275,7 @@ impl ClientShellState {
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
                     if super::contains(self.hits.help_scrollbar, point) {
-                        if let Some(metrics) = self.hits.help_scroll_metrics {
-                            if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(
-                                metrics,
-                                self.hits.help_scrollbar,
-                                mouse.row,
-                            ) {
-                                self.chrome_drag =
-                                    Some(ClientChromeDrag::HelpScrollbar { grab_row_offset });
-                            } else {
-                                let offset = crate::ui::scrollbar_offset_from_row(
-                                    metrics,
-                                    self.hits.help_scrollbar,
-                                    mouse.row,
-                                );
-                                if let Some(ClientShellOverlay::Help(help)) = self.overlay.as_mut()
-                                {
-                                    help.scroll =
-                                        metrics.max_offset_from_bottom.saturating_sub(offset);
-                                    outcome.repaint = true;
-                                }
-                            }
-                        }
+                        self.press_local_scrollbar(LocalScrollTarget::Help, mouse.row, outcome);
                     } else if super::contains(self.hits.overlay_cancel, point) {
                         let search_focused = matches!(
                             self.overlay,
@@ -1403,27 +1323,11 @@ impl ClientShellState {
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
                     if super::contains(self.hits.navigator_scrollbar, point) {
-                        if let Some(metrics) = self.hits.navigator_scroll_metrics {
-                            if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(
-                                metrics,
-                                self.hits.navigator_scrollbar,
-                                mouse.row,
-                            ) {
-                                self.chrome_drag =
-                                    Some(ClientChromeDrag::NavigatorScrollbar { grab_row_offset });
-                            } else {
-                                let offset = crate::ui::scrollbar_offset_from_row(
-                                    metrics,
-                                    self.hits.navigator_scrollbar,
-                                    mouse.row,
-                                );
-                                self.scroll_navigator_to(
-                                    metrics.max_offset_from_bottom.saturating_sub(offset),
-                                    metrics.viewport_rows,
-                                );
-                                outcome.repaint = true;
-                            }
-                        }
+                        self.press_local_scrollbar(
+                            LocalScrollTarget::Navigator,
+                            mouse.row,
+                            outcome,
+                        );
                     } else if super::contains(self.hits.navigator_search, point) {
                         if let Some(ClientShellOverlay::Navigator(navigator)) =
                             self.overlay.as_mut()
@@ -1718,51 +1622,11 @@ impl ClientShellState {
                     return;
                 }
                 if super::contains(self.hits.workspace_scrollbar, point) {
-                    if let Some(metrics) = self.hits.workspace_scroll_metrics {
-                        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(
-                            metrics,
-                            self.hits.workspace_scrollbar,
-                            mouse.row,
-                        ) {
-                            self.chrome_drag =
-                                Some(ClientChromeDrag::WorkspaceScrollbar { grab_row_offset });
-                        } else {
-                            let offset = crate::ui::scrollbar_offset_from_row(
-                                metrics,
-                                self.hits.workspace_scrollbar,
-                                mouse.row,
-                            );
-                            let next = metrics.max_offset_from_bottom.saturating_sub(offset);
-                            if next != self.workspace_scroll {
-                                self.workspace_scroll = next;
-                                outcome.repaint = true;
-                            }
-                        }
-                    }
+                    self.press_local_scrollbar(LocalScrollTarget::Workspaces, mouse.row, outcome);
                     return;
                 }
                 if super::contains(self.hits.agent_scrollbar, point) {
-                    if let Some(metrics) = self.hits.agent_scroll_metrics {
-                        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(
-                            metrics,
-                            self.hits.agent_scrollbar,
-                            mouse.row,
-                        ) {
-                            self.chrome_drag =
-                                Some(ClientChromeDrag::AgentScrollbar { grab_row_offset });
-                        } else {
-                            let offset = crate::ui::scrollbar_offset_from_row(
-                                metrics,
-                                self.hits.agent_scrollbar,
-                                mouse.row,
-                            );
-                            let next = metrics.max_offset_from_bottom.saturating_sub(offset);
-                            if next != self.agent_scroll {
-                                self.agent_scroll = next;
-                                outcome.repaint = true;
-                            }
-                        }
-                    }
+                    self.press_local_scrollbar(LocalScrollTarget::Agents, mouse.row, outcome);
                     return;
                 }
                 if super::contains(self.hits.agent_sort_toggle, point) {

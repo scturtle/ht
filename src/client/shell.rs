@@ -19,6 +19,7 @@ mod graphics;
 mod input;
 mod link_hover;
 pub(super) use link_hover::safe_web_url;
+mod local_scroll;
 mod mobile;
 mod mouse;
 mod notification_policy;
@@ -59,7 +60,7 @@ use crate::protocol::{
 };
 #[cfg(test)]
 use crate::raw_input::RawInputEvent;
-use crate::ui::Palette;
+use crate::ui::{panel_contrast_fg, Palette};
 
 fn target_event_message(target: ClientInputTarget, event: ClientPaneInputEvent) -> ClientMessage {
     match target {
@@ -204,13 +205,6 @@ fn status_color(status: crate::actions::AgentStatus, palette: &Palette) -> ratat
         AgentStatus::Done => palette.teal,
         AgentStatus::Idle => palette.green,
         AgentStatus::Unknown => palette.overlay0,
-    }
-}
-
-fn panel_contrast_fg(palette: &Palette) -> ratatui::style::Color {
-    match palette.panel_bg {
-        ratatui::style::Color::Reset => palette.surface_dim,
-        color => color,
     }
 }
 

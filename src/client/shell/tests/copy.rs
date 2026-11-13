@@ -1,4 +1,5 @@
 use super::*;
+use crate::client::shell::local_scroll::LocalScrollTarget;
 
 #[test]
 fn pasted_help_and_copy_queries_normalize_single_line_text() {
@@ -1463,7 +1464,10 @@ fn navigator_scrollbar_click_and_drag_scroll_without_opening_a_destination() {
         thumb.top + grab,
     );
     assert!(
-        matches!(state.chrome_drag, Some(ClientChromeDrag::NavigatorScrollbar { grab_row_offset }) if grab_row_offset == grab)
+        matches!(state.chrome_drag, Some(ClientChromeDrag::LocalScrollbar {
+            target: LocalScrollTarget::Navigator,
+            grab_row_offset,
+        }) if grab_row_offset == grab)
     );
     mouse(
         &mut state,

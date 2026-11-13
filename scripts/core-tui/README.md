@@ -165,6 +165,10 @@ Ghostty 仍按整页回收：仅在回收最旧页后还能保留有效目标行
 不再用已经废弃的 `core/core.sock` 判断清理是否必要。harness 安全测试随 `just test` 执行。
 旧 `existing-ui-smoke.py` 只保留兼容导入入口，直接运行改为当前 organization gate，不再运行已失效的
 “单客户端独占 / tab.create 不支持 / layout.json 权威”断言。
+`just core-organization-smoke` 还通过真实鼠标命中验证设置弹窗：主题预览取消不写配置、
+应用主题后关闭、分区/选项点击及非主题应用后保持打开。写入只落在私有测试配置中，
+共享组织文档和程序 PID 保持不变。还验证帮助弹窗的过滤、右上角返回清空搜索、再次点击关闭；
+单元测试另覆盖窄屏、非零坐标、折行/滚动条/光标以及完整 cell 样式基准。
 
 `just core-network-smoke` 对私有 PTY 的双向传输加入约 40ms 名义 RTT、±5ms 抖动、
 1/2/7/31/127/1024 字节分片、650ms 停止读输出和有界 32KiB 队列。

@@ -3,12 +3,13 @@ mod palette;
 mod theme;
 pub(crate) use palette::Palette;
 pub(crate) use theme::ThemeRuntimeConfig;
+pub(crate) mod dialog;
 mod panes;
 mod scrollbar;
 mod sidebar;
 mod status;
 mod text;
-mod widgets;
+pub(crate) mod widgets;
 pub(crate) use panes::{
     apply_pane_chrome, pane_inner_rect, render_selection_highlight, zoomed_pane_info,
 };
@@ -23,6 +24,7 @@ pub(crate) use sidebar::{
 };
 pub(crate) use status::{render_config_diagnostic_buffer, render_copy_feedback_buffer};
 pub(crate) use text::truncate_end;
+pub(crate) use widgets::panel_contrast_fg;
 
 use ratatui::layout::Rect;
 use status::copy_feedback_rect;

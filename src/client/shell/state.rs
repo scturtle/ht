@@ -1,3 +1,4 @@
+use super::local_scroll::LocalScrollTarget;
 use super::*;
 
 pub(super) const MIN_TAB_WIDTH: u16 = 8;
@@ -154,16 +155,8 @@ pub(super) struct ClientTabPress {
 pub(super) enum ClientChromeDrag {
     SidebarWidth,
     SidebarSection,
-    WorkspaceScrollbar {
-        grab_row_offset: u16,
-    },
-    AgentScrollbar {
-        grab_row_offset: u16,
-    },
-    HelpScrollbar {
-        grab_row_offset: u16,
-    },
-    NavigatorScrollbar {
+    LocalScrollbar {
+        target: LocalScrollTarget,
         grab_row_offset: u16,
     },
     Tab {

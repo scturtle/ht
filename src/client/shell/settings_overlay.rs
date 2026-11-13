@@ -1,36 +1,22 @@
 use super::*;
 
-fn choice_style(selected: bool, palette: &Palette) -> Style {
-    if selected {
-        Style::default()
-            .fg(contrast(palette))
-            .bg(palette.accent)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(palette.text).bg(palette.panel_bg)
-    }
-}
-
 fn draw_choice(
     buffer: &mut Buffer,
     rect: Rect,
     label: &str,
     selected: bool,
     current: bool,
-    palette: &Palette,
+    styles: &DialogStyles,
 ) {
-    let style = choice_style(selected, palette);
+    let style = if selected {
+        styles.selected
+    } else {
+        styles.text
+    };
     buffer.set_style(rect, style);
     let marker = if selected { "▸" } else { " " };
     let current = if current { " ✓" } else { "" };
-    put_text(
-        buffer,
-        rect.x,
-        rect.y,
-        rect.width,
-        &format!(" {marker} {label}{current}"),
-        style,
-    );
+    paint_text_line(buffer, rect, &format!(" {marker} {label}{current}"), style);
 }
 
 pub(super) fn render_settings_overlay(
@@ -38,61 +24,48 @@ pub(super) fn render_settings_overlay(
     settings: &ClientSettingsOverlay,
     palette: &Palette,
 ) -> Option<OverlayRender> {
-    let popup = popup(buffer.area, 76, 22)?;
-    let inner = panel(buffer, popup, palette.accent, palette.panel_bg)?;
-    if inner.width < 20 || inner.height < 8 {
+    let layout = DialogLayout::centered(buffer.area, (76, 22), [10, 12], None)?;
+    let styles = DialogStyles::new(palette, palette.accent);
+    layout.paint_panel(buffer, &styles);
+    let body = layout.body;
+    if body.width < 20 || body.height < 7 {
         return None;
     }
 
-    put_text(
-        buffer,
-        inner.x,
-        inner.y,
-        inner.width,
-        " settings",
-        Style::default()
-            .fg(palette.text)
-            .bg(palette.panel_bg)
-            .add_modifier(Modifier::BOLD),
-    );
+    paint_text_line(buffer, layout.body_row(0), " settings", styles.heading);
 
-    let mut tab_x = inner.x;
+    let tabs = layout.body_row(1);
+    let mut tab_x = tabs.x;
     let mut tab_hits = Vec::new();
     for section in &settings.sections {
         let label = format!(" {} ", section.label());
-        let width = display_width(&label).min(inner.right().saturating_sub(tab_x));
-        let rect = Rect::new(tab_x, inner.y + 1, width, 1);
-        let active = *section == settings.section;
-        let style = if active {
-            Style::default()
-                .fg(contrast(palette))
-                .bg(palette.accent)
-                .add_modifier(Modifier::BOLD)
+        let width = display_width(&label).min(tabs.right().saturating_sub(tab_x));
+        let rect = Rect::new(tab_x, tabs.y, width, 1);
+        let style = if *section == settings.section {
+            styles.selected
         } else {
-            Style::default().fg(palette.overlay1).bg(palette.panel_bg)
+            styles.muted
         };
         buffer.set_style(rect, style);
-        put_text(buffer, rect.x, rect.y, rect.width, &label, style);
+        paint_text_line(buffer, rect, &label, style);
         tab_hits.push((rect, *section));
         tab_x = tab_x.saturating_add(width.saturating_add(1));
-        if tab_x >= inner.right() {
+        if tab_x >= tabs.right() {
             break;
         }
     }
-    put_text(
+    paint_text_line(
         buffer,
-        inner.x,
-        inner.y + 2,
-        inner.width,
-        &"─".repeat(inner.width as usize),
-        Style::default().fg(palette.surface0).bg(palette.panel_bg),
+        layout.body_row(2),
+        &"─".repeat(body.width as usize),
+        styles.text.fg(palette.surface0),
     );
 
     let content = Rect::new(
-        inner.x,
-        inner.y + 4,
-        inner.width,
-        inner.height.saturating_sub(7),
+        body.x,
+        body.y + 4,
+        body.width,
+        body.height.saturating_sub(6),
     );
     let mut choice_hits = Vec::new();
     match settings.section {
@@ -121,7 +94,7 @@ pub(super) fn render_settings_overlay(
                         == super::super::settings::normalized_theme_name(
                             &settings.original_theme_name,
                         ),
-                    palette,
+                    &styles,
                 );
                 choice_hits.push((rect, index));
             }
@@ -134,7 +107,7 @@ pub(super) fn render_settings_overlay(
                 "choose color dots or distinct symbols for each state",
                 &["color dots  ● ● ● ○ ·", "distinct symbols  × ◐ ✓ ○ ·"],
                 settings.selected,
-                palette,
+                &styles,
                 &mut choice_hits,
             );
         }
@@ -146,7 +119,7 @@ pub(super) fn render_settings_overlay(
                 "play sounds when agents change state in background",
                 &["on", "off"],
                 settings.selected,
-                palette,
+                &styles,
                 &mut choice_hits,
             );
         }
@@ -158,48 +131,25 @@ pub(super) fn render_settings_overlay(
                 "choose where background popup notifications should appear",
                 &["off", "inside herdr", "via terminal", "via system"],
                 settings.selected,
-                palette,
+                &styles,
                 &mut choice_hits,
             );
         }
     }
 
-    let buttons = row(inner, &[10, 12], 2, inner.height.saturating_sub(1));
-    let [primary, close] = buttons.as_slice() else {
-        return None;
-    };
-    button(
+    layout.paint_buttons(buffer, &styles, [" ↵ apply ", " esc close "]);
+    paint_text_line(
         buffer,
-        *primary,
-        " ↵ apply ",
-        Style::default()
-            .fg(contrast(palette))
-            .bg(palette.accent)
-            .add_modifier(Modifier::BOLD),
-    );
-    button(
-        buffer,
-        *close,
-        " esc close ",
-        Style::default()
-            .fg(palette.text)
-            .bg(palette.surface0)
-            .add_modifier(Modifier::BOLD),
-    );
-    put_text(
-        buffer,
-        inner.x,
-        inner.bottom().saturating_sub(2),
-        inner.width,
+        layout.body_row(body.height - 1),
         " ↑↓ select  tab section",
-        Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+        styles.muted,
     );
-
+    let [primary, cancel] = layout.buttons;
     Some(OverlayRender {
-        area: popup,
-        primary: *primary,
-        cancel: *close,
-        settings_popup: popup,
+        area: layout.area,
+        primary,
+        cancel,
+        settings_popup: layout.area,
         settings_tabs: tab_hits,
         settings_choices: choice_hits,
         ..OverlayRender::default()
@@ -213,27 +163,20 @@ fn render_choice_section(
     description: &str,
     choices: &[&str],
     selected: usize,
-    palette: &Palette,
+    styles: &DialogStyles,
     hits: &mut Vec<(Rect, usize)>,
 ) {
-    put_text(
+    paint_text_line(
         buffer,
-        area.x,
-        area.y,
-        area.width,
+        Rect::new(area.x, area.y, area.width, 1),
         title,
-        Style::default()
-            .fg(palette.text)
-            .bg(palette.panel_bg)
-            .add_modifier(Modifier::BOLD),
+        styles.heading,
     );
-    put_text(
+    paint_text_line(
         buffer,
-        area.x,
-        area.y + 1,
-        area.width,
+        Rect::new(area.x, area.y + 1, area.width, 1),
         description,
-        Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+        styles.muted,
     );
     let row_gap = u16::from(choices.len() > 2);
     for (index, choice) in choices.iter().enumerate() {
@@ -242,7 +185,7 @@ fn render_choice_section(
             break;
         }
         let rect = Rect::new(area.x, y, area.width, 1);
-        draw_choice(buffer, rect, choice, index == selected, false, palette);
+        draw_choice(buffer, rect, choice, index == selected, false, styles);
         hits.push((rect, index));
     }
 }
