@@ -896,17 +896,6 @@ fn mobile_items(
         }
     }
 
-    items.push(MobileItem::section("menu", palette));
-    for (index, (label, _)) in super::global_menu::global_menu_items().iter().enumerate() {
-        items.push(MobileItem {
-            lines: vec![Line::from(Span::styled(
-                format!("  {label}"),
-                Style::default().fg(palette.overlay1).bg(palette.panel_bg),
-            ))],
-            background: palette.panel_bg,
-            target: Some(ClientMobileTarget::Menu(index)),
-        });
-    }
     items
 }
 
@@ -1011,15 +1000,6 @@ impl ClientShellState {
                     crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewTab),
                     outcome,
                 );
-                None
-            }
-            Some(ClientMobileTarget::Menu(index)) => {
-                let actionable = self.endpoint.snapshot.is_some()
-                    && super::global_menu::global_menu_items().get(index).is_some();
-                if actionable {
-                    self.mobile_switcher_suspended = true;
-                    self.activate_global_menu_item(index, outcome);
-                }
                 None
             }
             None => None,

@@ -290,74 +290,25 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
-fn workspace_chooser_menu_routes_client_actions_without_tab_buttons() {
+fn client_action_shortcuts_work_without_chooser_menu_or_tab_buttons() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.compose(106, 30).expect("shell frame");
     assert!(state.hits.global_launcher.is_empty());
     assert!(state.hits.mobile_switch.is_empty());
-
-    let open = state.handle_input_bytes(b"\x02w");
-    assert!(open.repaint);
-    assert!(open.actions.is_empty() && open.requests.is_empty());
-    let menu = state.compose(106, 30).expect("workspace chooser menu");
-    let text = menu
-        .cells
-        .chunks(menu.width as usize)
-        .map(|row| {
-            row.iter()
-                .map(|cell| cell.symbol.as_str())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("settings"));
-    assert!(text.contains("keybinds"));
-    assert!(text.contains("reload config"));
-    assert!(text.contains("dump pane diagnostics"));
-    assert!(text.contains("detach"));
-
-    let keybinds = state
-        .hits
-        .mobile_targets
-        .iter()
-        .find_map(|(rect, target)| matches!(target, ClientMobileTarget::Menu(1)).then_some(*rect))
-        .expect("chooser keybinds entry");
-    let help = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: keybinds.x,
-        row: keybinds.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(help.actions.is_empty());
+    let help = state.handle_input_bytes(b"\x02?");
+    assert!(help.actions.is_empty() && help.requests.is_empty());
     assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(_))));
-
-    let detach_index = global_menu::global_menu_items()
-        .iter()
-        .position(|(_, action)| {
-            *action
-                == global_menu::ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach)
-        })
-        .unwrap();
     state.handle_input_bytes(b"\x1b");
-    state.handle_input_bytes(b"\x02w");
-    state.compose(106, 30).expect("chooser after closing help");
-    let detach_hit = state
-        .hits
-        .mobile_targets
-        .iter()
-        .find_map(|(rect, target)| {
-            matches!(target, ClientMobileTarget::Menu(index) if *index == detach_index)
-                .then_some(*rect)
-        })
-        .expect("chooser detach entry");
-    let detach = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: detach_hit.x,
-        row: detach_hit.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
+    let settings = state.handle_input_bytes(b"\x02s");
+    assert!(settings.actions.is_empty() && settings.requests.is_empty());
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::Settings(_))
+    ));
+    state.handle_input_bytes(b"\x1b");
+    let detach = state.handle_input_bytes(b"\x02q");
     assert!(detach.detach);
     assert!(state.overlay.is_none());
 }

@@ -161,7 +161,7 @@ fn desktop_keyboard_selector_keeps_context_targets_stable() {
 }
 
 #[test]
-fn hidden_tab_bar_still_has_the_keyboard_workspace_and_menu_entries() {
+fn hidden_tab_bar_still_has_keyboard_workspace_and_creation_entries() {
     let mut config = Config::default();
     config.ui.hide_tab_bar_when_single_tab = true;
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
@@ -181,7 +181,7 @@ fn hidden_tab_bar_still_has_the_keyboard_workspace_and_menu_entries() {
         .hits
         .mobile_targets
         .iter()
-        .any(|(_, t)| matches!(t, ClientMobileTarget::Menu(_))));
+        .any(|(_, t)| matches!(t, ClientMobileTarget::NewTab)));
     let cancel = state.handle_input_bytes(b"\x1b");
     assert!(cancel.actions.is_empty() && cancel.requests.is_empty());
     assert_eq!(state.mode, ClientShellMode::Terminal);

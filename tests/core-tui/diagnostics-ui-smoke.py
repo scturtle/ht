@@ -61,16 +61,11 @@ def main():
             x, y = point
             viewer.send(f"\x1b[<{button};{x+1};{y+1}M\x1b[<{button};{x+1};{y+1}m".encode())
 
-        def capture(chooser_menu):
+        def capture():
             old = set(Path("/var/tmp").glob(f"ht-pane-dump-{viewer.pid}-*"))
-            if chooser_menu:
-                viewer.send(b"\x02w")
-                UI.until(lambda: screen().splitlines()[0].strip().startswith("switch"), "workspace chooser")
-                label = "dump pane diagnostics"
-            else:
-                # Right click in the original pane, below the tab bar.
-                click((70, 20), 2)
-                label = "Dump pane diagnostics"
+            # The chooser menu was retired; diagnostics remain pane-local.
+            click((70, 20), 2)
+            label = "Dump pane diagnostics"
             click(UI.until(lambda: locate(label), "diagnostic menu entry"))
 
             def complete():
@@ -103,13 +98,13 @@ def main():
             original_text = hc("read", address, "--lines", "0")["text"]
             doc = next((core / "state").rglob("docs.json"))
             original_doc = doc.read_bytes()
-            path, report, adapter = capture(True)
+            path, report, adapter = capture()
             assert report["errors"] == [], report
             assert (path / "core-screen.txt").read_text() == original_text
             first_channel = adapter["view"]["channel"]
             core_state = json.loads((path / "core.json").read_text())
             core_pid = core_state["server.status"]["pid"]
-            path, report, adapter = capture(False)
+            path, report, adapter = capture()
             assert report["errors"] == [], report
             assert adapter["view"]["channel"] == first_channel
             assert (path / "core-screen.txt").read_text() == original_text
@@ -122,7 +117,7 @@ def main():
             moved_socket = socket.with_suffix(".capture-test")
             socket.rename(moved_socket)
             output_start = len(viewer.output)
-            path, report, adapter = capture(True)
+            path, report, adapter = capture()
             assert report["errors"]
             assert not socket.exists(), "diagnostic probe auto-started Core"
             assert b'"kind":"unavailable"' not in viewer.output[output_start:]
@@ -136,7 +131,7 @@ def main():
             assert f"XDG_RUNTIME_DIR={core / 'run'}".encode() in own_env
             os.kill(core_pid, signal.SIGSTOP)
             stopped_pid = core_pid
-            path, report, adapter = capture(True)
+            path, report, adapter = capture()
             assert report["errors"], "paused Core must produce an explicit partial capture"
             assert adapter["view"]["channel"] == first_channel
             captured_client=json.loads((path / "client.json").read_text())
@@ -149,7 +144,7 @@ def main():
             viewer.send(b"printf 'AFTER_DUMP_%s\\n' OK\r")
             UI.until(lambda: "AFTER_DUMP_OK" in screen(), "input survives diagnostic capture")
             viewer.detach()
-            print(json.dumps({"workspace_chooser_dump": True, "pane_context_dump": True,
+            print(json.dumps({"pane_context_dump": True, "repeated_pane_context_capture": True,
                               "private_permissions": True, "same_program_pid_and_grid": True,
                               "same_attach_channel": True, "no_document_write": True,
                               "absent_socket_not_restarted": True, "relay_stderr_does_not_corrupt_tui": True,

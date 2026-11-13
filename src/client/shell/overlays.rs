@@ -14,7 +14,6 @@ pub(crate) struct OverlayRender {
     pub(crate) clear: Rect,
     pub(crate) cancel: Rect,
     pub(crate) navigator_popup: Rect,
-    pub(crate) navigator_search: Rect,
     pub(crate) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(crate) navigator_scrollbar: Rect,
     pub(crate) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -216,7 +215,7 @@ fn render_navigator_overlay(
     let a = b.area;
     let width = a.width.saturating_sub(4).min(116);
     let height = a.height.saturating_sub(2).min(42);
-    if width < 4 || height < 9 {
+    if width < 4 || height < 7 {
         return None;
     }
     let q = Rect::new(
@@ -227,32 +226,7 @@ fn render_navigator_overlay(
     )
     .intersection(a);
     let i = paint_panel(b, q, p.accent, p.panel_bg)?;
-    put_text(
-        b,
-        q.x + 2,
-        q.y,
-        q.width.saturating_sub(4),
-        " Go to ",
-        Style::default().fg(p.accent).bg(p.panel_bg),
-    );
-    let rows = super::navigator::navigator_rows(endpoints, n);
-    let search = if n.search_focused {
-        " / ".to_owned()
-    } else if let Some(f) = n.filter {
-        format!(
-            " / {}",
-            match f {
-                ClientNavigatorFilter::Blocked => "blocked",
-                ClientNavigatorFilter::Working => "working",
-                ClientNavigatorFilter::Idle => "idle",
-                ClientNavigatorFilter::Done => "done",
-            }
-        )
-    } else if n.query.is_empty() {
-        " / search agents and terminals".to_owned()
-    } else {
-        format!(" / {}", n.query)
-    };
+    let rows = super::navigator::navigator_rows(endpoints);
     let terminal_count = rows
         .iter()
         .filter(|row| matches!(row.target, ClientNavigatorTarget::Pane { .. }))
@@ -267,45 +241,13 @@ fn render_navigator_overlay(
     );
     put_text(
         b,
-        i.x,
-        i.y,
-        i.width.saturating_sub(display_width(&count) + 1),
-        &search,
-        Style::default()
-            .fg(if n.search_focused { p.text } else { p.overlay0 })
-            .bg(p.panel_bg),
+        q.x + 2,
+        q.y,
+        q.width.saturating_sub(4),
+        &format!(" Go to · {count} "),
+        Style::default().fg(p.accent).bg(p.panel_bg),
     );
-    let cursor = if n.search_focused {
-        text_editor::render(
-            b,
-            Rect::new(
-                i.x + 3,
-                i.y,
-                i.width.saturating_sub(4 + display_width(&count)),
-                1,
-            ),
-            &n.query,
-            Style::default().fg(p.text).bg(p.panel_bg),
-        )
-    } else {
-        None
-    };
-    put_right_text(
-        b,
-        i,
-        i.y,
-        &count,
-        Style::default().fg(p.overlay0).bg(p.panel_bg),
-    );
-    put_text(
-        b,
-        i.x,
-        i.y + 1,
-        i.width,
-        &"─".repeat(i.width as usize),
-        Style::default().fg(p.surface1).bg(p.panel_bg),
-    );
-    let body = Rect::new(i.x, i.y + 2, i.width, i.height.saturating_sub(5));
+    let body = Rect::new(i.x, i.y, i.width, i.height.saturating_sub(3));
     let selected = super::navigator::navigator_selected_index(&rows, n).unwrap_or(0);
     let max = rows.len().saturating_sub(body.height as usize);
     let scroll = n
@@ -328,7 +270,7 @@ fn render_navigator_overlay(
             body.x,
             body.y,
             body.width,
-            " No matching agents or terminals",
+            " No agents or terminals",
             Style::default().fg(p.overlay0).bg(p.panel_bg),
         );
     }
@@ -496,11 +438,7 @@ fn render_navigator_overlay(
         i.x,
         i.bottom() - 1,
         i.width,
-        if n.search_focused {
-            " search type · move ↑↓/ctrl+n/p · open enter · back esc"
-        } else {
-            " ↑↓/j/k rows · ←→ workspace · / search · a/b/w/i/d filter · enter open · esc close"
-        },
+        " ↑↓/j/k rows · ←→ workspace · enter open · esc close",
         Style::default().fg(p.overlay0).bg(p.panel_bg),
     );
     Some(OverlayRender {
@@ -509,11 +447,9 @@ fn render_navigator_overlay(
         clear: Rect::default(),
         cancel: Rect::default(),
         navigator_popup: q,
-        navigator_search: Rect::new(i.x, i.y, i.width, 1),
         navigator_rows: row_hits,
         navigator_scrollbar: scrollbar.unwrap_or_default(),
         navigator_scroll_metrics: Some(metrics),
-        cursor,
         ..OverlayRender::default()
     })
 }

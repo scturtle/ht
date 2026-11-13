@@ -109,9 +109,6 @@ fn mobile_header_and_switcher_render_released_sections_and_stable_targets() {
         "+ new workspace",
         "tabs",
         "+ new tab",
-        "menu",
-        "settings",
-        "detach",
     ] {
         assert!(switcher_text.contains(expected), "missing {expected}");
     }
@@ -254,7 +251,7 @@ fn mobile_background_workspace_uses_its_own_active_tab_status() {
 }
 
 #[test]
-fn mobile_switcher_create_and_menu_rows_reuse_client_actions() {
+fn mobile_switcher_creation_rows_reuse_client_actions() {
     let mut config = ClientShellConfig::from_config(&Config::default());
     config.prompt_new_workspace_name = true;
     config.prompt_new_tab_name = true;
@@ -310,26 +307,6 @@ fn mobile_switcher_create_and_menu_rows_reuse_client_actions() {
             target: ClientRenameTarget::NewWorkspace { .. },
             ..
         }))
-    ));
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Esc,
-        KeyModifiers::empty(),
-    ))]);
-    assert!(state.overlay.is_none());
-    assert_eq!(state.mode, ClientShellMode::Terminal);
-
-    state.mode = ClientShellMode::Navigate;
-    state.compose(44, 20).expect("mobile menu switcher");
-    let settings = state
-        .hits
-        .mobile_targets
-        .iter()
-        .find_map(|(rect, target)| matches!(target, ClientMobileTarget::Menu(0)).then_some(*rect))
-        .expect("settings hit");
-    state.handle_raw_events(vec![click(settings)]);
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Settings(_))
     ));
     state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
         KeyCode::Esc,

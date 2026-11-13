@@ -47,7 +47,6 @@ pub(super) enum ClientMobileTarget {
     NewTab,
     Tab { tab_id: String },
     Agent { pane_id: String },
-    Menu(usize),
 }
 
 #[derive(Default)]
@@ -70,7 +69,6 @@ pub(super) struct ShellHitMap {
     pub(super) overlay_clear: Rect,
     pub(super) overlay_cancel: Rect,
     pub(super) navigator_popup: Rect,
-    pub(super) navigator_search: Rect,
     pub(super) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(super) navigator_scrollbar: Rect,
     pub(super) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -224,14 +222,6 @@ pub(super) struct ClientRenameOverlay {
     pub(super) target: ClientRenameTarget,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ClientNavigatorFilter {
-    Blocked,
-    Working,
-    Idle,
-    Done,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ClientNavigatorTarget {
     Workspace { workspace_id: String },
@@ -251,13 +241,10 @@ pub(super) struct ClientNavigatorRow {
     pub(super) target: ClientNavigatorTarget,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct ClientNavigatorOverlay {
-    pub(super) query: TextEditor,
-    pub(super) search_focused: bool,
     pub(super) selected: Option<ClientNavigatorTarget>,
     pub(super) scroll: usize,
-    pub(super) filter: Option<ClientNavigatorFilter>,
 }
 
 #[derive(Debug)]

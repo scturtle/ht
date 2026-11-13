@@ -67,6 +67,7 @@ def main():
         (home / "first-workspace-screen.txt").write_text(text)
         (home / "core-record.json").write_text(json.dumps(current, indent=2))
         assert re.search(r"· herdr\s*$", text, re.MULTILINE), text
+        assert not any(line.strip() in {"menu", "settings", "keybinds", "detach"} for line in text.splitlines())
         assert rpc.doc() == before, "attach/chooser must not edit organization"
         final = hc("get", address)
         assert final["pid"] == pid and (final["cols"], final["rows"]) == grid
@@ -74,11 +75,18 @@ def main():
         viewer.send(b"\x1b")
         H.until(lambda: not screen().splitlines()[0].strip().startswith("switch"), "chooser closed")
         viewer.send(b"\x02g")
-        H.until(lambda: "search" in screen().lower(), "search navigator")
-        viewer.send(b"/herdr")
-        H.until(lambda: "no matches" not in screen().lower() and str(project) in screen(), "navigator uses current directory")
+        H.until(lambda: "Go to" in screen() and str(project) in screen(), "navigator uses current directory")
+        text = screen()
+        assert "search" not in text.lower() and "filter" not in text.lower()
+        (home / "navigator-screen.txt").write_text(text)
+        # Former editor/filter commands must not trap Esc or alter membership.
+        viewer.send(b"/bwida\x7f")
+        viewer.send(b"\x1b")
+        H.until(lambda: "Go to" not in screen(), "single Esc closes navigator")
+        assert rpc.doc() == before, "local navigator must not edit organization"
         print(json.dumps({"artifact_dir": str(home), "binary": str(H.HERDR),
                           "first_attach_workspace_cwd": True, "navigator_current_directory": True,
+                          "chooser_no_menu": True, "navigator_no_search_or_filter": True,
                           "client_attach_cwd": str(home), "program_cwd": str(project),
                           "same_program_pid_and_grid": True, "no_document_write": True}))
     finally:

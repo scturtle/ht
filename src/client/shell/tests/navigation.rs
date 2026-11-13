@@ -33,7 +33,103 @@ fn agents() -> ClientShellSnapshot {
 }
 
 #[test]
-fn disconnected_navigator_keeps_searchable_cached_rows_without_focus_requests() {
+fn workspace_chooser_omits_the_menu_on_desktop_and_mobile() {
+    for width in [106, 44] {
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(snapshot()));
+        state.set_pane_surface(surface());
+        let open = state.handle_input_bytes(b"\x02w");
+        assert!(open.actions.is_empty() && open.requests.is_empty());
+        let frame = state.compose(width, 40).expect("workspace chooser");
+        let rows = frame_rows(&frame);
+        assert!(rows.iter().any(|row| row.trim() == "spaces"));
+        for retired in [
+            "menu",
+            "settings",
+            "keybinds",
+            "reload config",
+            "dump pane diagnostics",
+            "detach",
+        ] {
+            assert!(
+                !rows.iter().any(|row| row.trim() == retired),
+                "retired {retired}"
+            );
+        }
+        assert!(state.hits.mobile_targets.iter().all(|(_, target)| matches!(
+            target,
+            ClientMobileTarget::Workspace { .. }
+                | ClientMobileTarget::Tab { .. }
+                | ClientMobileTarget::Agent { .. }
+                | ClientMobileTarget::NewWorkspace
+                | ClientMobileTarget::NewTab
+        )));
+    }
+}
+
+#[test]
+fn navigator_ignores_retired_search_filter_and_text_input_without_pty_delivery() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(agents()));
+    state.set_pane_surface(surface());
+    state.open_navigator_overlay();
+    state.compose(106, 30).expect("navigator");
+    let targets = state.hits.navigator_rows.clone();
+    assert_eq!(targets.len(), 4);
+    for event in [
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Char('/'),
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Char('b'),
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Char('w'),
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Char('i'),
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Char('d'),
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Char('a'),
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Backspace,
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Text(crate::input::TextCommit::new("needle界")),
+        RawInputEvent::Paste("needle界".into()),
+    ] {
+        let result = state.handle_raw_events(vec![event]);
+        assert!(result.actions.is_empty() && result.requests.is_empty());
+        let frame = state.compose(106, 30).expect("navigator remains open");
+        assert!(matches!(
+            state.overlay,
+            Some(ClientShellOverlay::Navigator(_))
+        ));
+        assert!(
+            frame.cursor.is_none(),
+            "retired search must not acquire a cursor"
+        );
+        assert_eq!(state.hits.navigator_rows, targets);
+        let text = frame_rows(&frame).join("\n");
+        assert!(!text.contains("search") && !text.contains("filter"));
+    }
+    let close = state.handle_input_bytes(b"\x1b");
+    assert!(state.overlay.is_none());
+    assert!(close.actions.is_empty() && close.requests.is_empty());
+}
+
+#[test]
+fn disconnected_navigator_keeps_cached_rows_without_focus_requests() {
     for workspace in [false, true] {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(agents()));
@@ -42,8 +138,7 @@ fn disconnected_navigator_keeps_searchable_cached_rows_without_focus_requests() 
         let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() else {
             panic!("navigator");
         };
-        navigator.query = "repo".into();
-        let rows = super::super::navigator::navigator_rows(&state.endpoint, navigator);
+        let rows = super::super::navigator::navigator_rows(&state.endpoint);
         assert_eq!(rows.len(), 4);
         assert!(rows.iter().all(|row| row.stale));
         navigator.selected = Some(if workspace {

@@ -247,13 +247,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             search_focused: false,
             scroll: 0,
         }),
-        ClientShellOverlay::Navigator(ClientNavigatorOverlay {
-            query: TextEditor::default(),
-            search_focused: false,
-            selected: None,
-            scroll: 0,
-            filter: None,
-        }),
+        ClientShellOverlay::Navigator(ClientNavigatorOverlay::default()),
         ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             methods: None,
             target: ClientContextMenuTarget::Tab {

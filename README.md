@@ -39,8 +39,10 @@ for source pins, local patches and upgrade boundaries.
 
 There is no persistent sidebar. Open the workspace chooser with **Ctrl+b, then w**
 (default `prefix+w`). Use arrows and Enter to select, Esc to cancel.
-**Ctrl+b, then g** opens the searchable session navigator. The chooser retains
-settings, help and diagnostics; the tab bar has no workspace/menu buttons.
+**Ctrl+b, then g** opens the session navigator, with arrows or j/k to select.
+The chooser has no menu section; the navigator has no search or filters.
+Settings and help remain available via **prefix+s** and **prefix+?**;
+pane diagnostics are in the pane context menu.
 
 ## Development
 

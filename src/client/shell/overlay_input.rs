@@ -2,14 +2,8 @@ use super::*;
 
 impl ClientShellState {
     pub(super) fn open_navigator_overlay(&mut self) {
-        let mut navigator = ClientNavigatorOverlay {
-            query: TextEditor::default(),
-            search_focused: false,
-            selected: None,
-            scroll: 0,
-            filter: None,
-        };
-        let rows = super::navigator::navigator_rows(&self.endpoint, &navigator);
+        let mut navigator = ClientNavigatorOverlay::default();
+        let rows = super::navigator::navigator_rows(&self.endpoint);
         navigator.selected = rows
             .iter()
             .find(|row| row.current)
@@ -21,7 +15,7 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
+        let rows = super::navigator::navigator_rows(&self.endpoint);
         if rows.is_empty() {
             navigator.selected = None;
             return;
@@ -36,7 +30,7 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
+        let rows = super::navigator::navigator_rows(&self.endpoint);
         let viewport_rows = viewport_rows.max(1);
         navigator.scroll = scroll.min(rows.len().saturating_sub(viewport_rows));
         let selected = super::navigator::navigator_selected_index(&rows, navigator).unwrap_or(0);
@@ -49,7 +43,7 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
+        let rows = super::navigator::navigator_rows(&self.endpoint);
         let Some(selected) = super::navigator::navigator_selected_index(&rows, navigator) else {
             return;
         };
@@ -79,7 +73,7 @@ impl ClientShellState {
     pub(super) fn accept_navigator_selection(&mut self, outcome: &mut ClientShellInput) {
         let target = self.overlay.as_ref().and_then(|overlay| match overlay {
             ClientShellOverlay::Navigator(navigator) => {
-                let rows = super::navigator::navigator_rows(&self.endpoint, navigator);
+                let rows = super::navigator::navigator_rows(&self.endpoint);
                 super::navigator::selected_navigator_target(&rows, navigator)
             }
             _ => None,
@@ -246,13 +240,6 @@ impl ClientShellState {
                 }
                 true
             }
-            Some(ClientShellOverlay::Navigator(navigator)) if navigator.search_focused => {
-                if navigator.query.insert(text) {
-                    navigator.filter = None;
-                    navigator.selected = None;
-                }
-                true
-            }
             _ => false,
         }
     }
@@ -322,21 +309,8 @@ impl ClientShellState {
 
         if matches!(self.overlay, Some(ClientShellOverlay::Navigator(_))) {
             let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
-            let search_focused = matches!(
-                self.overlay,
-                Some(ClientShellOverlay::Navigator(ClientNavigatorOverlay {
-                    search_focused: true,
-                    ..
-                }))
-            );
             if code == KeyCode::Esc {
-                if search_focused {
-                    if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
-                        navigator.search_focused = false;
-                    }
-                } else {
-                    self.overlay = None;
-                }
+                self.overlay = None;
                 outcome.repaint = true;
                 return;
             }
@@ -344,44 +318,8 @@ impl ClientShellState {
                 self.accept_navigator_selection(outcome);
                 return;
             }
-            if search_focused {
-                if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
-                    if let Some(content_changed) = navigator.query.handle_key(key) {
-                        if content_changed {
-                            navigator.filter = None;
-                            navigator.selected = None;
-                        }
-                        outcome.repaint = true;
-                        return;
-                    }
-                }
-                if code == KeyCode::Up
-                    || code == KeyCode::Char('p') && modifiers == KeyModifiers::CONTROL
-                {
-                    self.move_navigator_selection(-1);
-                    outcome.repaint = true;
-                    return;
-                }
-                if code == KeyCode::Down
-                    || code == KeyCode::Char('n') && modifiers == KeyModifiers::CONTROL
-                {
-                    self.move_navigator_selection(1);
-                    outcome.repaint = true;
-                    return;
-                }
-                return;
-            }
             if matches!(code, KeyCode::Left | KeyCode::Right) && modifiers.is_empty() {
                 self.move_navigator_workspace(code == KeyCode::Right);
-                outcome.repaint = true;
-                return;
-            }
-            if code == KeyCode::Backspace && modifiers.is_empty() {
-                if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
-                    if navigator.filter.take().is_some() {
-                        navigator.selected = None;
-                    }
-                }
                 outcome.repaint = true;
                 return;
             }
@@ -395,8 +333,8 @@ impl ClientShellState {
             }
             if matches!(code, KeyCode::End | KeyCode::Char('G')) && modifiers.is_empty() {
                 let last = self.overlay.as_ref().and_then(|overlay| match overlay {
-                    ClientShellOverlay::Navigator(navigator) => {
-                        super::navigator::navigator_rows(&self.endpoint, navigator)
+                    ClientShellOverlay::Navigator(_) => {
+                        super::navigator::navigator_rows(&self.endpoint)
                             .last()
                             .map(|row| row.target.clone())
                     }
@@ -404,21 +342,6 @@ impl ClientShellState {
                 });
                 if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
                     navigator.selected = last;
-                }
-                outcome.repaint = true;
-                return;
-            }
-            // Match the typed character so layouts where `/` needs Shift work
-            // when the host reports it as a shifted key (report-all panes).
-            // A shifted key needs the host's text or shifted alternate: bare
-            // `CSI 47;2u` is Shift+/, which is not `/` on most layouts.
-            let shifted_without_evidence = key.modifiers.contains(KeyModifiers::SHIFT)
-                && key.generated_text.is_none()
-                && key.shifted_codepoint.is_none();
-            if !shifted_without_evidence && crate::input::keybind_help_text_char(key) == Some('/') {
-                if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
-                    navigator.search_focused = true;
-                    navigator.filter = None;
                 }
                 outcome.repaint = true;
                 return;
@@ -440,30 +363,6 @@ impl ClientShellState {
             }
             if code == KeyCode::Char('u') && modifiers.contains(KeyModifiers::CONTROL) {
                 self.move_navigator_selection(-8);
-                outcome.repaint = true;
-                return;
-            }
-            if let Some(filter) = match code {
-                KeyCode::Char('b') if modifiers.is_empty() => Some(ClientNavigatorFilter::Blocked),
-                KeyCode::Char('w') if modifiers.is_empty() => Some(ClientNavigatorFilter::Working),
-                KeyCode::Char('i') if modifiers.is_empty() => Some(ClientNavigatorFilter::Idle),
-                KeyCode::Char('d') if modifiers.is_empty() => Some(ClientNavigatorFilter::Done),
-                _ => None,
-            } {
-                if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
-                    navigator.query.clear();
-                    navigator.filter = Some(filter);
-                    navigator.selected = None;
-                }
-                outcome.repaint = true;
-                return;
-            }
-            if code == KeyCode::Char('a') && modifiers.is_empty() {
-                if let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() {
-                    navigator.query.clear();
-                    navigator.filter = None;
-                    navigator.selected = None;
-                }
                 outcome.repaint = true;
                 return;
             }

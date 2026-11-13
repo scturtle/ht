@@ -86,9 +86,9 @@ CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
 桌面侧栏（工作区/agent 列表、折叠栏、宽度与分区拖动、自定义行模板）已移除。
 默认 `Ctrl+b` 后按 `w`，打开复用的移动端选择器；
 上下键选择工作区、Enter 确认、Esc 返回，右键条目可重命名/关闭。
-默认 `Ctrl+b` 后按 `g` 仍打开可搜索的导航器；自定义前缀/键位继续生效。
+默认 `Ctrl+b` 后按 `g` 打开导航器，使用方向键或 j/k、Enter 选择；不再提供搜索、状态过滤或搜索输入框。自定义前缀/键位继续生效。
 Tab 栏可在顶部或底部，不再显示左侧 `spaces` 或右侧 `menu` 按钮，也不为它们预留宽度。
-设置、帮助、诊断仍可从 `prefix+w` 选择器中的 menu 动作进入；原设置/帮助快捷键保留。
+`prefix+w` 选择器不再显示 menu 区块（移动布局相同）。设置/帮助分别使用 `prefix+s` / `prefix+?`；诊断使用 pane 上下文菜单。
 隐藏单 Tab 栏不影响这些键盘入口，移动端原有 switch 按钮也保留。
 
 退役的 `ui.sidebar*`、`[ui.sidebar.*]`、`keys.toggle_sidebar` 和 theme 的
@@ -224,8 +224,7 @@ BCE、palette、inverse/invisible、中文宽字符换行、链接及备用屏�
 
 ## Pane 冻结现场诊断
 
-遇到冻结时，先不要分屏、调整尺寸或切换 pane：点击侧栏 `menu` →
-`dump pane diagnostics`；也可在目标 pane 的右键菜单选择 `Dump pane diagnostics`。
+遇到冻结时，先不要分屏、调整尺寸或切换 pane：在目标 pane 的上下文菜单选择 `Dump pane diagnostics`。
 通知会给出 `/var/tmp/ht-pane-dump-<client-pid>-<timestamp>/` 路径。
 目录权限为 `0700`，**文件包含屏幕文字、程序信息，分享前务必检查敏感内容**；不会自动上传。
 
@@ -236,7 +235,7 @@ BCE、palette、inverse/invisible、中文宽字符换行、链接及备用屏�
 
 抓取不向 pane 发送输入、focus、resize、attach，不消费渲染 dirty 状态，也不操作程序生命周期。
 后台采集预算约 4 秒；Core 或适配器无响应也保留已拿到的部分，不阻塞 UI。
-`just core-diagnostics-smoke` 在私有会话验证两个菜单入口、缺失 socket 不启动 Core、
+`just core-diagnostics-smoke` 在私有会话验证 pane 上下文菜单反复抓取、缺失 socket 不启动 Core、
 暂停测试 Core 时仍能保存部分信息，且抓取不恢复 Core、不改变原程序 PID/网格/attach channel。
 更新客户端只需 detach 后重新运行 `ht`，**不需要重启 Core 或 Pi**。
 

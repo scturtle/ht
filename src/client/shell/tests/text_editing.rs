@@ -19,17 +19,13 @@ fn shell(field: usize) -> ClientShellState {
         3 => state.open_rename_tab_overlay(),
         4 => state.open_rename_pane_overlay(),
         5 => {
-            state.open_navigator_overlay();
-            state.handle_input_bytes(b"/");
-        }
-        6 => {
             state.overlay = Some(ClientShellOverlay::Help(ClientHelpOverlay {
                 query: TextEditor::default(),
                 search_focused: true,
                 scroll: 0,
             }))
         }
-        7 => {
+        6 => {
             state.record_binding(
                 KeybindMatch::Action(KeybindAction::CopyMode),
                 &mut ClientShellInput::default(),
@@ -44,7 +40,6 @@ fn shell(field: usize) -> ClientShellState {
 fn editor(state: &mut ClientShellState) -> &mut TextEditor {
     match state.overlay.as_mut() {
         Some(ClientShellOverlay::Rename(v)) => &mut v.input,
-        Some(ClientShellOverlay::Navigator(v)) => &mut v.query,
         Some(ClientShellOverlay::Help(v)) => &mut v.query,
         _ => {
             &mut state
@@ -64,8 +59,8 @@ fn press(state: &mut ClientShellState, code: KeyCode, modifiers: KeyModifiers) -
 }
 
 #[test]
-fn all_eight_fields_route_shared_text_editing() {
-    for field in 0..8 {
+fn all_seven_fields_route_shared_text_editing() {
+    for field in 0..7 {
         let mut state = shell(field);
         *editor(&mut state) = TextEditor::from("ab");
         press(&mut state, KeyCode::Left, KeyModifiers::NONE);
@@ -113,66 +108,37 @@ fn rename_clear_exceptions_remain_local() {
 }
 
 #[test]
-fn cursor_movement_preserves_filter_selection_and_scroll() {
-    for field in [5, 6] {
-        let mut state = shell(field);
-        *editor(&mut state) = TextEditor::from("ab");
-        match state.overlay.as_mut().expect("overlay") {
-            ClientShellOverlay::Navigator(v) => {
-                v.scroll = 3;
-                v.selected = Some(ClientNavigatorTarget::Pane {
-                    pane_id: "pane_1".into(),
-                });
-            }
-            ClientShellOverlay::Help(v) => v.scroll = 3,
-            _ => unreachable!(),
-        }
-        press(&mut state, KeyCode::Home, KeyModifiers::NONE);
-        press(&mut state, KeyCode::Char('u'), KeyModifiers::CONTROL); // Empty kill must not refresh results.
-        match state.overlay.as_ref().expect("overlay") {
-            ClientShellOverlay::Navigator(v) => {
-                assert_eq!(v.scroll, 3);
-                assert!(v.selected.is_some());
-            }
-            ClientShellOverlay::Help(v) => assert_eq!(v.scroll, 3),
-            _ => unreachable!(),
-        }
-        press(&mut state, KeyCode::Char('k'), KeyModifiers::CONTROL);
-        match state.overlay.as_ref().expect("overlay") {
-            ClientShellOverlay::Navigator(v) => assert!(v.selected.is_none()),
-            ClientShellOverlay::Help(v) => assert_eq!(v.scroll, 0),
-            _ => unreachable!(),
-        }
-    }
+fn cursor_movement_preserves_help_filter_scroll() {
+    let mut state = shell(5);
+    *editor(&mut state) = TextEditor::from("ab");
+    let Some(ClientShellOverlay::Help(help)) = state.overlay.as_mut() else {
+        panic!("help");
+    };
+    help.scroll = 3;
+    press(&mut state, KeyCode::Home, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char('u'), KeyModifiers::CONTROL);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(ref help)) if help.scroll == 3));
+    press(&mut state, KeyCode::Char('k'), KeyModifiers::CONTROL);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(ref help)) if help.scroll == 0));
 }
 
 #[test]
-fn focused_filters_keep_ctrl_n_p_navigation_and_literal_commands() {
-    for field in [5, 6] {
-        let mut state = shell(field);
-        if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
-            navigator.selected = None;
-        }
-        state.compose(106, 30).expect("filter frame");
-        let before = match state.overlay.as_ref().expect("overlay") {
-            ClientShellOverlay::Navigator(v) => format!("{:?}", v.selected),
-            ClientShellOverlay::Help(v) => v.scroll.to_string(),
-            _ => unreachable!(),
-        };
-        press(&mut state, KeyCode::Char('n'), KeyModifiers::CONTROL);
-        let after = match state.overlay.as_ref().expect("overlay") {
-            ClientShellOverlay::Navigator(v) => format!("{:?}", v.selected),
-            ClientShellOverlay::Help(v) => v.scroll.to_string(),
-            _ => unreachable!(),
-        };
-        assert_ne!(before, after, "field {field}");
-        press(&mut state, KeyCode::Char('p'), KeyModifiers::CONTROL);
-        assert!(editor(&mut state).is_empty());
-        for ch in ['j', 'k', '?'] {
-            press(&mut state, KeyCode::Char(ch), KeyModifiers::NONE);
-        }
-        assert_eq!(editor(&mut state).as_str(), "jk?");
+fn focused_help_filter_keeps_ctrl_n_p_navigation_and_literal_commands() {
+    let mut state = shell(5);
+    let scroll = |state: &ClientShellState| match state.overlay.as_ref() {
+        Some(ClientShellOverlay::Help(help)) => help.scroll,
+        _ => panic!("help"),
+    };
+    state.compose(106, 30).expect("help filter frame");
+    let before = scroll(&state);
+    press(&mut state, KeyCode::Char('n'), KeyModifiers::CONTROL);
+    assert_ne!(before, scroll(&state));
+    press(&mut state, KeyCode::Char('p'), KeyModifiers::CONTROL);
+    assert!(editor(&mut state).is_empty());
+    for ch in ['j', 'k', '?'] {
+        press(&mut state, KeyCode::Char(ch), KeyModifiers::NONE);
     }
+    assert_eq!(editor(&mut state).as_str(), "jk?");
 }
 
 #[test]
@@ -229,7 +195,7 @@ fn new_tab_unchanged_suggestion_preserves_original_automatic_naming() {
 
 #[test]
 fn copy_search_owns_prefix_but_parked_prompt_does_not_steal_input() {
-    let mut state = shell(7);
+    let mut state = shell(6);
     *editor(&mut state) = TextEditor::from("ab");
     press(&mut state, KeyCode::Char('b'), KeyModifiers::CONTROL);
     assert_eq!(state.mode, ClientShellMode::Copy);
@@ -254,7 +220,7 @@ fn copy_search_owns_prefix_but_parked_prompt_does_not_steal_input() {
 
 #[test]
 fn every_field_renders_long_unicode_across_resize_without_mutation() {
-    for field in 0..8 {
+    for field in 0..7 {
         let mut state = shell(field);
         *editor(&mut state) = TextEditor::new(&"e\u{301}中👩‍💻".repeat(40), false);
         for position in [KeyCode::Home, KeyCode::End, KeyCode::Left] {
@@ -276,7 +242,7 @@ fn every_field_renders_long_unicode_across_resize_without_mutation() {
 fn plain_and_ime_text_fill_every_field_on_a_report_all_host() {
     // #5255: a report-all pane under a Kitty host still lets plain bytes and
     // IME commits type into Herdr's own fields.
-    for field in 0..8 {
+    for field in 0..7 {
         let mut state = shell(field);
         state.set_host_reports_key_releases(true);
         state.set_host_reports_all_keys(true);
