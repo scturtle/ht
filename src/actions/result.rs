@@ -11,7 +11,8 @@ pub(crate) enum ActionResult {
         workspace: WorkspaceInfo,
     },
     WorkspaceCreated {
-        workspace: WorkspaceInfo,
+        // Only creation needs all three records; keep other action results compact.
+        workspace: Box<WorkspaceInfo>,
         tab: TabInfo,
         root_pane: PaneInfo,
     },

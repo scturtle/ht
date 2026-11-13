@@ -32,7 +32,7 @@ impl Session {
                     .id
                     .clone();
                 Ok(R::WorkspaceCreated {
-                    workspace: self.model.workspace_info(&workspace)?,
+                    workspace: Box::new(self.model.workspace_info(&workspace)?),
                     tab: self.model.tab_info(&tab)?,
                     root_pane: self.pane_info(id)?,
                 })

@@ -21,6 +21,19 @@ fn internal_action_names_are_unique() {
 }
 
 #[test]
+fn action_results_do_not_inline_three_creation_metadata_records() {
+    // Workspace creation may add a pointer to tab + pane metadata, but must not
+    // make every action result carry a third inline record. Reserve a word for
+    // that pointer and another for the enum tag instead of pinning an ABI size.
+    let budget = std::mem::size_of::<(TabInfo, PaneInfo)>() + 2 * std::mem::size_of::<usize>();
+    let actual = std::mem::size_of::<ActionResult>();
+    assert!(
+        actual <= budget,
+        "ActionResult is {actual} bytes (budget: {budget})"
+    );
+}
+
+#[test]
 fn internal_request_keeps_its_correlation_id_and_typed_action() {
     let request = ActionRequest {
         id: "client-shell:42".into(),
