@@ -579,7 +579,6 @@ impl ClientShellState {
                 self.overlay = None;
                 self.mode = ClientShellMode::Navigate;
                 self.navigate_workspace_id = self.focused_navigation_target();
-                self.reveal_navigation_workspace = true;
                 outcome.repaint = true;
             }
             return;
@@ -696,7 +695,7 @@ impl ClientShellState {
             self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                 snapshot.workspaces.iter().any(|workspace| {
                     workspace.workspace_id == workspace_id
-                        && super::sidebar::workspace_close_is_group(snapshot, workspace)
+                        && super::navigation_rows::workspace_close_is_group(snapshot, workspace)
                 })
             })
         });
@@ -834,7 +833,7 @@ impl ClientShellState {
             .as_ref()
             .filter(|_| {
                 close_group.unwrap_or_else(|| {
-                    super::sidebar::workspace_close_is_group(snapshot, workspace)
+                    super::navigation_rows::workspace_close_is_group(snapshot, workspace)
                 })
             })
             .map(|worktree| worktree.key.as_str());

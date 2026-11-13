@@ -6,29 +6,13 @@ impl ClientContextMenuOverlay {
 
         let item = |label, action| ClientContextMenuItem { label, action };
         let mut items = match &self.target {
-            // Group children need their own close-group variant. Keeping the
-            // linked-worktree guard preserves the original precedence, so a
-            // workspace that never reports children keeps the two-item list.
-            ClientContextMenuTarget::Workspace {
-                has_worktree_children: true,
-                is_linked_worktree: false,
-                close_group,
-                collapsed,
-                ..
-            } => vec![
+            ClientContextMenuTarget::Workspace { close_group, .. } => vec![
                 item("Rename", Action::Rename),
                 item(
                     if *close_group { "Close group" } else { "Close" },
                     Action::Close,
                 ),
-                item(
-                    if *collapsed { "Expand" } else { "Collapse" },
-                    Action::ToggleGroup,
-                ),
             ],
-            ClientContextMenuTarget::Workspace { .. } => {
-                vec![item("Rename", Action::Rename), item("Close", Action::Close)]
-            }
             ClientContextMenuTarget::Tab { .. } => vec![
                 item("New tab", Action::NewTab),
                 item("Rename", Action::Rename),
@@ -81,9 +65,7 @@ impl ClientContextMenuOverlay {
                     ClientContextMenuTarget::Workspace { .. } => "workspace.close",
                     _ => "tab.close",
                 },
-                Action::ToggleGroup
-                | Action::ToggleRightClickPassthrough
-                | Action::DumpPaneDiagnostics => return true,
+                Action::ToggleRightClickPassthrough | Action::DumpPaneDiagnostics => return true,
             };
             self.methods
                 .as_ref()
@@ -133,25 +115,12 @@ impl ClientShellState {
         else {
             return;
         };
-        let worktree = workspace.worktree.as_ref();
-        let has_worktree_children = worktree.is_some_and(|worktree| {
-            !worktree.is_linked_worktree
-                && snapshot.workspaces.iter().any(|candidate| {
-                    candidate.worktree.as_ref().is_some_and(|candidate| {
-                        candidate.key == worktree.key && candidate.is_linked_worktree
-                    })
-                })
-        });
-        let close_group = super::sidebar::workspace_close_is_group(snapshot, workspace);
-        let collapsed = worktree.is_some_and(|worktree| self.group_is_collapsed(&worktree.key));
+        let close_group = super::navigation_rows::workspace_close_is_group(snapshot, workspace);
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             methods: self.endpoint.methods.clone(),
             target: ClientContextMenuTarget::Workspace {
                 workspace_id,
-                is_linked_worktree: worktree.is_some_and(|worktree| worktree.is_linked_worktree),
-                has_worktree_children,
                 close_group,
-                collapsed,
             },
             x,
             y,
@@ -288,20 +257,6 @@ impl ClientShellState {
             }
             ClientContextMenuAction::Close => {
                 self.request_workspace_close(workspace_id, Some(close_group), outcome);
-            }
-            ClientContextMenuAction::ToggleGroup => {
-                let key = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
-                    snapshot
-                        .workspaces
-                        .iter()
-                        .find(|workspace| workspace.workspace_id == workspace_id)
-                        .and_then(|workspace| workspace.worktree.as_ref())
-                        .map(|worktree| worktree.key.clone())
-                });
-                if let Some(key) = key {
-                    self.toggle_collapsed_group(key);
-                    self.persist_chrome_preferences(outcome);
-                }
             }
             _ => {}
         }

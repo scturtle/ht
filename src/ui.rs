@@ -6,7 +6,6 @@ pub(crate) use theme::ThemeRuntimeConfig;
 pub(crate) mod dialog;
 mod panes;
 mod scrollbar;
-mod sidebar;
 mod status;
 mod text;
 pub(crate) mod widgets;
@@ -16,11 +15,6 @@ pub(crate) use panes::{
 pub(crate) use scrollbar::{
     render_scrollbar_buffer, scrollbar_offset_from_drag_row, scrollbar_offset_from_row,
     scrollbar_thumb, scrollbar_thumb_grab_offset,
-};
-pub(crate) use sidebar::{
-    expanded_sidebar_sections, resolved_token_spans, sidebar_agent_rows,
-    sidebar_section_divider_rect, sidebar_space_rows, AgentTokenContext, ResolvedToken,
-    ResolvedTokenKind, SpaceTokenContext,
 };
 pub(crate) use status::{render_config_diagnostic_buffer, render_copy_feedback_buffer};
 pub(crate) use text::truncate_end;

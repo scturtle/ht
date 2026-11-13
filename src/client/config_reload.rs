@@ -83,8 +83,7 @@ pub(super) fn reload_local_client_config(
                     .iter()
                     .any(|invalid| invalid == section)
             };
-            if !invalid_section("ui") && loaded.config.invalid_sidebar_bounds_diagnostic().is_none()
-            {
+            if !invalid_section("ui") {
                 for diagnostic in loaded.config.ui.sound.diagnostics() {
                     warn!(diagnostic = %diagnostic, "local sound config diagnostic");
                 }

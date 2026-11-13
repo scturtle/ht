@@ -35,6 +35,13 @@ A different home alone does not isolate a session. Building does not restart or
 upgrade a running Core. See [Core runtime notes](scripts/core-runtime/README.md)
 for source pins, local patches and upgrade boundaries.
 
+## Navigation
+
+There is no persistent sidebar. Open the workspace chooser with **Ctrl+b, then w**
+(default `prefix+w`). Use arrows and Enter to select, Esc to cancel.
+**Ctrl+b, then g** opens the searchable session navigator. The chooser retains
+settings, help and diagnostics; the tab bar has no workspace/menu buttons.
+
 ## Development
 
 ```sh

@@ -18,8 +18,6 @@ pub(super) const METHODS: &[&str] = &[
     "workspace.create",
     "workspace.focus",
     "workspace.rename",
-    "workspace.move",
-    "workspace.move_block",
     "workspace.close",
     "tab.create",
     "tab.focus",

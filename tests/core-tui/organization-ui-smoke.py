@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import select
 import struct
@@ -130,6 +131,20 @@ close_pane = "f12"
             x, y = UI.until(locate, f"overlay label {label!r}")
             viewer.send(f"\x1b[<0;{x+1};{y+1}M\x1b[<0;{x+1};{y+1}m".encode())
 
+        def check_workspace_label(label):
+            before = rpc.doc()
+            # The desktop selector reuses the mobile renderer; no persistent sidebar.
+            viewer.send(b"\x02w")
+            UI.until(lambda: screen().splitlines()[0].strip().startswith("switch"), "workspace selector")
+            def named_workspace():
+                text = screen()
+                return text if re.search(r"· " + re.escape(label) + r"\s*$", text, re.MULTILINE) else None
+            text = UI.until(named_workspace, f"workspace label {label!r}")
+            viewer.send(b"\x1b")
+            UI.until(lambda: not screen().splitlines()[0].strip().startswith("switch"), "return from selector")
+            assert rpc.doc() == before, "local selector must not write the shared document"
+            return text
+
         def hc(*args):
             result = subprocess.run([str(UI.HC), "--json", *args], env=env, capture_output=True, text=True, timeout=15, check=True)
             return json.loads(result.stdout)
@@ -140,7 +155,7 @@ close_pane = "f12"
 
         try:
             viewer = UI.Viewer(env)
-            UI.until(lambda: "project" in screen(), "default TUI")
+            UI.until(lambda: "org$" in screen(), "default TUI")
             rpc = Rpc(env)
             first = rpc.doc()
             assert len(first["value"]["workspaces"]) == 1
@@ -206,10 +221,9 @@ close_pane = "f12"
             UI.until(lambda: len(rpc.doc()["value"]["workspaces"]) == 2, "workspace creation")
             UI.until(lambda: "ORIGINAL_FIRST" not in screen() and "org$" in screen(), "new workspace surface is active")
             send_marker("SECOND_WORKSPACE_READY")
-            # Original naming: a workspace without a custom name is named after its
-            # root pane cwd, so the sidebar shows the directory, not "Workspace 2".
-            UI.until(lambda: "project" in screen(), "workspace named after its root cwd")
-            assert "Workspace 2" not in screen(), screen()
+            # Default workspace labels still come from the root pane cwd.
+            labels = check_workspace_label("project")
+            assert "Workspace 2" not in labels, labels
             viewer.send(b"\x1b[20~")  # F9
             UI.until(lambda: "rename tab" in screen(), "existing tab rename overlay")
             viewer.send(b"\x03SECOND_WS_TAB\r")
@@ -219,13 +233,14 @@ close_pane = "f12"
             UI.until(lambda: "rename workspace" in screen(), "existing workspace rename overlay")
             viewer.send(b"\x03SECOND_WS\r")
             UI.until(lambda: rpc.doc()["value"]["workspaces"][1]["label"] == "SECOND_WS", "workspace rename")
-            UI.until(lambda: "SECOND_WS" in screen() and "rename workspace" not in screen(), "workspace rename response closes overlay")
+            UI.until(lambda: "rename workspace" not in screen(), "workspace rename response closes overlay")
+            check_workspace_label("SECOND_WS")
             before = rpc.doc()
             external = copy.deepcopy(before["value"])
             external["workspaces"][0]["label"] = "EXTERNAL_WS"
             written = rpc.request("doc.set", {"name": DOCUMENT, "version": before["version"], "value": external})
             assert "error" not in written, written
-            UI.until(lambda: "EXTERNAL_WS" in screen(), "unfiltered document invalidation refetch")
+            check_workspace_label("EXTERNAL_WS")
             conflict = rpc.request("doc.set", {"name": DOCUMENT, "version": before["version"], "value": before["value"]})
             assert conflict["error"]["data"]["kind"] == "conflict", conflict
             assert rpc.doc()["value"] == external
@@ -242,10 +257,8 @@ close_pane = "f12"
             viewer.send(b"\x1b[23~")  # F11
             UI.until(lambda: len(rpc.doc()["value"]["workspaces"]) == 1, "workspace close")
             UI.until(lambda: "SECOND_WORKSPACE_READY" in screen(), "focus repair to surviving workspace")
-            # Original numbering: the API and sidebar report the workspace's
-            # position, so the sole survivor is workspace 1 again.
-            # The default sidebar renders the label only; the positional number is
-            # an API fact (pinned by unit tests), not a screen fact.
+            # Positional numbering is an API fact pinned by unit tests;
+            # the selector displays workspace labels.
             final = rpc.doc()["value"]
             assert final["workspaces"][0]["label"] == "SECOND_WS"
             assert len(final["retiring"]) == 3
@@ -256,7 +269,7 @@ close_pane = "f12"
             print(json.dumps({"default_tui": True, "workspaces_and_tabs": True, "tab_local_bsp": True,
                               "rename_overlays": True, "settings_preview_cancel": True,
                               "settings_mouse_apply_and_tabs": True, "settings_are_client_local": True,
-                              "help_filter_header_back_and_close": True,
+                              "help_filter_header_back_and_close": True, "desktop_workspace_selector": True,
                               "focus_is_client_local": True, "external_cas_invalidation": True,
                               "stale_cas_rejected": True, "close_intent_before_termination": True,
                               "core_document_authoritative_on_reattach": True, "same_program_pids": True,

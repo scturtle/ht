@@ -92,8 +92,6 @@ impl ClientShellState {
 
     pub(super) fn move_navigate_workspace(&mut self, delta: isize) {
         let mobile = self.mobile_layout_active();
-        let surface_available = self.endpoint.snapshot.is_some() && self.pane_surface.is_some();
-        let empty_collapsed_groups = HashSet::new();
         let mut targets = Vec::new();
         let endpoint = &self.endpoint;
         if let Some(snapshot) = endpoint
@@ -101,26 +99,7 @@ impl ClientShellState {
             .as_deref()
             .filter(|_| endpoint.status == ClientEndpointStatus::Online)
         {
-            let entries = if self.sidebar_collapsed && !mobile && surface_available {
-                snapshot
-                    .workspaces
-                    .iter()
-                    .enumerate()
-                    .map(|(index, _)| WorkspaceEntry {
-                        index,
-                        indented: false,
-                        last_child: false,
-                    })
-                    .collect()
-            } else {
-                let collapsed_groups = if mobile && surface_available {
-                    &empty_collapsed_groups
-                } else {
-                    self.collapsed_groups()
-                };
-                render::workspace_entries(snapshot, collapsed_groups)
-            };
-            for entry in entries {
+            for entry in navigation_rows::workspace_entries(snapshot) {
                 targets.push(WorkspaceNavigationTarget {
                     workspace_id: snapshot.workspaces[entry.index].workspace_id.clone(),
                     boot_id: snapshot.boot_id.clone(),
@@ -144,13 +123,8 @@ impl ClientShellState {
             None => 0,
         };
         let target = targets.swap_remove(next);
-        if !mobile {
-            self.reveal_workspace(&target.workspace_id);
-        }
         self.navigate_workspace_id = Some(target);
-        self.reveal_mobile_workspace = mobile;
-        self.reveal_navigation_workspace =
-            !mobile || self.endpoint.snapshot.is_none() || self.pane_surface.is_none();
+        self.reveal_mobile_workspace = true;
     }
 
     pub(super) fn accept_navigate_workspace(&mut self, outcome: &mut ClientShellInput) {

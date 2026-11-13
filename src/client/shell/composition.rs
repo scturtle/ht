@@ -29,78 +29,36 @@ impl ClientShellState {
                 .fg(self.config.palette.text)
                 .bg(self.config.palette.panel_bg),
         );
-        self.hits = ShellHitMap::default();
-        let sidebar = if layout.sidebar.width > 0 {
-            layout.sidebar
-        } else {
-            Rect::new(0, 1, cols, rows.saturating_sub(2))
-        };
-        let valid_navigation_target = self.mode == ClientShellMode::Navigate
-            && self
-                .navigate_workspace_id
-                .as_ref()
-                .is_some_and(|target| self.navigation_target_valid(target));
-        let pending_workspace_highlight =
-            self.pending_workspace_highlight.as_ref().filter(|pending| {
-                self.mode != ClientShellMode::Navigate
-                    && self.navigation_target_valid(&pending.target)
-            });
-        // A resize invalidates pane geometry, not the healthy Local workspace chrome.
-        let local_snapshot = self.endpoint.snapshot.as_deref().filter(|_| {
-            layout.sidebar.width > 0 && self.endpoint_status() == ClientEndpointStatus::Online
-        });
-        let mut render_state = render::ShellRenderState {
-            collapsed_groups: &self.collapsed_groups,
-            workspace_scroll: &mut self.workspace_scroll,
-            agent_scroll: &mut self.agent_scroll,
-            tab_scroll: &mut self.tab_scroll,
-            reveal_focused_workspace: &mut self.reveal_focused_workspace,
-            reveal_focused_tab: &mut self.reveal_focused_tab,
-            sidebar_collapsed: false,
-            sidebar_section_split: self.sidebar_section_split,
-            tab_drag_insert_index: None,
-            selected_workspace_id: self
-                .navigate_workspace_id
-                .as_ref()
-                .filter(|_| valid_navigation_target)
-                .or_else(|| pending_workspace_highlight.map(|pending| &pending.target)),
-            reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
-            dragged_workspace_id: None,
-            workspace_drop_indicator_row: None,
-        };
-        if let Some(snapshot) = local_snapshot {
-            render::render_sidebar(
-                &mut buffer,
-                sidebar,
-                snapshot,
-                &self.config,
-                &mut render_state,
-                &mut self.hits,
-            );
-        }
-        if !self.config.mouse_capture {
-            self.hits = ShellHitMap::default();
-        }
+        self.hits =
+            self.endpoint
+                .snapshot
+                .as_deref()
+                .map_or_else(ShellHitMap::default, |snapshot| {
+                    render::render_shell(
+                        &mut buffer,
+                        layout,
+                        snapshot,
+                        &self.config,
+                        render::ShellRenderState {
+                            tab_scroll: &mut self.tab_scroll,
+                            reveal_focused_tab: &mut self.reveal_focused_tab,
+                            tab_drag_insert_index: None,
+                        },
+                    )
+                });
         let message = self.endpoint_error.clone().unwrap_or_else(|| {
             let status = self.endpoint_status();
             let (_, label, _) = endpoint_status_presentation(status, &self.config.palette);
             format!("{}: {label}. Waiting for Core.", self.endpoint_label())
         });
-        let message_area = if layout.sidebar.width > 0 {
-            layout.pane_surface
-        } else {
-            Rect::new(0, 0, cols, 1)
-        };
-        if local_snapshot.is_none() || self.endpoint_error.is_some() {
-            render::put_text(
-                &mut buffer,
-                message_area.x,
-                message_area.y,
-                message_area.width,
-                &message,
-                Style::default().fg(self.config.palette.overlay0),
-            );
-        }
+        render::put_text(
+            &mut buffer,
+            layout.pane_surface.x,
+            layout.pane_surface.y,
+            layout.pane_surface.width,
+            &message,
+            Style::default().fg(self.config.palette.overlay0),
+        );
         render::render_mode_bar(
             &mut buffer,
             Rect::new(0, 0, cols, rows),
@@ -119,6 +77,22 @@ impl ClientShellState {
                 &self.config.palette,
             );
         }
+        if self.mode == ClientShellMode::Navigate && self.overlay.is_none() {
+            let valid_target = self
+                .navigate_workspace_id
+                .as_ref()
+                .is_some_and(|target| self.navigation_target_valid(target));
+            mobile::render_mobile_switcher(
+                &mut buffer,
+                Rect::new(0, 0, cols, rows),
+                &self.endpoint,
+                &self.config,
+                self.navigate_workspace_id.as_ref().filter(|_| valid_target),
+                &mut self.mobile_switcher_scroll,
+                &mut self.reveal_mobile_workspace,
+                &mut self.hits,
+            );
+        }
         FrameData::from_ratatui_buffer_with_hyperlinks(&buffer, None, &[])
     }
 
@@ -130,7 +104,6 @@ impl ClientShellState {
         self.last_composed_at = Some(std::time::Instant::now());
         self.selection_repaint_deadline = None;
         if self.last_composed_size != Some((cols, rows)) && self.mode == ClientShellMode::Navigate {
-            self.reveal_navigation_workspace = true;
             self.reveal_mobile_workspace = true;
         }
         self.last_composed_size = Some((cols, rows));
@@ -139,11 +112,6 @@ impl ClientShellState {
                 .navigate_workspace_id
                 .as_ref()
                 .is_some_and(|target| self.navigation_target_valid(target));
-        let pending_workspace_highlight =
-            self.pending_workspace_highlight.as_ref().filter(|pending| {
-                self.mode != ClientShellMode::Navigate
-                    && self.navigation_target_valid(&pending.target)
-            });
         if self.endpoint.snapshot.is_none() || self.pane_surface.is_none() {
             return Some(self.compose_unavailable(cols, rows).into());
         }
@@ -168,16 +136,6 @@ impl ClientShellState {
             Some(ClientChromeDrag::Tab { insert_index, .. }) => *insert_index,
             _ => None,
         };
-        let (dragged_workspace_id, workspace_drop_indicator_row) = match &self.chrome_drag {
-            Some(ClientChromeDrag::Workspace {
-                source_workspace_id,
-                target,
-            }) => (
-                Some(source_workspace_id.as_str()),
-                target.as_ref().map(|(_, row)| *row),
-            ),
-            _ => (None, None),
-        };
         let mut buffer = Buffer::empty(Rect::new(0, 0, cols, rows));
         self.hits = render::render_shell(
             &mut buffer,
@@ -185,23 +143,9 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
-                collapsed_groups: &self.collapsed_groups,
-                workspace_scroll: &mut self.workspace_scroll,
-                agent_scroll: &mut self.agent_scroll,
                 tab_scroll: &mut self.tab_scroll,
-                reveal_focused_workspace: &mut self.reveal_focused_workspace,
                 reveal_focused_tab: &mut self.reveal_focused_tab,
-                sidebar_collapsed: self.sidebar_collapsed,
-                sidebar_section_split: self.sidebar_section_split,
                 tab_drag_insert_index,
-                selected_workspace_id: self
-                    .navigate_workspace_id
-                    .as_ref()
-                    .filter(|_| valid_navigation_target)
-                    .or_else(|| pending_workspace_highlight.map(|pending| &pending.target)),
-                reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
-                dragged_workspace_id,
-                workspace_drop_indicator_row,
             },
         );
         self.hits.panes = surface
@@ -521,10 +465,7 @@ impl ClientShellState {
             ));
             frame.replace_from_ratatui_buffer_preserving_effects(&composed, cursor);
         }
-        if !layout.mobile_header.is_empty()
-            && self.mode == ClientShellMode::Navigate
-            && self.overlay.is_none()
-        {
+        if self.mode == ClientShellMode::Navigate && self.overlay.is_none() {
             let mut composed = frame.to_ratatui_buffer()?;
             occlusion.cover(composed.area);
             super::mobile::render_mobile_switcher(

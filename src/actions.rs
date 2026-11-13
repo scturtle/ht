@@ -54,8 +54,6 @@ actions! {
     WorkspaceCreate(WorkspaceCreateParams) => "workspace.create";
     WorkspaceFocus(WorkspaceTarget) => "workspace.focus";
     WorkspaceRename(WorkspaceRenameParams) => "workspace.rename";
-    WorkspaceMove(WorkspaceMoveParams) => "workspace.move";
-    WorkspaceMoveBlock(WorkspaceMoveBlockParams) => "workspace.move_block";
     WorkspaceClose(WorkspaceCloseParams) => "workspace.close";
     TabCreate(TabCreateParams) => "tab.create";
     TabFocus(TabTarget) => "tab.focus";

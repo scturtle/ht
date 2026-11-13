@@ -5,6 +5,7 @@ use crate::protocol::{
     PaneSurfaceSplit, PaneSurfaceSplitDirection, SurfaceRect,
 };
 use crossterm::event::MouseEvent;
+mod no_sidebar;
 mod text_editing;
 
 pub(super) fn snapshot() -> ClientShellSnapshot {

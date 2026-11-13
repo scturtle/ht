@@ -22,7 +22,7 @@ UI 和适配器共用语义消息；旧 Herdr socket/bincode codec 已删除，C
 bash scripts/core-tui/run.sh
 ```
 
-使用真正的 `ClientShellState`、侧栏、Tab 栏、键位、鼠标路由、通知和 Ghostty，
+使用真正的 `ClientShellState`、Tab 栏、键位、鼠标路由、通知和 Ghostty，
 不另造近似 UI。脚本构建固定源码的增强 Core 和当前 Herdr release binary，
 然后运行默认入口。也可用 `CORE_TUI_HC` 指定兼容的增强 Core。
 **现在要求 `ordered_attach` / `terminal.attach_ordered` 与 `keyboard_stacks_v1`。未打补丁的 Core，以及包含已退役 paint 屏障补丁的旧试用 Core 也能连接（这些能力只是不再要求），但缺少前两者的 Core 会被明确拒绝。**
@@ -55,7 +55,7 @@ CORE_UI_CONFIG="$PWD/scripts/core-tui/try-config.toml" \
 **F10** detach。嵌套外层截获 Ctrl+b 时，可改用 F12（例如 F12 然后 `?` 查看帮助）。
 
 本工作目录另有不提交的个人配置副本 `.local/core-tui/personal-config.toml`，
-保留当前全局配置的 fish、底部 Tab、隐藏侧栏、主题和 Ctrl+a 键位；只增加 F12 备用前缀、
+保留当时全局配置的 fish、底部 Tab、主题和 Ctrl+a 键位；只增加 F12 备用前缀、
 旧终端 `|` / `_` 别名及允许嵌套。原全局配置不变：
 
 ```sh
@@ -80,6 +80,25 @@ CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
 另已修复把程序鼠标需求误当成整个 TUI 捕获开关的问题；普通 Shell 不请求鼠标，
 也不应关闭 TUI 的鼠标操作。
 此前直接启动二进制的四项 smoke 没有覆盖这一入口缺陷。
+
+## 无常驻侧栏的导航
+
+桌面侧栏（工作区/agent 列表、折叠栏、宽度与分区拖动、自定义行模板）已移除。
+默认 `Ctrl+b` 后按 `w`，打开复用的移动端选择器；
+上下键选择工作区、Enter 确认、Esc 返回，右键条目可重命名/关闭。
+默认 `Ctrl+b` 后按 `g` 仍打开可搜索的导航器；自定义前缀/键位继续生效。
+Tab 栏可在顶部或底部，不再显示左侧 `spaces` 或右侧 `menu` 按钮，也不为它们预留宽度。
+设置、帮助、诊断仍可从 `prefix+w` 选择器中的 menu 动作进入；原设置/帮助快捷键保留。
+隐藏单 Tab 栏不影响这些键盘入口，移动端原有 switch 按钮也保留。
+
+退役的 `ui.sidebar*`、`[ui.sidebar.*]`、`keys.toggle_sidebar` 和 theme 的
+`sidebar_bg` 项会提示未知键并忽略，不会改写配置或丢弃同节有效项。
+工作区/agent 数据、分组顺序、移动端、indexed/相对切换和请求身份围栏保留。
+`ui.agent_panel_sort` 仍决定移动端与 agent 快捷键的排序；旧 socket 身份下保存的
+agent 排序继续只读加载，旧侧栏几何与折叠偏好不再使用或写入。
+侧栏拖动独占的客户端 `workspace.move`/`workspace.move_block` 动作与能力声明也已退役，
+底层 Core 二进制、共享文档/CAS、PTY 和多客户端几何策略没有更换。
+旧个人配置副本中的侧栏项同样只提示忽略，不会被启动器自动修改。
 
 ## 单连接与事件驱动调度
 

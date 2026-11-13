@@ -46,99 +46,6 @@ fn assert_selected(state: &ClientShellState, workspace: &str) {
     );
 }
 
-fn workspace_rect(state: &ClientShellState, workspace: &str) -> Rect {
-    state
-        .hits
-        .workspaces
-        .iter()
-        .find(|hit| hit.workspace_id == workspace)
-        .map(|hit| hit.rect)
-        .or_else(|| {
-            state.hits.mobile_targets.iter().find_map(|(rect, target)| {
-                matches!(target, ClientMobileTarget::Workspace { workspace_id }
-                if workspace_id == workspace)
-                .then_some(*rect)
-            })
-        })
-        .expect("visible workspace")
-}
-
-#[test]
-fn local_navigation_highlight_stays_visible_with_terminal_theme() {
-    use ratatui::style::Color;
-
-    for compact in [false, true] {
-        for selection_bg in [Color::Reset, Color::Rgb(70, 63, 93)] {
-            let mut config = ClientShellConfig::from_config(&Config::default());
-            config.palette = Palette::terminal();
-            config.palette.selection_bg = selection_bg;
-            let expected_bg = if selection_bg == Color::Reset {
-                config.palette.active_row_bg
-            } else {
-                selection_bg
-            };
-            let mut state = ClientShellState::new(config);
-            state.set_snapshot(Box::new(workspaces(3)));
-            state.set_pane_surface(surface());
-            state.sidebar_collapsed = compact;
-            state.compose(100, 28).unwrap();
-            enter_navigation(&mut state);
-
-            for workspace_id in ["ws_1", "ws_2"] {
-                assert_selected(&state, workspace_id);
-                let buffer = state.compose(100, 28).unwrap().to_ratatui_buffer().unwrap();
-                let selected = workspace_rect(&state, workspace_id);
-                for y in selected.y..selected.bottom() {
-                    for x in selected.x..selected.right() {
-                        assert_eq!(
-                            buffer[(x, y)].bg,
-                            expected_bg,
-                            "compact={compact}, {workspace_id}, ({x}, {y})"
-                        );
-                    }
-                }
-                let untouched = workspace_rect(&state, "ws_3");
-                assert_ne!(buffer[(untouched.x, untouched.y)].bg, expected_bg);
-                if workspace_id != "ws_1" {
-                    let focused = workspace_rect(&state, "ws_1");
-                    assert_eq!(
-                        buffer[(focused.x, focused.y)].bg,
-                        if selection_bg == Color::Reset {
-                            state.config.palette.sidebar_bg
-                        } else {
-                            state.config.palette.active_row_bg
-                        }
-                    );
-                    assert_ne!(buffer[(focused.x, focused.y)].bg, expected_bg);
-                }
-                preview_key(&mut state, b"\x1b[B");
-            }
-            assert_eq!(
-                state
-                    .endpoint
-                    .snapshot
-                    .as_ref()
-                    .unwrap()
-                    .focused_workspace_id
-                    .as_deref(),
-                Some("ws_1")
-            );
-            preview_key(&mut state, b"\x1b");
-            let buffer = state.compose(100, 28).unwrap().to_ratatui_buffer().unwrap();
-            let focused = workspace_rect(&state, "ws_1");
-            assert_eq!(
-                buffer[(focused.x, focused.y)].bg,
-                state.config.palette.active_row_bg
-            );
-            let cancelled = workspace_rect(&state, "ws_3");
-            assert_eq!(
-                buffer[(cancelled.x, cancelled.y)].bg,
-                state.config.palette.sidebar_bg
-            );
-        }
-    }
-}
-
 #[test]
 fn empty_workspace_navigation_enter_exits_without_focusing() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
@@ -157,16 +64,13 @@ fn empty_workspace_navigation_enter_exits_without_focusing() {
 }
 
 #[test]
-fn single_machine_compact_navigation_includes_visible_collapsed_group_children() {
+fn workspace_navigation_preserves_parent_child_group_order() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(grouped_workspaces()));
     state.set_pane_surface(surface());
-    state.toggle_collapsed_group("repo".into());
-    state.sidebar_collapsed = true;
     state.compose(100, 28).unwrap();
-    workspace_rect(&state, "ws_3");
     enter_navigation(&mut state);
-    for id in ["ws_2", "ws_3"] {
+    for id in ["ws_3", "ws_2"] {
         preview_key(&mut state, b"\x1b[B");
         assert_selected(&state, id);
     }
@@ -213,7 +117,7 @@ fn active_preview_is_not_retargeted_by_deletion_or_reboot() {
 fn local_navigation_state(compact: bool) -> ClientShellState {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.config.palette = Palette::terminal();
-    state.sidebar_collapsed = compact;
+    state.config.mobile_width_threshold = if compact { u16::MAX } else { 0 };
     state.set_snapshot(Box::new(workspaces(3)));
     state.set_pane_surface(surface());
     state.compose(100, 28).unwrap();
@@ -237,16 +141,19 @@ fn request_local_navigation(state: &mut ClientShellState, down: usize) -> String
 }
 
 fn assert_local_highlight(state: &mut ClientShellState, selected_id: &str) {
-    let buffer = state.compose(100, 28).unwrap().to_ratatui_buffer().unwrap();
-    for workspace_id in ["ws_1", "ws_2", "ws_3"] {
-        let rect = workspace_rect(state, workspace_id);
-        assert_eq!(
-            (rect.x..rect.right())
-                .any(|x| buffer[(x, rect.y)].bg == state.config.palette.active_row_bg),
-            workspace_id == selected_id,
-            "expected only {selected_id} highlighted, checking {workspace_id}"
-        );
-    }
+    state.compose(100, 28).expect("frame");
+    let target = state
+        .pending_workspace_highlight
+        .as_ref()
+        .map(|p| p.target.workspace_id.as_str())
+        .or_else(|| {
+            state
+                .endpoint
+                .snapshot
+                .as_deref()
+                .and_then(|s| s.focused_workspace_id.as_deref())
+        });
+    assert_eq!(target, Some(selected_id));
 }
 
 fn set_local_focus(state: &mut ClientShellState, workspace_id: &str, revision: u64) {
@@ -630,38 +537,4 @@ fn kitty_ctrl_shift_bracket_keeps_navigation_open() {
 
     assert_eq!(state.mode, ClientShellMode::Navigate);
     assert_selected(&state, "ws_1");
-}
-
-#[test]
-fn workspace_click_repaints_when_releasing_an_accepted_navigation_highlight() {
-    let mut state = local_navigation_state(false);
-    request_local_navigation(&mut state, 2);
-    assert_local_highlight(&mut state, "ws_3");
-    let rect = workspace_rect(&state, "ws_2");
-    state.workspace_press = Some(ClientWorkspacePress {
-        workspace_id: "ws_2".into(),
-        start_column: rect.x,
-        start_row: rect.y,
-    });
-    let mut outcome = ClientShellInput::default();
-    state.handle_mouse(
-        MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: rect.x,
-            row: rect.y,
-            modifiers: KeyModifiers::empty(),
-        },
-        &mut outcome,
-    );
-    assert!(
-        matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }]
-        if matches!(&request.action, crate::actions::Action::WorkspaceFocus(params)
-            if params.workspace_id == "ws_2"))
-    );
-    assert!(state.pending_workspace_highlight.is_none());
-    assert!(
-        outcome.repaint,
-        "clearing a display-only highlight needs repaint before Core replies"
-    );
-    assert_local_highlight(&mut state, "ws_1");
 }

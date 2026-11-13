@@ -102,7 +102,6 @@ impl ThemeConfig {
 pub struct CustomThemeColors {
     pub accent: Option<String>,
     pub panel_bg: Option<String>,
-    pub sidebar_bg: Option<String>,
     pub active_row_bg: Option<String>,
     pub selection_bg: Option<String>,
     pub surface0: Option<String>,
@@ -131,7 +130,6 @@ pub struct CustomThemeColors {
 pub struct ModeThemeColors {
     pub accent: Option<String>,
     pub panel_bg: Option<String>,
-    pub sidebar_bg: Option<String>,
     pub active_row_bg: Option<String>,
     pub selection_bg: Option<String>,
     pub surface0: Option<String>,
@@ -294,7 +292,6 @@ name = "nord"
 
 [theme.custom]
 panel_bg = "#1e1e2e"
-sidebar_bg = "#181825"
 active_row_bg = "#313244"
 selection_bg = "#45475a"
 accent = "#ff79c6"
@@ -304,7 +301,6 @@ red = "rgb(255, 85, 85)"
         assert_eq!(config.theme.name.as_deref(), Some("nord"));
         let custom = config.theme.custom.as_ref().unwrap();
         assert_eq!(custom.panel_bg.as_deref(), Some("#1e1e2e"));
-        assert_eq!(custom.sidebar_bg.as_deref(), Some("#181825"));
         assert_eq!(custom.active_row_bg.as_deref(), Some("#313244"));
         assert_eq!(custom.selection_bg.as_deref(), Some("#45475a"));
         assert_eq!(custom.accent.as_deref(), Some("#ff79c6"));
@@ -325,7 +321,6 @@ selection_bg = "#101112"
 
 [theme.custom.dark]
 panel_bg = "#0a0b0c"
-sidebar_bg = "#0d0e0f"
 active_row_bg = "#131415"
 "##;
         let config: Config = toml::from_str(toml).unwrap();
@@ -337,7 +332,6 @@ active_row_bg = "#131415"
         assert_eq!(light.selection_bg.as_deref(), Some("#101112"));
         let dark = custom.dark.as_ref().unwrap();
         assert_eq!(dark.panel_bg.as_deref(), Some("#0a0b0c"));
-        assert_eq!(dark.sidebar_bg.as_deref(), Some("#0d0e0f"));
         assert_eq!(dark.active_row_bg.as_deref(), Some("#131415"));
     }
 

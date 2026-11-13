@@ -79,7 +79,7 @@ detach = "f10"
 
         try:
             viewer = UI.Viewer(env)
-            UI.until(lambda: b"project" in viewer.read(), "default Core TUI")
+            UI.until(lambda: "copy$" in screen(), "default Core TUI")
             address = hc("ls")["terminals"][0]["address"]
             pid = hc("get", address)["pid"]
             viewer.send(b"stty -echo; printf 'ECHO_DISABLED\\n'\r")

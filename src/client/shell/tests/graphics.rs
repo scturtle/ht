@@ -147,7 +147,6 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
         ] {
             let mut state =
                 ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-            state.sidebar_collapsed = true;
             state.set_snapshot(Box::new(snapshot()));
             state.set_pane_surface(surface());
             state.visible_notification = Some(ClientVisibleNotification {
@@ -178,7 +177,6 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
         ] {
             let mut state =
                 ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-            state.sidebar_collapsed = true;
             state.config.clipboard_toast_position = position;
             state.set_snapshot(Box::new(snapshot()));
             state.set_pane_surface(surface());

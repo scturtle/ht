@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 mod actions;
-mod agent_sidebar;
+mod navigation_rows;
 mod navigator;
 mod workspace_navigation;
 use workspace_navigation::{PendingWorkspaceHighlight, WorkspaceNavigationTarget};
@@ -27,7 +27,6 @@ mod notifications;
 mod overlay_input;
 mod preferences;
 mod render;
-mod scroll;
 mod settings;
 mod state;
 mod surface_patch;
@@ -36,7 +35,6 @@ mod word_selection;
 use text_editor::TextEditor;
 use word_selection::ClientWordSelection;
 
-pub(in crate::client::shell) use render::sidebar;
 pub(crate) use state::*;
 pub(super) use surface_patch::{ClientComposedSurfacePatch, ClientPaneSurfacePatchOutcome};
 
@@ -49,10 +47,7 @@ use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::connection::ClientEndpointStatus;
-use crate::config::{
-    Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,
-    TabBarPositionConfig,
-};
+use crate::config::{Config, LiveKeybindConfig, TabBarPositionConfig};
 use crate::protocol::{
     ClientMessage, ClientMousePosition, ClientPaneInputEvent, ClientShellSnapshot, ClientShellTab,
     ClientShellWorkspace, ClientSurfaceSize, FrameData, PaneSurfaceFrame, SemanticNotification,

@@ -580,7 +580,7 @@ fn mobile_items(
     // Preserve explicit view order and the stable priority tie-break before
     // applying this client's arrival recency, just as the former aggregate did.
     let mut agents =
-        super::agent_sidebar::ordered_agent_pane_ids(snapshot, config.agent_panel_sort)
+        super::navigation_rows::ordered_agent_pane_ids(snapshot, config.agent_panel_sort)
             .into_iter()
             .filter_map(|pane_id| {
                 let agent = snapshot
@@ -733,7 +733,7 @@ fn mobile_items(
         ClientMobileTarget::NewWorkspace,
         palette,
     ));
-    for entry in super::render::workspace_entries(snapshot, &HashSet::new()) {
+    for entry in super::navigation_rows::workspace_entries(snapshot) {
         let Some(workspace) = snapshot.workspaces.get(entry.index) else {
             continue;
         };
@@ -916,10 +916,7 @@ impl ClientShellState {
         mouse: crossterm::event::MouseEvent,
         outcome: &mut ClientShellInput,
     ) -> bool {
-        let mobile = self
-            .last_composed_size
-            .is_some_and(|(cols, rows)| !self.layout(cols, rows).mobile_header.is_empty());
-        if !mobile || self.overlay.is_some() {
+        if self.overlay.is_some() {
             return false;
         }
         use crossterm::event::{MouseButton, MouseEventKind};
@@ -956,7 +953,7 @@ impl ClientShellState {
                 outcome.repaint = true;
                 return true;
             }
-            MouseEventKind::Down(MouseButton::Left) => {}
+            MouseEventKind::Down(MouseButton::Left | MouseButton::Right) => {}
             _ => return true,
         }
 
@@ -972,6 +969,22 @@ impl ClientShellState {
             .iter()
             .find(|(rect, _)| super::contains(*rect, point))
             .map(|(_, target)| target.clone());
+        if mouse.kind == MouseEventKind::Down(MouseButton::Right) {
+            match target {
+                Some(ClientMobileTarget::Workspace { workspace_id }) => {
+                    self.open_workspace_context_menu(workspace_id, mouse.column, mouse.row)
+                }
+                Some(ClientMobileTarget::Tab { tab_id }) => {
+                    self.open_tab_context_menu(tab_id, mouse.column, mouse.row)
+                }
+                Some(ClientMobileTarget::Agent { pane_id }) => {
+                    self.open_pane_context_menu(pane_id, mouse.column, mouse.row)
+                }
+                _ => return true,
+            }
+            outcome.repaint = true;
+            return true;
+        }
         let method = match target {
             Some(ClientMobileTarget::NewWorkspace) => {
                 self.mobile_switcher_suspended = true;

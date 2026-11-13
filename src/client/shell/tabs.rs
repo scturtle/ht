@@ -14,6 +14,11 @@ pub(crate) fn render_tab_bar(
     tab_drag_insert_index: Option<usize>,
     hits: &mut ShellHitMap,
 ) {
+    if area.is_empty() {
+        hits.global_launcher = Rect::default();
+        hits.mobile_switch = Rect::default();
+        return;
+    }
     let palette = &config.palette;
     buffer.set_style(area, Style::default().bg(palette.panel_bg));
     let tabs = snapshot

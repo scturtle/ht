@@ -3,7 +3,6 @@ use crossterm::event::{KeyCode, KeyModifiers};
 mod io;
 mod keybinds;
 mod model;
-mod sidebar;
 mod sound;
 mod tab_bar;
 mod theme;
@@ -21,13 +20,9 @@ pub use self::{
         BindingConfig, IndexedKeybind, KeyCombo, Keybinds, LiveKeybindConfig,
     },
     model::{
-        validated_sidebar_bounds, AdvancedConfig, AgentPanelSortConfig, Config,
-        HostCursorModeConfig, PaneBordersConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle,
-        TabBarPositionConfig, ToastClipboardPosition, ToastDelivery, ToastHerdrPosition,
-    },
-    sidebar::{
-        AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarTokenStyle,
-        SpaceSidebarToken, SpacesSidebarConfig,
+        AdvancedConfig, AgentPanelSortConfig, Config, HostCursorModeConfig, PaneBordersConfig,
+        StatusIndicatorStyle, TabBarPositionConfig, ToastClipboardPosition, ToastDelivery,
+        ToastHerdrPosition,
     },
     sound::SoundConfig,
     tab_bar::TabBarRightEntryConfig,
@@ -85,19 +80,7 @@ impl Config {
             .chain(self.ui.sound.diagnostics())
             .chain(tab_bar_right_diagnostics(&self.ui.tab_bar_right))
             .chain(window_title_diagnostics(&self.ui.window_title))
-            .chain(self.invalid_sidebar_bounds_diagnostic())
             .collect()
-    }
-
-    pub(crate) fn invalid_sidebar_bounds_diagnostic(&self) -> Option<String> {
-        validated_sidebar_bounds(self.ui.sidebar_min_width, self.ui.sidebar_max_width)
-            .is_none()
-            .then(|| {
-                format!(
-                    "ui.sidebar_min_width ({}) is greater than sidebar_max_width ({})",
-                    self.ui.sidebar_min_width, self.ui.sidebar_max_width
-                )
-            })
     }
 
     pub(crate) fn remote_image_paste_key(&self) -> Result<Option<(KeyCode, KeyModifiers)>, String> {

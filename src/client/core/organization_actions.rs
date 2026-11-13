@@ -1,7 +1,7 @@
 //! Shared workspace/tab lifecycle. Program creation and document CAS are separate.
 use super::{model::invalid, session::Session};
 use crate::actions;
-use std::{collections::HashSet, io};
+use std::io;
 
 impl Session {
     pub(super) fn organization_action(
@@ -59,58 +59,6 @@ impl Session {
                 Ok(R::WorkspaceInfo {
                     workspace: self.model.workspace_info(&p.workspace_id)?,
                 })
-            }
-            M::WorkspaceMove(p) => {
-                self.change(|model| {
-                    let workspaces = &mut model.organization.workspaces;
-                    let at = workspaces
-                        .iter()
-                        .position(|w| w.id == p.workspace_id)
-                        .ok_or_else(|| invalid("Core workspace not found"))?;
-                    let workspace = workspaces.remove(at);
-                    workspaces.insert(p.insert_index.min(workspaces.len()), workspace);
-                    Ok(())
-                })?;
-                Ok(R::Ok {})
-            }
-            M::WorkspaceMoveBlock(p) => {
-                self.change(|model| {
-                    let selected = p.workspace_ids.iter().collect::<HashSet<_>>();
-                    if selected.len() != p.workspace_ids.len()
-                        || selected
-                            .iter()
-                            .any(|id| !model.organization.workspaces.iter().any(|w| &w.id == *id))
-                    {
-                        return Err(invalid("invalid workspace move block"));
-                    }
-                    if p.before_workspace_id
-                        .as_ref()
-                        .is_some_and(|id| selected.contains(id))
-                    {
-                        return Err(invalid("move destination belongs to the block"));
-                    }
-                    let mut moved = Vec::new();
-                    model.organization.workspaces.retain(|w| {
-                        if selected.contains(&w.id) {
-                            moved.push(w.clone());
-                            false
-                        } else {
-                            true
-                        }
-                    });
-                    let at = match &p.before_workspace_id {
-                        Some(key) => model
-                            .organization
-                            .workspaces
-                            .iter()
-                            .position(|w| &w.id == key)
-                            .ok_or_else(|| invalid("Core destination workspace not found"))?,
-                        None => model.organization.workspaces.len(),
-                    };
-                    model.organization.workspaces.splice(at..at, moved);
-                    Ok(())
-                })?;
-                Ok(R::Ok {})
             }
             M::WorkspaceClose(p) => {
                 // Core organization has no worktree groups; either scope selects

@@ -1,12 +1,7 @@
 use super::*;
 use crate::client::shell::local_scroll::LocalScrollTarget;
 
-const TARGETS: [LocalScrollTarget; 4] = [
-    LocalScrollTarget::Workspaces,
-    LocalScrollTarget::Agents,
-    LocalScrollTarget::Help,
-    LocalScrollTarget::Navigator,
-];
+const TARGETS: [LocalScrollTarget; 2] = [LocalScrollTarget::Help, LocalScrollTarget::Navigator];
 
 fn mouse(
     state: &mut ClientShellState,
@@ -48,14 +43,6 @@ fn hit_map(
 ) -> ShellHitMap {
     let mut hits = ShellHitMap::default();
     match target {
-        LocalScrollTarget::Workspaces => {
-            hits.workspace_scrollbar = track;
-            hits.workspace_scroll_metrics = Some(metrics);
-        }
-        LocalScrollTarget::Agents => {
-            hits.agent_scrollbar = track;
-            hits.agent_scroll_metrics = Some(metrics);
-        }
         LocalScrollTarget::Help => {
             hits.help_scrollbar = track;
             hits.help_scroll_metrics = Some(metrics);
@@ -70,8 +57,6 @@ fn hit_map(
 
 fn metrics(target: LocalScrollTarget, state: &ClientShellState) -> crate::pane::ScrollMetrics {
     match target {
-        LocalScrollTarget::Workspaces => state.hits.workspace_scroll_metrics,
-        LocalScrollTarget::Agents => state.hits.agent_scroll_metrics,
         LocalScrollTarget::Help => state.hits.help_scroll_metrics,
         LocalScrollTarget::Navigator => state.hits.navigator_scroll_metrics,
     }
@@ -80,8 +65,6 @@ fn metrics(target: LocalScrollTarget, state: &ClientShellState) -> crate::pane::
 
 fn track(target: LocalScrollTarget, state: &ClientShellState) -> Rect {
     match target {
-        LocalScrollTarget::Workspaces => state.hits.workspace_scrollbar,
-        LocalScrollTarget::Agents => state.hits.agent_scrollbar,
         LocalScrollTarget::Help => state.hits.help_scrollbar,
         LocalScrollTarget::Navigator => state.hits.navigator_scrollbar,
     }
@@ -100,8 +83,6 @@ fn drag_target(state: &ClientShellState) -> Option<(LocalScrollTarget, u16)> {
 /// The first visible row the viewport currently holds.
 fn local_start(target: LocalScrollTarget, state: &ClientShellState) -> usize {
     match target {
-        LocalScrollTarget::Workspaces => state.workspace_scroll,
-        LocalScrollTarget::Agents => state.agent_scroll,
         LocalScrollTarget::Help => match state.overlay.as_ref() {
             Some(ClientShellOverlay::Help(help)) => help.scroll,
             _ => panic!("help overlay"),
@@ -123,8 +104,6 @@ struct Fixture {
 impl Fixture {
     fn new(target: LocalScrollTarget) -> Self {
         let (snapshot, size) = match target {
-            LocalScrollTarget::Workspaces => (many_workspaces(), (106, 20)),
-            LocalScrollTarget::Agents => (many_agents(), (106, 20)),
             LocalScrollTarget::Help => (snapshot(), (106, 30)),
             LocalScrollTarget::Navigator => (many_panes(), (106, 24)),
         };
@@ -142,7 +121,6 @@ impl Fixture {
                 }));
             }
             LocalScrollTarget::Navigator => state.open_navigator_overlay(),
-            _ => {}
         }
         let mut fixture = Self {
             state,
@@ -180,45 +158,6 @@ impl Fixture {
     }
 }
 
-fn many_workspaces() -> ClientShellSnapshot {
-    let mut initial = snapshot();
-    let template = initial.workspaces[0].clone();
-    initial.workspaces = (1..=12)
-        .map(|number| ClientShellWorkspace {
-            workspace_id: format!("ws_{number}"),
-            number,
-            label: format!("space-{number}"),
-            branch: None,
-            focused: number == 1,
-            ..template.clone()
-        })
-        .collect();
-    initial
-}
-
-fn many_agents() -> ClientShellSnapshot {
-    let mut initial = snapshot();
-    initial.agents = (2..=14)
-        .map(|number| ClientShellAgent {
-            pane_id: format!("pane_{number}"),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
-            name: Some(format!("agent {number}")),
-            display_agent: None,
-            agent: None,
-            title: None,
-            terminal_title: None,
-            terminal_title_stripped: None,
-            agent_status: AgentStatus::Idle,
-            state_change_seq: number as u64,
-            state_labels: Vec::new(),
-            tokens: Vec::new(),
-            focused: number == 2,
-        })
-        .collect();
-    initial
-}
-
 fn many_panes() -> ClientShellSnapshot {
     let mut projected = snapshot();
     for index in 2..=60 {
@@ -235,8 +174,8 @@ fn many_panes() -> ClientShellSnapshot {
 fn local_scrollbar_press_and_drag_keep_the_grab_offset_and_clamp_rows() {
     // Synthetic tracks of arbitrary size and offset: the shared math is target
     // independent, so two observable viewports cover the arbitrary geometry and
-    // all four targets are exercised end to end in the shared-event test below.
-    for target in [LocalScrollTarget::Workspaces, LocalScrollTarget::Agents] {
+    // both targets are exercised end to end in the shared-event test below.
+    for target in TARGETS {
         let track = Rect::new(3, 5, 1, 8);
         for (max, viewport) in [(10, 4), (2, 1)] {
             let at_top = crate::pane::ScrollMetrics {
@@ -245,8 +184,7 @@ fn local_scrollbar_press_and_drag_keep_the_grab_offset_and_clamp_rows() {
                 viewport_rows: viewport,
             };
             let thumb = crate::ui::scrollbar_thumb(at_top, track).expect("thumb");
-            let mut state =
-                ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+            let mut state = Fixture::new(target).state;
             state.hits = hit_map(target, track, at_top);
 
             // The thumb under the pointer is grabbed, never re-centred.
@@ -282,10 +220,8 @@ fn local_scrollbar_press_and_drag_keep_the_grab_offset_and_clamp_rows() {
             // Track presses seek to the row they name and clamp out-of-bounds rows.
             // Only a moved viewport repaints here; Help is the exception below.
             let seek = |row: u16| {
-                let mut state =
-                    ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+                let mut state = Fixture::new(target).state;
                 state.hits = hit_map(target, track, at_top);
-                let before = local_start(target, &state);
                 let mut outcome = ClientShellInput::default();
                 state.press_local_scrollbar(target, row, &mut outcome);
                 assert!(
@@ -294,10 +230,9 @@ fn local_scrollbar_press_and_drag_keep_the_grab_offset_and_clamp_rows() {
                 );
                 assert_input_local(&outcome);
                 let start = local_start(target, &state);
-                assert_eq!(
+                assert!(
                     outcome.repaint,
-                    start != before,
-                    "{target:?} track press must repaint exactly when it moves"
+                    "Help seeks and Navigator selection request a repaint"
                 );
                 start
             };
@@ -352,8 +287,6 @@ fn local_scrollbar_without_a_usable_track_is_ignored() {
             );
             assert!(!outcome.repaint, "{target:?} repainted with {case}");
             assert_input_local(&outcome);
-            assert_eq!(state.workspace_scroll, 0, "{target:?} with {case}");
-            assert_eq!(state.agent_scroll, 0, "{target:?} with {case}");
             assert!(state.overlay.is_none(), "{target:?} with {case}");
         }
     }
@@ -457,8 +390,6 @@ fn navigator_selection_follows_the_dragged_viewport_and_help_only_scrolls() {
     );
 
     let mut help = Fixture::new(LocalScrollTarget::Help);
-    let workspace_scroll = help.state.workspace_scroll;
-    let agent_scroll = help.state.agent_scroll;
     let track = help.track();
     let outcome = press(&mut help.state, track, track.bottom() - 1);
     assert_input_local(&outcome);
@@ -472,8 +403,6 @@ fn navigator_selection_follows_the_dragged_viewport_and_help_only_scrolls() {
         },
         "help scrolls its own wrapped rows"
     );
-    assert_eq!(help.state.workspace_scroll, workspace_scroll);
-    assert_eq!(help.state.agent_scroll, agent_scroll);
 }
 
 #[test]
@@ -488,72 +417,14 @@ fn closing_the_overlay_during_a_drag_never_scrolls_another_viewport() {
         assert_eq!(drag_target(&fixture.state), Some((target, 0)));
 
         fixture.state.overlay = None;
-        let workspace_scroll = fixture.state.workspace_scroll;
-        let agent_scroll = fixture.state.agent_scroll;
         let outcome = drag(&mut fixture.state, track, track.bottom() + 5);
         assert_input_local(&outcome);
         assert!(fixture.state.overlay.is_none());
-        assert_eq!(fixture.state.workspace_scroll, workspace_scroll);
-        assert_eq!(fixture.state.agent_scroll, agent_scroll);
 
         let outcome = release(&mut fixture.state, track, track.bottom() + 5);
         assert_input_local(&outcome);
         assert!(fixture.state.chrome_drag.is_none());
     }
-}
-
-#[test]
-fn resized_workspace_track_is_used_by_the_ongoing_drag() {
-    let mut fixture = Fixture::new(LocalScrollTarget::Workspaces);
-    let track = fixture.track();
-    let thumb = crate::ui::scrollbar_thumb(
-        metrics(LocalScrollTarget::Workspaces, &fixture.state),
-        track,
-    )
-    .expect("thumb");
-    let outcome = press(&mut fixture.state, track, thumb.top);
-    assert_input_local(&outcome);
-    assert_eq!(
-        drag_target(&fixture.state),
-        Some((LocalScrollTarget::Workspaces, 0))
-    );
-
-    fixture.size = (106, 14);
-    fixture.compose();
-    let resized_track = fixture.track();
-    assert_ne!(
-        resized_track.height, track.height,
-        "resize must change the track"
-    );
-    let outcome = drag(
-        &mut fixture.state,
-        resized_track,
-        resized_track.bottom() + 3,
-    );
-    assert_input_local(&outcome);
-    fixture.compose();
-    assert_eq!(fixture.offset(), 0, "drag used the stale track");
-}
-
-#[test]
-fn sidebar_toggle_still_wins_over_the_agent_scrollbar_cell_beneath_it() {
-    let mut fixture = Fixture::new(LocalScrollTarget::Agents);
-    // The toggle is painted over the last cell of the agent scrollbar, so the
-    // earlier hit in the press chain has to keep receiving that cell.
-    let toggle = fixture.state.hits.sidebar_toggle;
-    let track = fixture.track();
-    assert_eq!((toggle.x, toggle.y), (track.x, track.bottom() - 1));
-    assert!(
-        fixture.state.config.preferences_path.is_none(),
-        "this test must not write chrome preferences"
-    );
-    let agent_scroll = fixture.state.agent_scroll;
-
-    let outcome = press(&mut fixture.state, track, track.bottom() - 1);
-    assert_input_local(&outcome);
-    assert!(fixture.state.sidebar_collapsed);
-    assert_eq!(fixture.state.agent_scroll, agent_scroll);
-    assert!(fixture.state.chrome_drag.is_none());
 }
 
 #[test]

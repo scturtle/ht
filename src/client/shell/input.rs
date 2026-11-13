@@ -669,7 +669,7 @@ impl ClientShellState {
             )
         }) {
             let valid = self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                self.navigation_workspace_entries(snapshot)
+                navigation_rows::workspace_entries(snapshot)
                     .get(index)
                     .is_some()
             });
@@ -823,7 +823,7 @@ impl ClientShellState {
         match binding {
             KeybindMatch::Action(KeybindAction::SwitchWorkspace(index)) => {
                 self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                    self.navigation_workspace_entries(snapshot)
+                    navigation_rows::workspace_entries(snapshot)
                         .get(*index)
                         .is_some()
                 })
@@ -843,7 +843,7 @@ impl ClientShellState {
                 .is_some(),
             KeybindMatch::Action(KeybindAction::FocusAgent(index)) => {
                 self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                    super::agent_sidebar::ordered_agent_pane_ids(
+                    super::navigation_rows::ordered_agent_pane_ids(
                         snapshot,
                         self.config.agent_panel_sort,
                     )

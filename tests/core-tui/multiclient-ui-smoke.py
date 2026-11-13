@@ -28,8 +28,6 @@ def main():
         (home / "config.toml").write_text('''[experimental]
 allow_nested = true
 [ui]
-sidebar_start_collapsed = true
-sidebar_collapsed_mode = "hidden"
 pane_borders = "off"
 confirm_close = false
 prompt_new_tab_name = false

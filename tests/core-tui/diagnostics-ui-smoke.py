@@ -27,7 +27,7 @@ def main():
         session = UI.core_session(str(core))
         socket = core / "run/herdr-core" / f"{session}.sock"
         env = UI.isolated_env(home, core)
-        env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color",
+        env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color", PS1="dump$ ",
                    HISTFILE=str(home / "history"), CORE_TUI_HOME=str(core),
                    HERDR_CORE_BIN=str(UI.HC), HC_SESSION=session,
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(core / "state"),
@@ -61,13 +61,14 @@ def main():
             x, y = point
             viewer.send(f"\x1b[<{button};{x+1};{y+1}M\x1b[<{button};{x+1};{y+1}m".encode())
 
-        def capture(global_menu):
+        def capture(chooser_menu):
             old = set(Path("/var/tmp").glob(f"ht-pane-dump-{viewer.pid}-*"))
-            if global_menu:
-                click(UI.until(lambda: locate("menu"), "sidebar menu launcher"))
+            if chooser_menu:
+                viewer.send(b"\x02w")
+                UI.until(lambda: screen().splitlines()[0].strip().startswith("switch"), "workspace chooser")
                 label = "dump pane diagnostics"
             else:
-                # Right click in the original pane, not the sidebar.
+                # Right click in the original pane, below the tab bar.
                 click((70, 20), 2)
                 label = "Dump pane diagnostics"
             click(UI.until(lambda: locate(label), "diagnostic menu entry"))
@@ -94,7 +95,7 @@ def main():
 
         try:
             viewer = UI.Viewer(env)
-            UI.until(lambda: "project" in screen(), "real TUI first paint")
+            UI.until(lambda: "dump$" in screen(), "real TUI first paint")
             address = hc("ls")["terminals"][0]["address"]
             viewer.send(b"stty -echo; printf 'DUMP_READY\\n'\r")
             UI.until(lambda: "DUMP_READY" in screen(), "stable pane text")
@@ -148,7 +149,7 @@ def main():
             viewer.send(b"printf 'AFTER_DUMP_%s\\n' OK\r")
             UI.until(lambda: "AFTER_DUMP_OK" in screen(), "input survives diagnostic capture")
             viewer.detach()
-            print(json.dumps({"global_menu_dump": True, "pane_context_dump": True,
+            print(json.dumps({"workspace_chooser_dump": True, "pane_context_dump": True,
                               "private_permissions": True, "same_program_pid_and_grid": True,
                               "same_attach_channel": True, "no_document_write": True,
                               "absent_socket_not_restarted": True, "relay_stderr_does_not_corrupt_tui": True,

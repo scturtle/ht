@@ -3,8 +3,6 @@ use super::*;
 /// A viewport the client scrolls locally, without asking Core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LocalScrollTarget {
-    Workspaces,
-    Agents,
     Help,
     Navigator,
 }
@@ -15,8 +13,6 @@ fn local_scrollbar(
     target: LocalScrollTarget,
 ) -> Option<(Rect, crate::pane::ScrollMetrics)> {
     let (track, metrics) = match target {
-        LocalScrollTarget::Workspaces => (hits.workspace_scrollbar, hits.workspace_scroll_metrics),
-        LocalScrollTarget::Agents => (hits.agent_scrollbar, hits.agent_scroll_metrics),
         LocalScrollTarget::Help => (hits.help_scrollbar, hits.help_scroll_metrics),
         LocalScrollTarget::Navigator => (hits.navigator_scrollbar, hits.navigator_scroll_metrics),
     };
@@ -42,8 +38,6 @@ impl ClientShellState {
             .max_offset_from_bottom
             .saturating_sub(offset_from_bottom);
         match target {
-            LocalScrollTarget::Workspaces => set_local_scroll(&mut self.workspace_scroll, start),
-            LocalScrollTarget::Agents => set_local_scroll(&mut self.agent_scroll, start),
             LocalScrollTarget::Help => {
                 let Some(ClientShellOverlay::Help(help)) = self.overlay.as_mut() else {
                     return false;

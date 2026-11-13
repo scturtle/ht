@@ -27,31 +27,6 @@ impl ClientShellState {
         );
     }
 
-    pub(super) fn persist_chrome_preferences(&mut self, outcome: &mut ClientShellInput) {
-        let Some(path) = self.config.preferences_path.as_deref() else {
-            return;
-        };
-        let mut collapsed_groups = self.collapsed_groups.iter().cloned().collect::<Vec<_>>();
-        collapsed_groups.sort();
-        let preferences = preferences::ClientChromePreferences {
-            sidebar_width: self.sidebar_width_manual.then_some(self.sidebar_width),
-            sidebar_section_split: self
-                .sidebar_section_split_manual
-                .then_some(self.sidebar_section_split),
-            sidebar_collapsed: self
-                .sidebar_collapsed_manual
-                .then_some(self.sidebar_collapsed),
-            agent_panel_sort: self
-                .agent_panel_sort_manual
-                .then_some(self.config.agent_panel_sort),
-            collapsed_groups,
-        };
-        if let Err(error) = preferences::store(path, preferences) {
-            self.set_endpoint_error(error);
-            outcome.repaint = true;
-        }
-    }
-
     pub(crate) fn reload_client_config(&mut self) {
         match crate::config::load_live_config() {
             Ok(loaded) => {
@@ -64,9 +39,6 @@ impl ClientShellState {
                 if let Some(appearance) = self.host_appearance {
                     self.config.palette =
                         self.config.theme_runtime.palette_for_appearance(appearance);
-                }
-                if !self.sidebar_width_manual {
-                    self.sidebar_width = self.config.sidebar_width;
                 }
                 if self.agent_panel_sort_manual {
                     self.config.agent_panel_sort = agent_panel_sort;
@@ -95,16 +67,9 @@ impl ClientShellConfig {
                 keybinds: config.keybinds(),
             });
         Self {
-            sidebar_width: config.ui.sidebar_width,
-            sidebar_min_width: config.ui.sidebar_min_width,
-            sidebar_max_width: config.ui.sidebar_max_width,
-            sidebar_start_collapsed: config.ui.sidebar_start_collapsed,
-            sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
             mobile_width_threshold: config.ui.mobile_width_threshold,
             tab_bar_position: config.ui.tab_bar_position,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
-            spaces: config.ui.sidebar.spaces.clone(),
-            agents: config.ui.sidebar.agents.clone(),
             agent_panel_sort: config.ui.agent_panel_sort,
             status_indicators: config.ui.status_indicators,
             sound_enabled: config.ui.sound.enabled,
@@ -125,7 +90,6 @@ impl ClientShellConfig {
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
-            preferences_path: None,
             preferences: preferences::ClientChromePreferences::default(),
             startup_config_diagnostic: None,
         }
@@ -146,7 +110,6 @@ impl ClientShellConfig {
 
     pub(super) fn with_preferences_path(mut self, path: std::path::PathBuf) -> Self {
         self.preferences = preferences::load(&path).unwrap_or_default();
-        self.preferences_path = Some(path);
         self
     }
 
@@ -175,37 +138,27 @@ impl ClientShellConfig {
         }
 
         if !invalid_section("ui") {
-            if let Some(diagnostic) = config.invalid_sidebar_bounds_diagnostic() {
-                diagnostics.push(format!("{diagnostic}; keeping previous [ui] settings"));
-            } else {
-                let ui = &config.ui;
-                diagnostics.extend(ui.sound.diagnostics());
-                self.sidebar_width = ui.sidebar_width;
-                self.sidebar_min_width = ui.sidebar_min_width;
-                self.sidebar_max_width = ui.sidebar_max_width;
-                self.sidebar_collapsed_mode = ui.sidebar_collapsed_mode;
-                self.mobile_width_threshold = ui.mobile_width_threshold;
-                self.tab_bar_position = ui.tab_bar_position;
-                self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
-                self.spaces = ui.sidebar.spaces.clone();
-                self.agents = ui.sidebar.agents.clone();
-                self.agent_panel_sort = ui.agent_panel_sort;
-                self.status_indicators = ui.status_indicators;
-                self.sound_enabled = ui.sound.enabled;
-                self.toast_delivery = ui.toast.delivery;
-                self.toast_delay_seconds = ui.toast.delay_seconds;
-                self.toast_position = ui.toast.herdr.position;
-                self.copy_on_select = ui.copy_on_select;
-                self.clipboard_toast_enabled = ui.toast.clipboard.enabled;
-                self.clipboard_toast_position = ui.toast.clipboard.position;
-                self.prompt_new_tab_name = ui.prompt_new_tab_name;
-                self.prompt_new_workspace_name = ui.prompt_new_workspace_name;
-                self.confirm_close = ui.confirm_close;
-                self.mouse_capture = ui.mouse_capture;
-                self.mouse_scroll_lines = ui.mouse_scroll_lines();
-                self.right_click_passthrough_modifiers = ui.right_click_passthrough_modifiers();
-                self.redraw_on_focus_gained = ui.redraw_on_focus_gained;
-            }
+            let ui = &config.ui;
+            diagnostics.extend(ui.sound.diagnostics());
+            self.mobile_width_threshold = ui.mobile_width_threshold;
+            self.tab_bar_position = ui.tab_bar_position;
+            self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
+            self.agent_panel_sort = ui.agent_panel_sort;
+            self.status_indicators = ui.status_indicators;
+            self.sound_enabled = ui.sound.enabled;
+            self.toast_delivery = ui.toast.delivery;
+            self.toast_delay_seconds = ui.toast.delay_seconds;
+            self.toast_position = ui.toast.herdr.position;
+            self.copy_on_select = ui.copy_on_select;
+            self.clipboard_toast_enabled = ui.toast.clipboard.enabled;
+            self.clipboard_toast_position = ui.toast.clipboard.position;
+            self.prompt_new_tab_name = ui.prompt_new_tab_name;
+            self.prompt_new_workspace_name = ui.prompt_new_workspace_name;
+            self.confirm_close = ui.confirm_close;
+            self.mouse_capture = ui.mouse_capture;
+            self.mouse_scroll_lines = ui.mouse_scroll_lines();
+            self.right_click_passthrough_modifiers = ui.right_click_passthrough_modifiers();
+            self.redraw_on_focus_gained = ui.redraw_on_focus_gained;
         }
 
         if !invalid_section("theme") {
@@ -217,39 +170,17 @@ impl ClientShellConfig {
         diagnostics
     }
 
-    pub(super) fn layout(
-        &self,
-        cols: u16,
-        rows: u16,
-        sidebar_collapsed: bool,
-        tab_count: usize,
-        sidebar_width: u16,
-    ) -> ClientShellLayout {
+    pub(super) fn layout(&self, cols: u16, rows: u16, tab_count: usize) -> ClientShellLayout {
         if cols <= self.mobile_width_threshold {
             let header_height = rows.min(2);
             return ClientShellLayout {
-                sidebar: Rect::default(),
                 tab_bar: Rect::default(),
                 mobile_header: Rect::new(0, 0, cols, header_height),
                 pane_surface: Rect::new(0, header_height, cols, rows.saturating_sub(header_height)),
             };
         }
 
-        let sidebar_width = if sidebar_collapsed {
-            match self.sidebar_collapsed_mode {
-                SidebarCollapsedModeConfig::Compact => 4,
-                SidebarCollapsedModeConfig::Hidden => 0,
-            }
-        } else {
-            let (min, max) = crate::config::validated_sidebar_bounds(
-                self.sidebar_min_width,
-                self.sidebar_max_width,
-            )
-            .unwrap_or((18, 36));
-            sidebar_width.clamp(min, max)
-        }
-        .min(cols.saturating_sub(1));
-        let main = Rect::new(sidebar_width, 0, cols.saturating_sub(sidebar_width), rows);
+        let main = Rect::new(0, 0, cols, rows);
         let show_tab_bar = rows > 1 && !(self.hide_tab_bar_when_single_tab && tab_count == 1);
         let tab_height = u16::from(show_tab_bar);
         let (tab_bar, pane_surface) = match self.tab_bar_position {
@@ -274,7 +205,6 @@ impl ClientShellConfig {
         };
 
         ClientShellLayout {
-            sidebar: Rect::new(0, 0, sidebar_width, rows),
             tab_bar,
             mobile_header: Rect::default(),
             pane_surface,
@@ -282,21 +212,7 @@ impl ClientShellConfig {
     }
 
     pub(crate) fn initial_surface_size(&self, cols: u16, rows: u16) -> ClientSurfaceSize {
-        let sidebar_collapsed = self
-            .preferences
-            .sidebar_collapsed
-            .unwrap_or(self.sidebar_start_collapsed);
-        let (min_width, max_width) =
-            crate::config::validated_sidebar_bounds(self.sidebar_min_width, self.sidebar_max_width)
-                .unwrap_or((18, 36));
-        let sidebar_width = self
-            .preferences
-            .sidebar_width
-            .unwrap_or(self.sidebar_width)
-            .clamp(min_width, max_width);
-        let surface = self
-            .layout(cols, rows, sidebar_collapsed, 0, sidebar_width)
-            .pane_surface;
+        let surface = self.layout(cols, rows, 0).pane_surface;
         ClientSurfaceSize {
             cols: surface.width.max(1),
             rows: surface.height.max(1),
@@ -314,17 +230,14 @@ mod tests {
     fn live_reload_applies_client_owned_sections() {
         let mut shell = ClientShellConfig::from_config(&Config::default());
         let mut next = Config::default();
-        next.ui.sidebar_width = 31;
         next.ui.tab_bar_position = TabBarPositionConfig::Bottom;
         next.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
         next.ui.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
-        next.ui.sidebar.agents = toml::from_str("rows = [[{ token = 'machine', rules = [{ equals = 'Local', bold = true }] }]]\nrow_gap = 2").unwrap();
         next.keys.prefix = crate::config::BindingConfig::one("ctrl+a");
 
         let diagnostics = shell.apply_live_config(&next, &[], &[]);
 
         assert!(diagnostics.is_empty());
-        assert_eq!(shell.sidebar_width, 31);
         assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Bottom);
         assert_eq!(
             shell.agent_panel_sort,
@@ -334,21 +247,12 @@ mod tests {
             shell.status_indicators,
             crate::config::StatusIndicatorStyle::Symbols
         );
-        assert_eq!(shell.agents.row_gap, 2);
-        assert_eq!(
-            shell.agents.rows[0][0]
-                .style_for_value("Local")
-                .unwrap()
-                .bold,
-            Some(true)
-        );
-        let previous = shell.agents.clone();
         shell.apply_live_config(
             &Config::default(),
             &[],
             &["ui".to_owned(), "keys".to_owned()],
         );
-        assert_eq!(shell.agents, previous);
+        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Bottom);
         assert_eq!(
             shell.keybinds.prefix,
             vec![(KeyCode::Char('a'), KeyModifiers::CONTROL)]
@@ -362,15 +266,8 @@ mod tests {
             std::process::id()
         ));
         let _ = std::fs::remove_file(&path);
-        preferences::store(
-            &path,
-            preferences::ClientChromePreferences {
-                sidebar_width: Some(31),
-                sidebar_collapsed: Some(true),
-                ..preferences::ClientChromePreferences::default()
-            },
-        )
-        .expect("persist endpoint chrome");
+        std::fs::write(&path, r#"{"sidebar_collapsed":true,"sidebar_width":32}"#)
+            .expect("legacy chrome preferences");
         let config =
             ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone());
         let initial = config.initial_surface_size(100, 30);
@@ -382,17 +279,16 @@ mod tests {
     #[test]
     fn live_reload_preserves_invalid_client_owned_sections() {
         let mut initial = Config::default();
-        initial.ui.sidebar_width = 29;
+        initial.ui.tab_bar_position = TabBarPositionConfig::Bottom;
         initial.keys.prefix = crate::config::BindingConfig::one("ctrl+x");
         let mut shell = ClientShellConfig::from_config(&initial);
 
         let mut invalid = Config::default();
-        invalid.ui.sidebar_width = 35;
         invalid.keys.prefix = crate::config::BindingConfig::one("ctrl+a");
         let invalid_sections = vec!["ui".to_owned(), "keys".to_owned()];
         shell.apply_live_config(&invalid, &[], &invalid_sections);
 
-        assert_eq!(shell.sidebar_width, 29);
+        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Bottom);
         assert_eq!(
             shell.keybinds.prefix,
             vec![(KeyCode::Char('x'), KeyModifiers::CONTROL)]

@@ -157,3 +157,16 @@ fn path_basename(path: &str) -> &str {
         .find(|component| !component.is_empty())
         .unwrap_or(path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_agent_labels_round_trip() {
+        for agent in Agent::ALL {
+            assert_eq!(parse_canonical_agent_label(agent_label(agent)), Some(agent));
+            assert_eq!(parse_agent_label(agent_label(agent)), Some(agent));
+        }
+    }
+}

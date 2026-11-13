@@ -16,7 +16,7 @@ fn tab_overflow_controls_scroll_the_client_owned_tab_bar() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot));
     state.set_pane_surface(surface());
-    state.compose(80, 20).expect("overflow tab bar");
+    state.compose(67, 20).expect("overflow tab bar");
 
     assert!(state.hits.tab_scroll_right.width > 0);
     let scroll_right = state.hits.tab_scroll_right;
@@ -41,13 +41,13 @@ fn tab_overflow_controls_scroll_the_client_owned_tab_bar() {
         tab.focused = tab.tab_id == "tab_8";
     }
     state.set_snapshot(Box::new(update));
-    state.compose(80, 20).expect("focused overflow tab");
+    state.compose(67, 20).expect("focused overflow tab");
     assert!(state.hits.tabs.iter().any(|(_, tab_id)| tab_id == "tab_8"));
 
     state.compose(300, 20).expect("tabs without overflow");
     assert_eq!(state.tab_scroll, 0);
     assert_eq!(state.hits.tabs.len(), 8);
-    state.compose(80, 20).expect("focused tab after narrowing");
+    state.compose(67, 20).expect("focused tab after narrowing");
     assert!(state.hits.tabs.iter().any(|(_, tab_id)| tab_id == "tab_8"));
 }
 
@@ -90,11 +90,11 @@ fn focused_last_overflow_tab_shows_its_full_label() {
         state.set_snapshot(Box::new(projected.clone()));
         state.set_pane_surface(surface());
         let frame = state
-            .compose(133, 20)
+            .compose(120, 20)
             .expect("reporter's overflowing strip");
         assert_eq!(
             state.hits.new_tab.right() - state.hits.tab_scroll_left.x,
-            107
+            120 // Same tab-region width, without reserved workspace/menu slots.
         );
         let rect = state
             .hits
@@ -125,7 +125,7 @@ fn focused_last_overflow_tab_shows_its_full_label() {
         row: left.y,
         modifiers: KeyModifiers::empty(),
     })]);
-    let frame = state.compose(133, 20).expect("manual scroll left");
+    let frame = state.compose(120, 20).expect("manual scroll left");
     assert_eq!(state.tab_scroll, end_scroll - 1);
     let right = state.hits.tab_scroll_right;
     assert_eq!(
@@ -139,7 +139,7 @@ fn focused_last_overflow_tab_shows_its_full_label() {
         row: right.y,
         modifiers: KeyModifiers::empty(),
     })]);
-    let frame = state.compose(133, 20).expect("manual scroll right");
+    let frame = state.compose(120, 20).expect("manual scroll right");
     assert_eq!(state.tab_scroll, end_scroll);
     assert!(frame_rows(&frame)[0].contains("nvim test"));
     assert_eq!(
@@ -147,159 +147,6 @@ fn focused_last_overflow_tab_shows_its_full_label() {
         crate::protocol::color_to_u32(state.config.palette.overlay0),
         "right arrow dims at the useful scroll limit"
     );
-}
-
-#[test]
-fn focused_workspace_change_reveals_new_workspace_in_full_sidebar() {
-    let mut initial = snapshot();
-    let template = initial.workspaces[0].clone();
-    initial.workspaces = (1..=12)
-        .map(|number| ClientShellWorkspace {
-            workspace_id: format!("ws_{number}"),
-            number,
-            label: format!("space-{number}"),
-            branch: None,
-            focused: number == 1,
-            ..template.clone()
-        })
-        .collect();
-
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(initial));
-    state.set_pane_surface(surface());
-    state.compose(106, 20).expect("full sidebar");
-    assert!(state.hits.workspace_max_scroll > 0);
-    assert!(state
-        .hits
-        .workspaces
-        .iter()
-        .all(|hit| hit.workspace_id != "ws_12"));
-
-    let mut update = state
-        .endpoint
-        .snapshot
-        .as_deref()
-        .expect("snapshot")
-        .clone();
-    update.revision = 2;
-    update.focused_workspace_id = Some("ws_12".into());
-    for workspace in &mut update.workspaces {
-        workspace.focused = workspace.workspace_id == "ws_12";
-    }
-    let mut updated_surface = surface();
-    updated_surface.projection_revision = 2;
-    state.set_snapshot(Box::new(update));
-    state.set_pane_surface(updated_surface);
-    state.compose(106, 2).expect("zero-height workspace body");
-    assert!(state.reveal_focused_workspace);
-    state.compose(106, 20).expect("updated full sidebar");
-
-    assert!(state
-        .hits
-        .workspaces
-        .iter()
-        .any(|hit| hit.workspace_id == "ws_12"));
-}
-
-#[test]
-fn client_owned_sidebar_dividers_resize_live() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    state.compose(106, 30).expect("expanded sidebar");
-    let workspace_body = state.hits.workspace_body;
-    let needless_scroll =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::ScrollDown,
-            column: workspace_body.x,
-            row: workspace_body.y,
-            modifiers: KeyModifiers::empty(),
-        })]);
-    assert_eq!(state.hits.workspace_max_scroll, 0);
-    assert_eq!(state.workspace_scroll, 0);
-    assert!(!needless_scroll.repaint);
-    let width_divider = state.hits.sidebar_divider;
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: width_divider.x,
-        row: width_divider.y + 2,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    let resize =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Drag(MouseButton::Left),
-            column: 31,
-            row: width_divider.y + 2,
-            modifiers: KeyModifiers::empty(),
-        })]);
-    assert_eq!(state.sidebar_width, 32);
-    assert!(state.sidebar_width_manual);
-    assert!(resize.repaint);
-    assert!(resize.resize);
-    let waiting_frame = state.compose(106, 30).expect("waiting for resized surface");
-    let waiting_text: String = waiting_frame
-        .cells
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect();
-    assert!(
-        waiting_text.contains(" spaces"),
-        "local sidebar must keep spaces while resizing: {waiting_text}"
-    );
-    assert!(!waiting_text.contains(" machines"));
-    assert!(!waiting_text.contains("Select a connected machine"));
-    assert!(!waiting_text.contains("LIVE"));
-    assert!(waiting_frame.cursor.is_none());
-    assert!(state.pane_surface.is_none());
-    assert!(state.hits.panes.is_empty());
-    assert!(state.hits.pane_splits.is_empty());
-    assert_eq!(state.hits.sidebar_divider.x, 31);
-    assert_eq!(state.hits.workspaces[0].workspace_id, "ws_1");
-
-    let next_resize =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Drag(MouseButton::Left),
-            column: 32,
-            row: width_divider.y + 2,
-            modifiers: KeyModifiers::empty(),
-        })]);
-    assert!(next_resize.resize);
-    state.compose(106, 30).expect("continued resize");
-    assert_eq!(state.hits.sidebar_divider.x, 32);
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Up(MouseButton::Left),
-        column: 32,
-        row: width_divider.y + 2,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(state.chrome_drag.is_none());
-
-    state.set_pane_surface(surface());
-    let recovered_frame = state.compose(106, 30).expect("resized sidebar");
-    let recovered_text: String = recovered_frame
-        .cells
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect();
-    assert!(recovered_text.contains(" spaces"));
-    assert!(recovered_text.contains("LIVE"));
-    assert!(!state.hits.panes.is_empty());
-    let section_divider = state.hits.sidebar_section_divider;
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: section_divider.x + 2,
-        row: section_divider.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    let split = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Drag(MouseButton::Left),
-        column: section_divider.x + 2,
-        row: 20,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(state.sidebar_section_split > 0.6);
-    assert!(split.repaint);
-    assert!(!split.resize);
 }
 
 #[test]
@@ -354,7 +201,11 @@ fn context_menus_capture_stable_targets_and_route_actions() {
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("composed frame");
 
-    let workspace = state.hits.workspaces[0].rect;
+    state.handle_input_bytes(b"\x02w");
+    state.compose(106, 20).expect("workspace switcher");
+    let workspace = state.hits.mobile_targets.iter().find_map(|(rect, target)| {
+        matches!(target, ClientMobileTarget::Workspace { workspace_id } if workspace_id == "ws_1").then_some(*rect)
+    }).expect("workspace row");
     let open_workspace_menu =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Right),
@@ -401,6 +252,7 @@ fn context_menus_capture_stable_targets_and_route_actions() {
     ));
 
     state.overlay = None;
+    state.mode = ClientShellMode::Terminal;
     state.compose(106, 20).expect("composed frame");
     let pane = state.hits.panes[0].rect;
     state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
@@ -438,22 +290,18 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
-fn global_menu_opens_from_sidebar_and_routes_client_actions() {
+fn workspace_chooser_menu_routes_client_actions_without_tab_buttons() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.compose(106, 30).expect("shell frame");
-    let launcher = state.hits.global_launcher;
-    assert_ne!(launcher, Rect::default());
+    assert!(state.hits.global_launcher.is_empty());
+    assert!(state.hits.mobile_switch.is_empty());
 
-    let open = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: launcher.x,
-        row: launcher.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
+    let open = state.handle_input_bytes(b"\x02w");
     assert!(open.repaint);
-    let menu = state.compose(106, 30).expect("global menu");
+    assert!(open.actions.is_empty() && open.requests.is_empty());
+    let menu = state.compose(106, 30).expect("workspace chooser menu");
     let text = menu
         .cells
         .chunks(menu.width as usize)
@@ -470,7 +318,12 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     assert!(text.contains("dump pane diagnostics"));
     assert!(text.contains("detach"));
 
-    let keybinds = state.hits.global_menu_rows[1].0;
+    let keybinds = state
+        .hits
+        .mobile_targets
+        .iter()
+        .find_map(|(rect, target)| matches!(target, ClientMobileTarget::Menu(1)).then_some(*rect))
+        .expect("chooser keybinds entry");
     let help = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: keybinds.x,
@@ -487,10 +340,24 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
                 == global_menu::ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach)
         })
         .unwrap();
-    state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
-        highlighted: detach_index,
-    }));
-    let detach = state.handle_input_bytes(b"\r");
+    state.handle_input_bytes(b"\x1b");
+    state.handle_input_bytes(b"\x02w");
+    state.compose(106, 30).expect("chooser after closing help");
+    let detach_hit = state
+        .hits
+        .mobile_targets
+        .iter()
+        .find_map(|(rect, target)| {
+            matches!(target, ClientMobileTarget::Menu(index) if *index == detach_index)
+                .then_some(*rect)
+        })
+        .expect("chooser detach entry");
+    let detach = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: detach_hit.x,
+        row: detach_hit.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
     assert!(detach.detach);
     assert!(state.overlay.is_none());
 }

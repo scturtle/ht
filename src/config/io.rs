@@ -797,7 +797,7 @@ cjk_ime_cursor_shape = -1
 [advanced]
 scrollback_limit_lines = 5000
 [ui]
-sidebar_width = 32
+mobile_width_threshold = 32
 mouse_capture = false
 [keys]
 detach = "f10"
@@ -841,7 +841,7 @@ detach = "f10"
             assert_eq!(loaded.config.experimental.kitty_graphics, Some(true));
             assert!(loaded.config.experimental.allow_nested);
             assert_eq!(loaded.config.advanced.scrollback_limit_lines, 5000);
-            assert_eq!(loaded.config.ui.sidebar_width, 32);
+            assert_eq!(loaded.config.ui.mobile_width_threshold, 32);
             assert!(!loaded.config.ui.mouse_capture);
             assert!(loaded
                 .config
@@ -972,6 +972,7 @@ claude = [["terminal_title"]]
                 "unknown config key ui.\"foo.?.bar\"; ignoring key",
                 "unknown config key ui.\"foo.bar\"; ignoring key",
                 "unknown config key ui.mouse_captur; ignoring key",
+                "unknown config key ui.sidebar; ignoring key",
                 "unknown config key ui.toast.delivry; ignoring key",
             ]
         );
@@ -989,6 +990,63 @@ claude = [["terminal_title"]]
             .bindings
             .iter()
             .any(|binding| binding.label == "prefix+z"));
+    }
+
+    #[test]
+    fn retired_sidebar_settings_warn_without_invalidating_live_siblings() {
+        let loaded = load_live_config_from_str(
+            r##"
+[keys]
+toggle_sidebar = 42
+new_tab = "prefix+t"
+[ui]
+sidebar_width = "retired"
+sidebar_min_width = -5
+sidebar_max_width = []
+sidebar_start_collapsed = "retired"
+sidebar_collapsed_mode = 17
+mouse_capture = false
+mobile_width_threshold = 72
+[ui.sidebar.agents]
+rows = "retired"
+[theme.custom]
+sidebar_bg = 17
+accent = "#123456"
+"##,
+        )
+        .expect("retired values must be ignored, not invalidate keys/ui/theme");
+        assert!(loaded.invalid_sections.is_empty());
+        assert!(!loaded.config.ui.mouse_capture);
+        assert_eq!(loaded.config.ui.mobile_width_threshold, 72);
+        assert_eq!(loaded.config.keybinds().new_tab.labels(), ["prefix+t"]);
+        assert_eq!(
+            loaded
+                .config
+                .theme
+                .custom
+                .as_ref()
+                .and_then(|c| c.accent.as_deref()),
+            Some("#123456")
+        );
+        for key in [
+            "keys.toggle_sidebar",
+            "ui.sidebar_width",
+            "ui.sidebar_min_width",
+            "ui.sidebar_max_width",
+            "ui.sidebar_start_collapsed",
+            "ui.sidebar_collapsed_mode",
+            "ui.sidebar",
+            "theme.custom.sidebar_bg",
+        ] {
+            assert!(
+                loaded
+                    .diagnostics
+                    .iter()
+                    .any(|d| d == &format!("unknown config key {key}; ignoring key")),
+                "{key}: {:?}",
+                loaded.diagnostics
+            );
+        }
     }
 
     #[test]
@@ -1024,7 +1082,7 @@ remove_worktree = "prefix+shift+d"
 directory = "~/Projects/herdr-worktrees"
 
 [ui]
-sidebar_width = 32
+mobile_width_threshold = 32
 "#,
         )
         .unwrap();
@@ -1051,7 +1109,7 @@ sidebar_width = 32
             loaded.diagnostics
         );
         // Live settings beside the retired keys keep applying.
-        assert_eq!(loaded.config.ui.sidebar_width, 32);
+        assert_eq!(loaded.config.ui.mobile_width_threshold, 32);
         let keys = loaded.config.keybinds();
         assert!(keys
             .new_workspace
@@ -1075,7 +1133,7 @@ allow_nested = true
 kitty_graphics = true
 
 [ui]
-sidebar_width = 32
+mobile_width_threshold = 32
 
 [keys]
 new_workspace = "prefix+shift+n"
@@ -1096,7 +1154,7 @@ new_workspace = "prefix+shift+n"
         assert!(loaded.config.experimental.allow_nested);
         assert_eq!(loaded.config.experimental.kitty_graphics, Some(true));
         assert!(loaded.config.kitty_graphics_enabled());
-        assert_eq!(loaded.config.ui.sidebar_width, 32);
+        assert_eq!(loaded.config.ui.mobile_width_threshold, 32);
         assert!(loaded
             .config
             .keybinds()
@@ -1114,7 +1172,7 @@ new_workspace = "prefix+shift+n"
 allow_nested = "yes"
 
 [ui]
-sidebar_width = 33
+mobile_width_threshold = 33
 "#,
         )
         .unwrap();
@@ -1135,7 +1193,7 @@ sidebar_width = 33
             !loaded.config.experimental.allow_nested,
             "the rejected section's values are not applied"
         );
-        assert_eq!(loaded.config.ui.sidebar_width, 33);
+        assert_eq!(loaded.config.ui.mobile_width_threshold, 33);
     }
 
     #[test]

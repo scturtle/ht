@@ -483,6 +483,7 @@ fn mobile_switcher_scroll_close_and_width_transition_clear_mobile_hits() {
 
     state.compose(80, 20).expect("desktop transition");
     assert!(state.hits.mobile_switch.is_empty());
+    assert!(state.hits.global_launcher.is_empty());
     assert!(state.hits.mobile_close.is_empty());
     assert!(state.hits.mobile_targets.is_empty());
 

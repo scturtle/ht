@@ -10,15 +10,6 @@ impl ClientShellState {
             crate::input::KeybindMatch::Action(crate::input::KeybindAction::Detach) => {
                 outcome.detach = true;
             }
-            crate::input::KeybindMatch::Action(crate::input::KeybindAction::ToggleSidebar) => {
-                self.sidebar_collapsed = !self.sidebar_collapsed;
-                self.sidebar_collapsed_manual = true;
-                self.reveal_navigation_workspace = true;
-                self.invalidate_pane_surface();
-                outcome.repaint = true;
-                outcome.resize = true;
-                self.persist_chrome_preferences(outcome);
-            }
             crate::input::KeybindMatch::Action(action) => {
                 if self.workspace_preview_action_blocked()
                     && matches!(
@@ -140,7 +131,6 @@ impl ClientShellState {
                     self.reveal_mobile_workspace = false;
                     self.mode = ClientShellMode::Navigate;
                     self.navigate_workspace_id = self.focused_navigation_target();
-                    self.reveal_navigation_workspace = true;
                     outcome.repaint = true;
                     return;
                 }
@@ -676,7 +666,7 @@ impl ClientShellState {
 
         match action {
             KeybindAction::FocusAgent(index) => {
-                let agents = super::agent_sidebar::ordered_agent_pane_ids(
+                let agents = super::navigation_rows::ordered_agent_pane_ids(
                     snapshot,
                     self.config.agent_panel_sort,
                 );
@@ -685,7 +675,7 @@ impl ClientShellState {
                 }))
             }
             KeybindAction::PreviousAgent | KeybindAction::NextAgent => {
-                let agents = super::agent_sidebar::ordered_agent_pane_ids(
+                let agents = super::navigation_rows::ordered_agent_pane_ids(
                     snapshot,
                     self.config.agent_panel_sort,
                 );
@@ -705,28 +695,19 @@ impl ClientShellState {
                     _ => unreachable!("relative agent action"),
                 };
                 let pane_id = agents[next].clone();
-                if !self
-                    .hits
-                    .agents
-                    .iter()
-                    .any(|(_, visible_pane_id)| visible_pane_id == &pane_id)
-                {
-                    self.agent_scroll = next.min(self.hits.agent_max_scroll);
-                }
                 Some(Action::PaneFocus(PaneTarget { pane_id }))
             }
             KeybindAction::SwitchWorkspace(index) => {
-                let entries = self.navigation_workspace_entries(snapshot);
+                let entries = navigation_rows::workspace_entries(snapshot);
                 let workspace_id = snapshot
                     .workspaces
                     .get(entries.get(index)?.index)?
                     .workspace_id
                     .clone();
-                self.reveal_workspace(&workspace_id);
                 Some(Action::WorkspaceFocus(WorkspaceTarget { workspace_id }))
             }
             KeybindAction::PreviousWorkspace | KeybindAction::NextWorkspace => {
-                let entries = self.navigation_workspace_entries(snapshot);
+                let entries = navigation_rows::workspace_entries(snapshot);
                 if entries.is_empty() {
                     return None;
                 }
@@ -745,7 +726,6 @@ impl ClientShellState {
                 let workspace_id = snapshot.workspaces[entries[next].index]
                     .workspace_id
                     .clone();
-                self.reveal_workspace(&workspace_id);
                 Some(Action::WorkspaceFocus(WorkspaceTarget { workspace_id }))
             }
             KeybindAction::SwitchTab(index) => {

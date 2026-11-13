@@ -221,15 +221,16 @@ fn help_frames_keep_existing_search_wrapping_scroll_cursor_and_hits() {
             hashes.push(hash);
         }
     }
-    // Frozen from the help renderer before sharing its layout/styles: 144
-    // frames including wrapping, clamped scroll, Unicode filter and rejection.
+    // 144 frames including wrapping, clamped scroll, Unicode filter and rejection.
+    // Intentionally refreshed when removing the retired toggle-sidebar help row;
+    // the shared dialog painting/layout is unchanged.
     assert_eq!(
         hashes,
         [
-            18224073171307653013,
-            5614027059477157978,
-            14600420689991757256,
-            12158140087211091386,
+            14077277466857360920,
+            15801730575480443467,
+            15413754114629691577,
+            15247371855747336331,
         ]
     );
 }

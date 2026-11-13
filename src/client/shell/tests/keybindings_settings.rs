@@ -10,22 +10,6 @@ fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("composed frame");
 
-    let new_workspace = state.hits.new_workspace;
-    let create_workspace =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: new_workspace.x + 1,
-            row: new_workspace.y,
-            modifiers: KeyModifiers::empty(),
-        })]);
-    let [ClientShellAction::Endpoint { request, .. }] = &create_workspace.actions[..] else {
-        panic!("new workspace click should use the endpoint API");
-    };
-    assert!(matches!(
-        request.action,
-        crate::actions::Action::WorkspaceCreate(_)
-    ));
-
     let new_tab = state.hits.new_tab;
     let open_new_tab =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
@@ -42,29 +26,6 @@ fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
             ..
         }))
     ));
-}
-
-#[test]
-fn core_chrome_preferences_restore_without_a_bridge_identity() {
-    let socket = std::path::Path::new("/tmp/Core-preference-key.sock");
-    let first = ClientShellConfig::from_config(&Config::default())
-        .with_process_endpoint_preferences(socket);
-    let next = ClientShellConfig::from_config(&Config::default())
-        .with_process_endpoint_preferences(socket);
-    assert_eq!(first.preferences_path, next.preferences_path);
-    let root =
-        std::env::temp_dir().join(format!("ht-Core-chrome-preferences-{}", std::process::id()));
-    let path = root.join("chrome.json");
-    let mut state = ClientShellState::new(first.with_preferences_path(path.clone()));
-    state.sidebar_width = 31;
-    state.sidebar_width_manual = true;
-    state.sidebar_collapsed = true;
-    state.sidebar_collapsed_manual = true;
-    state.persist_chrome_preferences(&mut ClientShellInput::default());
-    let restored = ClientShellState::new(next.with_preferences_path(path));
-    assert_eq!(restored.sidebar_width, 31);
-    assert!(restored.sidebar_collapsed);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -98,7 +59,7 @@ fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
     let mut state = ClientShellState::new(config);
     state.set_snapshot(Box::new(projected));
     state.set_pane_surface(surface());
-    let frame = state.compose(106, 20).expect("status and overflow tabs");
+    let frame = state.compose(80, 20).expect("status and overflow tabs");
     let top = frame.cells[..frame.width as usize]
         .iter()
         .map(|cell| cell.symbol.as_str())
@@ -108,7 +69,7 @@ fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
 
     state.tab_scroll = usize::MAX;
     state.reveal_focused_tab = false;
-    state.compose(106, 20).expect("clamped tab scroll");
+    state.compose(80, 20).expect("clamped tab scroll");
     assert!(state.tab_scroll < 7);
     let manual_scroll = state.tab_scroll;
     let mut replacement = (**state.endpoint.snapshot.as_ref().expect("snapshot")).clone();
@@ -119,7 +80,7 @@ fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
     state.set_snapshot(Box::new(replacement));
     state.set_pane_surface(replacement_surface);
     assert!(!state.reveal_focused_tab);
-    state.compose(106, 20).expect("same-width status update");
+    state.compose(80, 20).expect("same-width status update");
     assert_eq!(state.tab_scroll, manual_scroll);
 
     state.compose(45, 20).expect("narrow tabs win over status");
