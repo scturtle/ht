@@ -21,6 +21,9 @@ include = [
 members = ["crates/ghostty-vt"]
 default-members = [".", "crates/ghostty-vt"]
 
+[profile.dev.package."*"]
+debug = 0
+
 [dependencies]
 ghostty-vt = { path = "crates/ghostty-vt" }
 signal-hook = "0.3"
