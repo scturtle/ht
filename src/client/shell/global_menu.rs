@@ -6,31 +6,34 @@ pub(super) enum ClientGlobalMenuAction {
     DumpPaneDiagnostics,
 }
 
-pub(super) fn global_menu_items() -> Vec<(&'static str, ClientGlobalMenuAction)> {
-    let mut items = vec![
-        (
-            "settings",
-            ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Settings),
-        ),
-        (
-            "keybinds",
-            ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Help),
-        ),
-        (
-            "reload config",
-            ClientGlobalMenuAction::Binding(crate::input::KeybindAction::ReloadConfig),
-        ),
-    ];
-    items.push((
+pub(super) fn global_menu_items() -> &'static [(&'static str, ClientGlobalMenuAction)] {
+    &GLOBAL_MENU_ITEMS
+}
+
+/// The global menu content is fixed, so one static array serves painting,
+/// selection, activation and the mobile menu instead of a `Vec` per call.
+static GLOBAL_MENU_ITEMS: [(&str, ClientGlobalMenuAction); 5] = [
+    (
+        "settings",
+        ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Settings),
+    ),
+    (
+        "keybinds",
+        ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Help),
+    ),
+    (
+        "reload config",
+        ClientGlobalMenuAction::Binding(crate::input::KeybindAction::ReloadConfig),
+    ),
+    (
         "dump pane diagnostics",
         ClientGlobalMenuAction::DumpPaneDiagnostics,
-    ));
-    items.push((
+    ),
+    (
         "detach",
         ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach),
-    ));
-    items
-}
+    ),
+];
 
 impl ClientShellState {
     pub(super) fn toggle_global_menu(&mut self) {
@@ -48,8 +51,7 @@ impl ClientShellState {
             .endpoint
             .snapshot
             .as_deref()
-            .map(|_| global_menu_items())
-            .map_or(0, |items| items.len());
+            .map_or(0, |_| global_menu_items().len());
         let Some(ClientShellOverlay::GlobalMenu(menu)) = self.overlay.as_mut() else {
             return;
         };

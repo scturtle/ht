@@ -6,20 +6,12 @@ impl ClientContextMenuOverlay {
 
         let item = |label, action| ClientContextMenuItem { label, action };
         let mut items = match &self.target {
-            ClientContextMenuTarget::Workspace { is_git: false, .. } => {
-                vec![item("Rename", Action::Rename), item("Close", Action::Close)]
-            }
-            ClientContextMenuTarget::Workspace {
-                is_linked_worktree: false,
-                has_worktree_children: false,
-                ..
-            } => vec![item("Rename", Action::Rename), item("Close", Action::Close)],
-            ClientContextMenuTarget::Workspace {
-                is_linked_worktree: true,
-                ..
-            } => vec![item("Rename", Action::Rename), item("Close", Action::Close)],
+            // Group children need their own close-group variant. Keeping the
+            // linked-worktree guard preserves the original precedence, so a
+            // workspace that never reports children keeps the two-item list.
             ClientContextMenuTarget::Workspace {
                 has_worktree_children: true,
+                is_linked_worktree: false,
                 close_group,
                 collapsed,
                 ..
@@ -34,6 +26,9 @@ impl ClientContextMenuOverlay {
                     Action::ToggleGroup,
                 ),
             ],
+            ClientContextMenuTarget::Workspace { .. } => {
+                vec![item("Rename", Action::Rename), item("Close", Action::Close)]
+            }
             ClientContextMenuTarget::Tab { .. } => vec![
                 item("New tab", Action::NewTab),
                 item("Rename", Action::Rename),
@@ -153,7 +148,6 @@ impl ClientShellState {
             methods: self.endpoint.methods.clone(),
             target: ClientContextMenuTarget::Workspace {
                 workspace_id,
-                is_git: worktree.is_some() || workspace.branch.is_some(),
                 is_linked_worktree: worktree.is_some_and(|worktree| worktree.is_linked_worktree),
                 has_worktree_children,
                 close_group,

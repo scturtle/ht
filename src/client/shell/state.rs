@@ -367,7 +367,6 @@ pub(super) enum ClientContextMenuAction {
 pub(super) enum ClientContextMenuTarget {
     Workspace {
         workspace_id: String,
-        is_git: bool,
         is_linked_worktree: bool,
         has_worktree_children: bool,
         close_group: bool,

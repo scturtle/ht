@@ -897,10 +897,7 @@ fn mobile_items(
     }
 
     items.push(MobileItem::section("menu", palette));
-    for (index, (label, _)) in super::global_menu::global_menu_items()
-        .into_iter()
-        .enumerate()
-    {
+    for (index, (label, _)) in super::global_menu::global_menu_items().iter().enumerate() {
         items.push(MobileItem {
             lines: vec![Line::from(Span::styled(
                 format!("  {label}"),

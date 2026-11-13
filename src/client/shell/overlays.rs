@@ -83,26 +83,8 @@ pub(crate) fn render_global_menu(
     let y = launcher.y.saturating_sub(height).max(screen.y);
     let rect = Rect::new(x, y, width, height);
     let inner = paint_panel(buffer, rect, palette.accent, palette.panel_bg)?;
-    let mut rows = Vec::new();
-    for (index, (label, _)) in items.iter().enumerate() {
-        let row_y = inner.y.saturating_add(index as u16);
-        if row_y >= inner.bottom() {
-            break;
-        }
-        let row = Rect::new(inner.x, row_y, inner.width, 1);
-        let highlighted = index == menu.highlighted;
-        let style = if highlighted {
-            Style::default()
-                .fg(panel_contrast_fg(palette))
-                .bg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette.text).bg(palette.panel_bg)
-        };
-        buffer.set_style(row, style);
-        put_text(buffer, row.x, row.y, row.width, &format!(" {label}"), style);
-        rows.push((row, index));
-    }
+    let labels = items.iter().map(|(label, _)| *label);
+    let rows = paint_menu_rows(buffer, inner, labels, menu.highlighted, 1, palette);
     Some(OverlayRender {
         area: rect,
         menu_rows: rows,
@@ -139,31 +121,56 @@ pub(crate) fn render_context_menu(
     );
     let rect = Rect::new(x, y, width, height);
     let inner = paint_panel(buffer, rect, palette.accent, palette.panel_bg)?;
-    let mut rows = Vec::new();
-    for (index, item) in items.iter().enumerate() {
-        let row_y = inner.y.saturating_add(index as u16);
-        if row_y >= inner.bottom() {
-            break;
-        }
-        let row = Rect::new(inner.x, row_y, inner.width, 1);
-        let highlighted = index == menu.highlighted;
-        let style = if highlighted {
-            Style::default()
-                .fg(panel_contrast_fg(palette))
-                .bg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette.text).bg(palette.panel_bg)
-        };
-        buffer.set_style(row, style);
-        put_text(buffer, row.x, row.y, row.width, item.label, style);
-        rows.push((row, index));
-    }
+    let labels = items.iter().map(|item| item.label);
+    let rows = paint_menu_rows(buffer, inner, labels, menu.highlighted, 0, palette);
     Some(OverlayRender {
         area: rect,
         menu_rows: rows,
         ..OverlayRender::default()
     })
+}
+
+/// Paint the rows of an already anchored menu panel and return the same
+/// rectangles as hits. Anchoring, minimum width and the text inset stay with
+/// each menu; row clipping, selection styles, text and hits are shared.
+fn paint_menu_rows<'a>(
+    buffer: &mut Buffer,
+    inner: Rect,
+    labels: impl Iterator<Item = &'a str>,
+    highlighted: usize,
+    text_inset: u16,
+    palette: &Palette,
+) -> Vec<(Rect, usize)> {
+    let selected = Style::default()
+        .fg(panel_contrast_fg(palette))
+        .bg(palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let normal = Style::default().fg(palette.text).bg(palette.panel_bg);
+    let mut rows = Vec::new();
+    for (index, label) in labels.enumerate() {
+        let row_y = inner.y.saturating_add(index as u16);
+        if row_y >= inner.bottom() {
+            break;
+        }
+        let row = Rect::new(inner.x, row_y, inner.width, 1);
+        let style = if index == highlighted {
+            selected
+        } else {
+            normal
+        };
+        buffer.set_style(row, style);
+        let text_x = row.x.saturating_add(text_inset);
+        put_text(
+            buffer,
+            text_x,
+            row.y,
+            row.width.saturating_sub(text_inset),
+            label,
+            style,
+        );
+        rows.push((row, index));
+    }
+    rows
 }
 
 fn render_rename_overlay(

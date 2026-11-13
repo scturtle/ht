@@ -202,6 +202,7 @@ mod input_domain;
 mod keybindings_settings;
 mod link_hover;
 mod local_scroll;
+mod menus;
 mod mobile;
 mod mouse_selection;
 mod navigation;
