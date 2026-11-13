@@ -7,6 +7,15 @@ use std::io;
 const LABEL_METHOD: &str = "terminal.label";
 const DISPLAY_NAME: &str = "herdr.display_name";
 
+/// Public Core snapshots expose the current cwd under foreground, not the
+/// launch cwd. Event-derived last_cwd survives a later null foreground.
+pub(super) fn current_cwd(facts: &Value) -> Option<&str> {
+    facts["foreground"]["cwd"]
+        .as_str()
+        .or_else(|| facts["last_cwd"].as_str())
+        .or_else(|| facts["cwd"].as_str())
+}
+
 pub(super) fn supports_rename(hello: &Value) -> bool {
     hello["methods"]
         .as_array()
@@ -63,6 +72,28 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_cwd_prefers_public_foreground_and_preserves_event_fallbacks() {
+        for (facts, expected) in [
+            (
+                json!({"cwd":"/launch","last_cwd":"/stale","foreground":{"cwd":"/actual"}}),
+                Some("/actual"),
+            ),
+            (
+                json!({"cwd":"/launch","last_cwd":"/last","foreground":null}),
+                Some("/last"),
+            ),
+            (json!({"cwd":"/launch","foreground":null}), Some("/launch")),
+            (
+                json!({"foreground":{"pid":12},"cwd":"/launch"}),
+                Some("/launch"),
+            ),
+            (json!({}), None),
+        ] {
+            assert_eq!(current_cwd(&facts), expected, "{facts}");
+        }
+    }
 
     #[test]
     fn blank_manual_names_restore_automatic_labels() {

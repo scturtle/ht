@@ -50,10 +50,7 @@ impl Model {
                 .map(|record| record.address.clone())
         })?;
         let record = self.records.get(&self.id(&address)?)?;
-        record.facts["last_cwd"]
-            .as_str()
-            .or(record.facts["cwd"].as_str())
-            .map(str::to_owned)
+        super::metadata::current_cwd(&record.facts).map(str::to_owned)
     }
 
     pub fn workspace_info(&self, key: &str) -> io::Result<actions::WorkspaceInfo> {
@@ -119,11 +116,7 @@ impl Model {
                     .layouts
                     .get(&active_tab)
                     .and_then(|layout| self.records.get(&layout.focused()))
-                    .and_then(|record| {
-                        record.facts["last_cwd"]
-                            .as_str()
-                            .or(record.facts["cwd"].as_str())
-                    })
+                    .and_then(|record| super::metadata::current_cwd(&record.facts))
                     .unwrap_or(".")
                     .into(),
                 number: position + 1,
@@ -163,8 +156,8 @@ impl Model {
                         workspace_id: workspace.id.clone(),
                         tab_id: tab.id.clone(),
                         label: super::metadata::pane_label(facts),
-                        cwd: cwd.clone(),
-                        foreground_cwd: facts["last_cwd"].as_str().map(str::to_owned).or(cwd),
+                        cwd,
+                        foreground_cwd: super::metadata::current_cwd(facts).map(str::to_owned),
                         focused,
                         right_click_passthrough: false,
                     });

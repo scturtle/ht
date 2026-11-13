@@ -72,6 +72,11 @@ core-network-smoke: build core-source-build core-ui-oracle
 core-organization-smoke: build core-source-build core-ui-oracle
     CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/organization-ui-smoke.py
 
+# First attach uses the existing root shell cwd, not its launch/client cwd.
+[unix]
+core-cwd-smoke: build core-source-build core-ui-oracle
+    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/cwd-ui-smoke.py
+
 # Two real clients, authoritative resize ordering, leadership and copy-mode.
 [unix]
 core-multiclient-smoke: build core-source-build core-ui-oracle

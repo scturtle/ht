@@ -125,6 +125,21 @@ fn turn_status_does_not_close_a_live_pane_or_corrupt_its_lifecycle() {
 }
 
 #[test]
+fn fresh_public_cwd_is_available_to_creation_before_foreground_events() {
+    let (mut session, ids) = fixture(1);
+    let facts = &mut session.model.records.get_mut(&ids[0]).unwrap().facts;
+    facts["cwd"] = json!("/launch");
+    facts["foreground"] = json!({"cwd":"/working","pid":42});
+    assert!(facts.get("last_cwd").is_none());
+    assert_eq!(
+        session
+            .cwd_for_workspace(&session.model.active_workspace)
+            .as_deref(),
+        Some("/working")
+    );
+}
+
+#[test]
 fn foreground_event_updates_nested_facts_not_the_program_identity() {
     let (mut session, ids) = fixture(1);
     let id = ids[0];

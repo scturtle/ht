@@ -94,10 +94,7 @@ impl Session {
         let tab = self.model.active_tabs.get(workspace)?;
         let id = self.model.layouts.get(tab)?.focused();
         let record = self.model.records.get(&id)?;
-        record.facts["last_cwd"]
-            .as_str()
-            .or(record.facts["cwd"].as_str())
-            .map(str::to_owned)
+        super::metadata::current_cwd(&record.facts).map(str::to_owned)
     }
     pub(super) fn run_terminal(
         &mut self,
@@ -265,9 +262,7 @@ impl Session {
                     return Err(invalid("invalid Core split ratio"));
                 }
                 let cwd = p.cwd.or_else(|| {
-                    self.model.records[&target].facts["last_cwd"]
-                        .as_str()
-                        .or(self.model.records[&target].facts["cwd"].as_str())
+                    super::metadata::current_cwd(&self.model.records[&target].facts)
                         .map(str::to_owned)
                 });
                 let result = self.run_terminal(cwd, p.env)?;

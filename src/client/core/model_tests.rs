@@ -264,6 +264,40 @@ mod tests {
     }
 
     #[test]
+    fn initial_public_foreground_cwd_names_the_workspace_without_a_later_event() {
+        let mut model = Model::new("initial-cwd".into());
+        let root = model.insert(json!({
+            "address":"t1", "cwd":"/home/user", "state":"live", "pid":41,
+            "foreground":{"pid":41,"cwd":"/home/user/code/herdr","name":"bash","argv":["bash"]}
+        })).unwrap();
+        // This is Core's public subscription/get shape: last_cwd is private.
+        assert!(model.records[&root].facts.get("last_cwd").is_none());
+        let organization = model.shared().unwrap();
+        let snapshot = model.snapshot();
+        assert_eq!(model.workspace_info(WORKSPACE).unwrap().label, "herdr");
+        assert_eq!(snapshot.workspaces[0].label, "herdr");
+        assert_eq!(snapshot.workspaces[0].new_workspace_cwd, "/home/user/code/herdr");
+        assert_eq!(snapshot.panes[0].cwd.as_deref(), Some("/home/user"));
+        assert_eq!(snapshot.panes[0].foreground_cwd.as_deref(), Some("/home/user/code/herdr"));
+        assert_eq!(model.records[&root].facts["cwd"], "/home/user");
+        assert_eq!(model.shared().unwrap(), organization);
+    }
+
+    #[test]
+    fn initial_workspace_name_uses_first_tab_but_creation_cwd_uses_active_tab() {
+        let mut model = Model::new("first-tab-cwd".into());
+        model.insert(json!({"address":"t1","cwd":"/launch",
+            "foreground":{"cwd":"/home/user/code/herdr"}})).unwrap();
+        model.create_tab(WORKSPACE, json!({"address":"t2","cwd":"/another-launch",
+            "foreground":{"cwd":"/work/other"}}), None, true).unwrap();
+        let snapshot = model.snapshot();
+        assert_eq!(snapshot.workspaces[0].label, "herdr");
+        assert_eq!(snapshot.workspaces[0].new_workspace_cwd, "/work/other");
+        model.organization.workspaces[0].label = "manual".into();
+        assert_eq!(model.snapshot().workspaces[0].label, "manual");
+    }
+
+    #[test]
     fn workspace_name_is_the_first_tabs_root_cwd_until_a_custom_name_is_set() {
         // Original `Workspace::display_name_from_terminals`: no custom name means
         // the name is derived from the first tab's root pane cwd, and it follows
