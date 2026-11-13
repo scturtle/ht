@@ -3,17 +3,14 @@ use crossterm::event::{KeyCode, KeyModifiers};
 mod io;
 mod keybinds;
 mod model;
-mod sound;
 mod tab_bar;
 mod theme;
 mod window_title;
-mod write;
 
 pub use self::{
     io::{
         config_diagnostic_summary, config_dir, config_path, load_live_config,
-        remove_keybinding_config_sections, remove_section_key, state_dir, upsert_section_bool,
-        upsert_section_value,
+        remove_keybinding_config_sections, state_dir,
     },
     keybinds::{
         format_prefix_combos, normalize_key_combo, terminal_key_matches_combo, ActionKeybinds,
@@ -24,17 +21,12 @@ pub use self::{
         StatusIndicatorStyle, TabBarPositionConfig, ToastClipboardPosition, ToastDelivery,
         ToastHerdrPosition,
     },
-    sound::SoundConfig,
     tab_bar::TabBarRightEntryConfig,
-    theme::{parse_color, CustomThemeColors, ModeThemeColors, ThemeConfig, THEME_NAMES},
+    theme::{parse_color, CustomThemeColors, ThemeConfig},
 };
 
 pub(crate) use self::keybinds::parse_key_combo;
-pub(crate) use self::write::{write_edit, ConfigEdit};
-pub(crate) use self::{
-    tab_bar::tab_bar_right_diagnostics, theme::canonical_theme_name,
-    window_title::window_title_diagnostics,
-};
+pub(crate) use self::{tab_bar::tab_bar_right_diagnostics, window_title::window_title_diagnostics};
 
 pub const CONFIG_PATH_ENV_VAR: &str = "HERDR_CONFIG_PATH";
 
@@ -76,8 +68,6 @@ impl Config {
             .into_iter()
             .chain(keybind_diags)
             .chain(self.remote_image_paste_key().err())
-            .chain(self.theme.diagnostics())
-            .chain(self.ui.sound.diagnostics())
             .chain(tab_bar_right_diagnostics(&self.ui.tab_bar_right))
             .chain(window_title_diagnostics(&self.ui.window_title))
             .collect()

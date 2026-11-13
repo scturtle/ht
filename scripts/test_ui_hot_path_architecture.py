@@ -170,7 +170,7 @@ class UiHotPathArchitectureTests(unittest.TestCase):
         relative_paths = {str(p.relative_to(PROJECT_ROOT)) for p in PRESENTATION_SOURCES}
         self.assertTrue({
             "src/client/core/view.rs", "src/client/shell/composition.rs",
-            "src/selection/word.rs", "src/ui/theme.rs",
+            "src/selection/word.rs", "src/ui/colors.rs",
         }.issubset(relative_paths), "Missing client presentation sources")
         violations = find_violations(PRESENTATION_SOURCES, AGGREGATE_STATE_CALLS)
 

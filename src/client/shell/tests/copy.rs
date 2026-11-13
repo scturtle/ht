@@ -62,7 +62,6 @@ fn client_selection_uses_host_background_and_repaints_when_it_changes() {
     for explicit_appearance in [false, true] {
         let mut config = ClientShellConfig::from_config(&Config::default());
         config.palette = Palette::terminal();
-        config.theme_runtime.auto_switch = false;
         let mut state = ClientShellState::new(config);
         state.set_snapshot(Box::new(snapshot()));
         state.set_pane_surface(surface());
@@ -934,13 +933,16 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
 #[test]
 fn navigator_workspace_headings_use_the_active_themes_primary_text() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.config.theme_runtime.auto_switch = false;
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.open_navigator_overlay();
     for palette in [
-        Palette::catppuccin(),
-        Palette::catppuccin_latte(),
+        Palette::test_palette(),
+        {
+            let mut palette = Palette::terminal();
+            palette.text = ratatui::style::Color::Rgb(10, 20, 30);
+            palette
+        },
         Palette::terminal(),
     ] {
         state.config.palette = palette;

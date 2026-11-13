@@ -11,7 +11,6 @@ mod client;
 #[allow(dead_code)]
 mod config;
 mod copy_mode;
-mod detect;
 mod input;
 mod kitty_graphics;
 mod layout;
@@ -27,7 +26,6 @@ mod raw_input;
 mod render_prof;
 mod selection;
 mod session;
-mod sound;
 mod terminal_effects;
 mod terminal_modes;
 mod terminal_notify;
@@ -49,36 +47,13 @@ const NESTED_HERDR_MESSAGES: [&str; 6] = [
 const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Place this file at ~/.config/herdr/config.toml
 
-[theme]
-# Built-in themes: catppuccin, terminal, tokyo-night, dracula, nord,
-#                  gruvbox, one-dark, solarized, kanagawa, rose-pine,
-#                  vesper
-# name = "catppuccin"
-
-# Follow host terminal light/dark appearance and switch Herdr UI themes.
-# Existing manual behavior is unchanged unless this is true.
-# auto_switch = false
-# dark_name = "catppuccin"
-# light_name = "catppuccin-latte"
-
-# Override individual color tokens on top of the base theme.
-# Accepts: hex (#rrggbb), named colors, rgb(r,g,b), or panel_bg = "reset"
+# UI colors follow the host terminal. Optional single-layer overrides:
+# Accepts hex (#rrggbb), named ANSI colors, rgb(r,g,b), or "reset".
 # [theme.custom]
-# active_row_bg = "#1e1e2e"
-# selection_bg = "#313244"
 # panel_bg = "reset"
 # accent = "#f5c2e7"
 # red = "#ff6188"
 # green = "#a6e3a1"
-
-# Layer appearance-specific overrides on top when auto_switch is enabled.
-# [theme.custom.light]
-# panel_bg = "#eff1f5"
-# text = "#4c4f69"
-#
-# [theme.custom.dark]
-# panel_bg = "#1e1e2e"
-# text = "#cdd6f4"
 
 [terminal]
 # Executable used for new interactive panes.
@@ -101,7 +76,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # Prefix-mode actions
 # help = "prefix+?"
-# settings = "prefix+s"
 # detach = "prefix+q"
 # reload_config = "prefix+shift+r"
 # open_notification_target = "prefix+o"
@@ -252,10 +226,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # distinct static glyphs for blocked, working, done, idle, and unknown states.
 # status_indicators = "dots"
 
-# Accent color for highlights, borders, and navigation UI.
-# Accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
-# accent = "cyan"
-
 # Background notification popup delivery
 [ui.toast]
 # off = disable pop-up notifications
@@ -271,19 +241,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 [ui.toast.clipboard]
 # enabled = true
 # position = "bottom-center"
-
-# Play sounds when agents change state in background workspaces
-[ui.sound]
-# enabled = true
-# Optional custom mp3 sound files. Relative paths are resolved from this config file's directory.
-# path = "sounds/notification.mp3"   # one mp3 file for all sound notifications
-# done_path = "sounds/done.mp3"      # overrides only finished notifications
-# request_path = "sounds/request.mp3" # overrides only needs-attention notifications
-
-# Per-agent overrides: default | on | off
-# By default, droid is muted.
-# [ui.sound.agents]
-# droid = "off"
 
 [experimental]
 # Allow launching herdr from inside a herdr-managed pane.
@@ -441,14 +398,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_lists_ui_accent_before_nested_tables() {
-        let accent_marker = "# accent = \"cyan\"";
-        assert_eq!(DEFAULT_CONFIG.matches(accent_marker).count(), 1);
-
-        let accent = DEFAULT_CONFIG.find(accent_marker).unwrap();
-        let toast = DEFAULT_CONFIG.find("[ui.toast]").unwrap();
-
-        assert!(accent < toast);
+    fn default_config_only_advertises_the_single_override_layer() {
+        let config: config::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+        assert!(config.theme.custom.is_none());
+        assert!(DEFAULT_CONFIG.contains("# [theme.custom]"));
+        for retired in [
+            "auto_switch",
+            "dark_name",
+            "light_name",
+            "ui.sound",
+            "# settings =",
+            "theme.custom.light",
+            "theme.custom.dark",
+        ] {
+            assert!(!DEFAULT_CONFIG.contains(retired), "{retired}");
+        }
     }
 
     #[test]

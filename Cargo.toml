@@ -11,7 +11,6 @@ description = "terminal workspace manager for AI coding agents (personal Core-on
 license = "Apache-2.0"
 include = [
     "src/**/*",
-    "assets/sounds/*",
     "README.md",
     "LICENSE",
     "Cargo.toml",

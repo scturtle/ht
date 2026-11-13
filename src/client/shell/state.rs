@@ -11,15 +11,12 @@ pub(crate) struct ClientShellConfig {
     pub(super) hide_tab_bar_when_single_tab: bool,
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
     pub(super) status_indicators: crate::config::StatusIndicatorStyle,
-    pub(super) sound_enabled: bool,
     pub(super) toast_delivery: crate::config::ToastDelivery,
     pub(super) toast_delay_seconds: u64,
     pub(super) toast_position: crate::config::ToastHerdrPosition,
     pub(super) copy_on_select: bool,
     pub(super) clipboard_toast_enabled: bool,
     pub(super) clipboard_toast_position: crate::config::ToastClipboardPosition,
-    pub(super) theme_name: String,
-    pub(super) theme_runtime: crate::ui::ThemeRuntimeConfig,
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
     pub(super) prompt_new_tab_name: bool,
@@ -76,9 +73,6 @@ pub(super) struct ShellHitMap {
     pub(super) help_scrollbar: Rect,
     pub(super) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(super) help_max_scroll: usize,
-    pub(super) settings_popup: Rect,
-    pub(super) settings_tabs: Vec<(Rect, ClientSettingsSection)>,
-    pub(super) settings_choices: Vec<(Rect, usize)>,
 }
 
 #[derive(Clone)]
@@ -188,7 +182,6 @@ pub(super) enum ClientShellOverlayKind {
     Navigator,
     ContextMenu,
     GlobalMenu,
-    Settings,
 }
 
 #[derive(Debug)]
@@ -257,36 +250,6 @@ pub(super) struct ClientHelpOverlay {
 #[derive(Debug)]
 pub(super) struct ClientGlobalMenuOverlay {
     pub(super) highlighted: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ClientSettingsSection {
-    Theme,
-    Indicators,
-    Sound,
-    Toast,
-}
-
-impl ClientSettingsSection {
-    pub(super) const ALL: &[Self] = &[Self::Theme, Self::Indicators, Self::Sound, Self::Toast];
-
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::Theme => "theme",
-            Self::Indicators => "indicators",
-            Self::Sound => "sound",
-            Self::Toast => "toasts",
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct ClientSettingsOverlay {
-    pub(super) sections: Vec<ClientSettingsSection>,
-    pub(super) section: ClientSettingsSection,
-    pub(super) selected: usize,
-    pub(super) original_theme_name: String,
-    pub(super) original_palette: Palette,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -362,7 +325,6 @@ pub(super) enum ClientShellOverlay {
     Navigator(ClientNavigatorOverlay),
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
-    Settings(ClientSettingsOverlay),
 }
 
 impl ClientShellOverlay {
@@ -374,7 +336,6 @@ impl ClientShellOverlay {
             Self::Navigator(_) => ClientShellOverlayKind::Navigator,
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
-            Self::Settings(_) => ClientShellOverlayKind::Settings,
         }
     }
 }
@@ -452,18 +413,8 @@ pub(crate) struct ClientShellEndpointError {
 }
 
 pub(crate) enum ClientShellNotificationEffect {
-    Sound {
-        sound: crate::sound::Sound,
-        agent: Option<String>,
-    },
-    Terminal {
-        title: String,
-        body: Option<String>,
-    },
-    System {
-        title: String,
-        body: Option<String>,
-    },
+    Terminal { title: String, body: Option<String> },
+    System { title: String, body: Option<String> },
 }
 
 pub(super) struct ClientPendingNotification {
@@ -651,8 +602,6 @@ pub(crate) struct ClientShellState {
     pub(super) endpoint_notice_seen: HashSet<ClientEndpointNoticeKey>,
     pub(super) visible_endpoint_notice: Option<ClientVisibleEndpointNotice>,
     pub(super) outer_focused: Option<bool>,
-    pub(super) host_appearance: Option<crate::terminal_theme::HostAppearance>,
-    pub(super) host_appearance_explicit: bool,
     pub(super) host_background: Option<crate::terminal_theme::RgbColor>,
     pub(super) local_config_diagnostic: Option<String>,
     pub(super) config_diagnostic: Option<String>,
@@ -738,8 +687,6 @@ impl ClientShellState {
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
             outer_focused: None,
-            host_appearance: None,
-            host_appearance_explicit: false,
             host_background: None,
             config_diagnostic: local_config_diagnostic.clone(),
             local_config_diagnostic,

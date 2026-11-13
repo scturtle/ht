@@ -4,7 +4,6 @@
 //! connection; dropping it disconnects the relay, never Core or its PTYs.
 
 mod clipboard_forwarding;
-mod config_reload;
 pub(crate) mod connection;
 mod core;
 mod diagnostics;
@@ -32,9 +31,6 @@ mod timer;
 #[cfg(test)]
 use clipboard_forwarding::decode_clipboard_payload;
 use clipboard_forwarding::forward_clipboard;
-#[cfg(test)]
-use config_reload::reload_local_client_config;
-use config_reload::{apply_reload, init_logging};
 use events::ClientLoopEvent;
 use loop_config::ClientLoopConfig;
 use shell_runtime::*;
@@ -91,9 +87,9 @@ use frame_output::{
     contains_kitty_graphics_bytes, record_received_kitty_graphics,
     write_encoded_frame_with_graphics,
 };
-use notifications::handle_shell_notification_effects;
 #[cfg(test)]
-use notifications::{handle_notify_with_notifiers, sound_from_notify_message};
+use notifications::handle_notify_with_notifiers;
+use notifications::handle_shell_notification_effects;
 #[cfg(test)]
 use terminal_sessions::terminal_control_command_from_json;
 
@@ -113,7 +109,7 @@ use crate::protocol::{ClientMessage, ServerMessage};
 
 pub fn run_core_client() -> io::Result<()> {
     let core_options = core::Options::from_environment()?;
-    init_logging();
+    crate::logging::init_file_logging("herdr-client.log");
 
     let loaded_config = crate::config::Config::load();
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
@@ -125,7 +121,6 @@ pub fn run_core_client() -> io::Result<()> {
         ))
         .with_process_endpoint_preferences(&preference_key);
     let mouse_capture = loaded_config.config.ui.mouse_capture;
-    let redraw_on_focus_gained = loaded_config.config.ui.redraw_on_focus_gained;
     let host_cursor = loaded_config.config.ui.host_cursor;
     let kitty_graphics_enabled = loaded_config.config.kitty_graphics_enabled();
     // Pane images are parsed and drawn by this client now, so it owns the flag
@@ -133,8 +128,6 @@ pub fn run_core_client() -> io::Result<()> {
     crate::kitty_graphics::set_enabled(kitty_graphics_enabled);
     let pixel_geometry_enabled = kitty_graphics_enabled;
     let mut loop_config = ClientLoopConfig {
-        sound_config: loaded_config.config.ui.sound.clone(),
-        redraw_on_focus_gained,
         host_cursor,
         kitty_graphics_enabled,
         pixel_geometry_enabled,
@@ -280,7 +273,6 @@ async fn run_client_loop(
         keyboard_report_all_active: false,
         reported_size: (cols, rows),
         reported_cell_size: (initial_cell_width_px, initial_cell_height_px),
-        sound_config: config.sound_config,
         kitty_graphics_enabled: config.kitty_graphics_enabled,
         pixel_geometry_enabled: config.pixel_geometry_enabled,
         pixel_geometry_exact: initial_pixel_geometry_exact,
@@ -290,7 +282,6 @@ async fn run_client_loop(
         disabled_native_graphics: Default::default(),
         pending_native_cleanup: Vec::new(),
         pending_surface_graphics: HashMap::new(),
-        redraw_on_focus_gained: config.redraw_on_focus_gained,
         repaint_pending: false,
         draw_host_cursor,
         detached_process_children: Vec::new(),
@@ -832,7 +823,7 @@ async fn run_client_loop(
                                 .flatten();
                             (effects, frame)
                         };
-                        handle_shell_notification_effects(effects, &state.sound_config);
+                        handle_shell_notification_effects(effects);
                         if let Some(frame) = frame {
                             state.present_frame(frame);
                         }
@@ -936,12 +927,6 @@ async fn run_client_loop(
                             title.as_deref(),
                         );
                     }
-                    ServerMessage::ReloadSoundConfig => apply_reload(
-                        &mut state,
-                        &mut connection,
-                        &host_mouse_capture_active,
-                        &host_sgr_pixels_active,
-                    )?,
                     ServerMessage::MouseCapture {
                         enabled,
                         sgr_pixels,
@@ -1042,7 +1027,7 @@ async fn run_client_loop(
                             .flatten();
                         (effects, outcome, frame)
                     };
-                    handle_shell_notification_effects(effects, &state.sound_config);
+                    handle_shell_notification_effects(effects);
                     if finish_client_shell_input(
                         &mut state,
                         outcome,

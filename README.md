@@ -41,8 +41,22 @@ There is no persistent sidebar. Open the workspace chooser with **Ctrl+b, then w
 (default `prefix+w`). Use arrows and Enter to select, Esc to cancel.
 **Ctrl+b, then g** opens the session navigator, with arrows or j/k to select.
 The chooser has no menu section; the navigator has no search or filters.
-Settings and help remain available via **prefix+s** and **prefix+?**;
-pane diagnostics are in the pane context menu.
+Help remains available via **prefix+?**; pane diagnostics are in the pane context menu.
+
+## Configuration
+
+Edit `~/.config/herdr/config.toml` (or `HERDR_CONFIG_PATH`); there is no settings page.
+Use `ht --default-config` for the supported options. UI colors follow the host terminal,
+with one optional override layer:
+
+```toml
+[theme.custom]
+accent = "#12ab34"
+panel_bg = "reset"
+```
+
+There are no built-in themes, light/dark overrides, auto-switching or audio alerts.
+**prefix+Shift+r** reloads live client options; startup-only options require reattaching.
 
 ## Development
 

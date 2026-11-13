@@ -36,10 +36,6 @@ impl ClientShellState {
                     &loaded.diagnostics,
                     &loaded.invalid_sections,
                 );
-                if let Some(appearance) = self.host_appearance {
-                    self.config.palette =
-                        self.config.theme_runtime.palette_for_appearance(appearance);
-                }
                 if self.agent_panel_sort_manual {
                     self.config.agent_panel_sort = agent_panel_sort;
                 }
@@ -58,7 +54,6 @@ impl ClientShellState {
 
 impl ClientShellConfig {
     pub(crate) fn from_config(config: &Config) -> Self {
-        let theme_runtime = crate::ui::ThemeRuntimeConfig::from_config(config);
         let keybinds = config
             .live_keybinds_with_diagnostics()
             .map(|(keybinds, _diagnostics)| keybinds)
@@ -72,16 +67,13 @@ impl ClientShellConfig {
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
             agent_panel_sort: config.ui.agent_panel_sort,
             status_indicators: config.ui.status_indicators,
-            sound_enabled: config.ui.sound.enabled,
             toast_delivery: config.ui.toast.delivery,
             toast_delay_seconds: config.ui.toast.delay_seconds,
             toast_position: config.ui.toast.herdr.position,
             copy_on_select: config.ui.copy_on_select,
             clipboard_toast_enabled: config.ui.toast.clipboard.enabled,
             clipboard_toast_position: config.ui.toast.clipboard.position,
-            theme_name: theme_runtime.manual_name.clone(),
-            palette: theme_runtime.palette(),
-            theme_runtime,
+            palette: crate::ui::palette_from_config(config),
             keybinds,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
@@ -139,13 +131,11 @@ impl ClientShellConfig {
 
         if !invalid_section("ui") {
             let ui = &config.ui;
-            diagnostics.extend(ui.sound.diagnostics());
             self.mobile_width_threshold = ui.mobile_width_threshold;
             self.tab_bar_position = ui.tab_bar_position;
             self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
             self.agent_panel_sort = ui.agent_panel_sort;
             self.status_indicators = ui.status_indicators;
-            self.sound_enabled = ui.sound.enabled;
             self.toast_delivery = ui.toast.delivery;
             self.toast_delay_seconds = ui.toast.delay_seconds;
             self.toast_position = ui.toast.herdr.position;
@@ -162,9 +152,7 @@ impl ClientShellConfig {
         }
 
         if !invalid_section("theme") {
-            self.theme_runtime = crate::ui::ThemeRuntimeConfig::from_config(config);
-            self.theme_name = self.theme_runtime.manual_name.clone();
-            self.palette = self.theme_runtime.palette();
+            self.palette = crate::ui::palette_from_config(config);
         }
 
         diagnostics
@@ -225,6 +213,49 @@ mod tests {
     use crossterm::event::{KeyCode, KeyModifiers};
 
     use super::*;
+
+    #[test]
+    fn ui_defaults_to_terminal_colors_and_only_applies_custom_overrides() {
+        let mut config = Config::default();
+        assert_eq!(
+            ClientShellConfig::from_config(&config).palette,
+            Palette::terminal()
+        );
+        config.theme.custom = Some(crate::config::CustomThemeColors {
+            accent: Some("#12ab34".into()),
+            ..Default::default()
+        });
+        let mut expected = Palette::terminal();
+        expected.accent = ratatui::style::Color::Rgb(0x12, 0xab, 0x34);
+        assert_eq!(ClientShellConfig::from_config(&config).palette, expected);
+    }
+
+    #[test]
+    fn live_override_reload_keeps_invalid_layer_and_can_restore_terminal_defaults() {
+        let config: Config = toml::from_str(
+            r##"[theme.custom]
+accent = "#123456"
+"##,
+        )
+        .unwrap();
+        let mut shell = ClientShellConfig::from_config(&config);
+        let saved = shell.palette.clone();
+        let next: Config = toml::from_str(
+            r##"[theme.custom]
+accent = "#abcdef"
+"##,
+        )
+        .unwrap();
+        shell.apply_live_config(&next, &[], &["theme".into()]);
+        assert_eq!(shell.palette, saved);
+        shell.apply_live_config(&next, &[], &[]);
+        assert_eq!(
+            shell.palette.accent,
+            ratatui::style::Color::Rgb(0xab, 0xcd, 0xef)
+        );
+        shell.apply_live_config(&Config::default(), &[], &[]);
+        assert_eq!(shell.palette, Palette::terminal());
+    }
 
     #[test]
     fn live_reload_applies_client_owned_sections() {

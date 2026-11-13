@@ -1,79 +1,49 @@
 use super::*;
 
 #[test]
-fn host_appearance_prefers_explicit_reports_over_background_inference() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.config.theme_runtime.auto_switch = true;
-
-    let light = state
-        .config
-        .theme_runtime
-        .palette_for_appearance(crate::terminal_theme::HostAppearance::Light);
-    let dark = state
-        .config
-        .theme_runtime
-        .palette_for_appearance(crate::terminal_theme::HostAppearance::Dark);
-
-    let inferred = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
+fn host_color_reports_update_native_pty_colors_without_switching_ui_overrides() {
+    let config: Config = toml::from_str(
+        r##"
+[theme.custom]
+accent = "#123456"
+"##,
+    )
+    .unwrap();
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let palette = state.config.palette.clone();
+    let color = crate::terminal_theme::RgbColor {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    let background = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
         kind: crate::terminal_theme::DefaultColorKind::Background,
-        color: crate::terminal_theme::RgbColor {
-            r: 255,
-            g: 255,
-            b: 255,
-        },
+        color,
     }]);
-    assert!(inferred.repaint);
+    assert!(background.repaint);
+    assert_eq!(state.host_background, Some(color));
     assert!(matches!(
-        inferred.requests.as_slice(),
+        background.requests.as_slice(),
         [ClientMessage::ClientShellHostTheme {
-            update: crate::protocol::ClientHostThemeUpdate::DefaultColor {
-                kind: crate::protocol::ClientHostDefaultColorKind::Background,
-                ..
-            }
+            update: crate::protocol::ClientHostThemeUpdate::DefaultColor { .. }
         }]
     ));
-    assert_eq!(
-        state.host_appearance,
-        Some(crate::terminal_theme::HostAppearance::Light)
-    );
-    assert!(!state.host_appearance_explicit);
-    assert_eq!(state.config.palette, light);
-
-    let explicit = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+    for appearance in [
         crate::terminal_theme::HostAppearance::Dark,
-    )]);
-    assert!(explicit.repaint);
-    assert!(explicit.query_host_theme);
-    assert!(matches!(
-        explicit.requests.as_slice(),
-        [ClientMessage::ClientShellHostTheme {
-            update: crate::protocol::ClientHostThemeUpdate::Appearance(
-                crate::protocol::ClientHostAppearance::Dark
-            )
-        }]
-    ));
-    assert_eq!(
-        state.host_appearance,
-        Some(crate::terminal_theme::HostAppearance::Dark)
-    );
-    assert!(state.host_appearance_explicit);
-    assert_eq!(state.config.palette, dark);
-
-    let ignored = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
+        crate::terminal_theme::HostAppearance::Light,
+    ] {
+        let update =
+            state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(appearance)]);
+        assert!(update.query_host_theme);
+        assert_eq!(update.requests.len(), 1);
+        assert_eq!(state.config.palette, palette);
+    }
+    let repeated = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
         kind: crate::terminal_theme::DefaultColorKind::Background,
-        color: crate::terminal_theme::RgbColor {
-            r: 255,
-            g: 255,
-            b: 255,
-        },
+        color,
     }]);
-    assert!(!ignored.repaint);
-    assert_eq!(ignored.requests.len(), 1);
-    assert_eq!(
-        state.host_appearance,
-        Some(crate::terminal_theme::HostAppearance::Dark)
-    );
-    assert_eq!(state.config.palette, dark);
+    assert!(!repeated.repaint);
+    assert_eq!(state.config.palette, palette);
 }
 
 #[test]

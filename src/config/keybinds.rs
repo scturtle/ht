@@ -279,7 +279,6 @@ pub struct NavigateKeybinds {
 pub struct Keybinds {
     pub navigate: NavigateKeybinds,
     pub help: ActionKeybinds,
-    pub settings: ActionKeybinds,
     pub new_workspace: ActionKeybinds,
     pub rename_workspace: ActionKeybinds,
     pub close_workspace: ActionKeybinds,
@@ -457,7 +456,6 @@ impl Config {
                 pane_right: empty_action!(),
             },
             help: empty_action!(),
-            settings: empty_action!(),
             new_workspace: empty_action!(),
             rename_workspace: empty_action!(),
             close_workspace: empty_action!(),
@@ -581,7 +579,6 @@ impl Config {
             apply_navigate!(keybinds.navigate.pane_up, navigate_pane_up, source);
             apply_navigate!(keybinds.navigate.pane_right, navigate_pane_right, source);
             apply_action!(keybinds.help, help, source);
-            apply_action!(keybinds.settings, settings, source);
             apply_action!(keybinds.new_workspace, new_workspace, source);
             apply_action!(keybinds.rename_workspace, rename_workspace, source);
             apply_action!(keybinds.close_workspace, close_workspace, source);

@@ -32,7 +32,7 @@ impl ChromeConfig {
             pane_borders: config.ui.pane_borders,
             pane_gaps: config.ui.pane_gaps,
             pane_outer_borders: config.ui.pane_outer_borders,
-            palette: crate::ui::ThemeRuntimeConfig::from_config(config).palette(),
+            palette: crate::ui::palette_from_config(config),
         }
     }
 }

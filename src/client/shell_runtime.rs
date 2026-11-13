@@ -4,7 +4,7 @@ use std::time::Instant;
 /// Adopt the method set of the connection that is serving this client now.
 ///
 /// A recovery probe or replacement Core can advertise a different set, so the
-/// menus, settings sections and confirmations are re-gated before the next
+/// menus and confirmations are re-gated before the next
 /// projection arrives. Returns whether the visible chrome needs a repaint.
 pub(super) fn install_client_shell_methods(state: &mut ClientState, methods: Vec<String>) -> bool {
     let changed = state.shell.set_endpoint_methods(Some(methods));

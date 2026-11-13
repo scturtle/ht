@@ -39,11 +39,6 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::Settings {
-                    self.open_settings_overlay();
-                    outcome.repaint = true;
-                    return;
-                }
                 if action == crate::input::KeybindAction::OpenNotificationTarget {
                     self.focus_visible_notification(outcome);
                     return;

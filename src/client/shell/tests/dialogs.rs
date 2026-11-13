@@ -57,7 +57,7 @@ fn painted_dialog(area: Rect, rename: bool, palette: &Palette) -> PaintedDialog 
 #[test]
 fn dialog_frames_keep_the_existing_cells_styles_cursor_and_hit_geometry() {
     let mut hashes = Vec::new();
-    for palette in [Palette::catppuccin(), Palette::terminal()] {
+    for palette in [Palette::test_palette(), Palette::terminal()] {
         for rename in [true, false] {
             for area in [
                 Rect::new(0, 0, 106, 24),
@@ -158,7 +158,7 @@ fn shared_dialog_button_hits_keep_rename_actions_local_and_targeted() {
 fn help_frames_keep_existing_search_wrapping_scroll_cursor_and_hits() {
     let state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut hashes = Vec::new();
-    for palette in [Palette::catppuccin(), Palette::terminal()] {
+    for palette in [Palette::test_palette(), Palette::terminal()] {
         for decorated in [false, true] {
             let mut hash = 0xcbf29ce484222325_u64;
             for (query, search_focused, scroll) in [
@@ -222,15 +222,15 @@ fn help_frames_keep_existing_search_wrapping_scroll_cursor_and_hits() {
         }
     }
     // 144 frames including wrapping, clamped scroll, Unicode filter and rejection.
-    // Intentionally refreshed when removing the retired toggle-sidebar help row;
+    // Intentionally refreshed when removing the retired settings help row;
     // the shared dialog painting/layout is unchanged.
     assert_eq!(
         hashes,
         [
-            14077277466857360920,
-            15801730575480443467,
-            15413754114629691577,
-            15247371855747336331,
+            1579827255080369540,
+            6055496276783940774,
+            2493187073004634665,
+            13827640207218450969,
         ]
     );
 }
@@ -321,182 +321,9 @@ fn help_mouse_scroll_and_header_back_keep_input_local() {
 }
 
 #[test]
-fn settings_frames_keep_existing_content_styles_and_hit_geometry() {
-    let state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut hashes = Vec::new();
-    for palette in [Palette::catppuccin(), Palette::terminal()] {
-        for decorated in [false, true] {
-            for section in ClientSettingsSection::ALL {
-                let mut hash = 0xcbf29ce484222325_u64;
-                let count = match section {
-                    ClientSettingsSection::Theme => crate::config::THEME_NAMES.len(),
-                    ClientSettingsSection::Toast => 4,
-                    _ => 2,
-                };
-                for selected in [0, count - 1] {
-                    for area in [
-                        Rect::new(0, 0, 106, 30),
-                        Rect::new(0, 0, 50, 18),
-                        Rect::new(0, 0, 26, 12),
-                        Rect::new(0, 0, 24, 12),
-                        Rect::new(0, 0, 106, 11),
-                        Rect::new(3, 5, 106, 30),
-                    ] {
-                        let mut buffer = Buffer::empty(area);
-                        if decorated {
-                            for cell in &mut buffer.content {
-                                cell.set_symbol("·").set_style(
-                                    Style::default()
-                                        .fg(ratatui::style::Color::Green)
-                                        .bg(ratatui::style::Color::Blue)
-                                        .add_modifier(
-                                            Modifier::BOLD | Modifier::DIM | Modifier::UNDERLINED,
-                                        ),
-                                );
-                            }
-                        }
-                        let settings = ClientSettingsOverlay {
-                            sections: ClientSettingsSection::ALL.to_vec(),
-                            section: *section,
-                            selected,
-                            original_theme_name: "catppuccin".into(),
-                            original_palette: palette.clone(),
-                        };
-                        let rendered = render::render_client_overlay(
-                            &mut buffer,
-                            &ClientShellOverlay::Settings(settings),
-                            &state.endpoint,
-                            &state.config.keybinds,
-                            &palette,
-                        )
-                        .map(|frame| {
-                            (
-                                frame.area,
-                                frame.primary,
-                                frame.cancel,
-                                frame.settings_popup,
-                                frame.settings_tabs,
-                                frame.settings_choices,
-                                frame.cursor,
-                            )
-                        });
-                        for byte in format!("{buffer:?}|{rendered:?}").bytes() {
-                            hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
-                        }
-                    }
-                }
-                hashes.push(hash);
-            }
-        }
-    }
-    // Frozen before extending the shared layout to settings: 192 frames,
-    // including blank/decorated buffers and panels too small to return hits.
-    assert_eq!(
-        hashes,
-        [
-            12356087409755544764,
-            14569266705724263125,
-            1861271064629599949,
-            2180137444135004661,
-            9040510970419154112,
-            12496798520995091103,
-            16699270273318693841,
-            8270832477339461806,
-            409979764271441072,
-            14949807614739535369,
-            17364408685117915201,
-            13212695820046242531,
-            11696012028769703260,
-            14177559935291189421,
-            5628352444209431459,
-            9815596427929989456,
-        ]
-    );
-}
-
-#[test]
-fn settings_mouse_selection_and_close_keep_preview_and_input_local() {
-    for (width, height) in [(106, 30), (50, 18), (26, 12)] {
-        let mut config = ClientShellConfig::from_config(&Config::default());
-        config.mobile_width_threshold = 0;
-        let mut state = ClientShellState::new(config);
-        state.set_snapshot(Box::new(snapshot()));
-        state.set_pane_surface(surface());
-        let original_theme = state.config.theme_name.clone();
-        state.open_settings_overlay();
-        let click = |state: &mut ClientShellState, rect: Rect| {
-            assert!(!rect.is_empty());
-            let result = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: rect.x,
-                row: rect.y,
-                modifiers: KeyModifiers::empty(),
-            })]);
-            assert!(result.requests.is_empty() && result.actions.is_empty());
-        };
-        state.compose(width, height).unwrap();
-        let (rect, index) = *state.hits.settings_choices.last().unwrap();
-        click(&mut state, rect);
-        assert_eq!(state.config.theme_name, crate::config::THEME_NAMES[index]);
-        state.compose(width, height).unwrap();
-        let close = state.hits.overlay_cancel;
-        click(&mut state, close);
-        assert!(state.overlay.is_none());
-        assert_eq!(state.config.theme_name, original_theme);
-
-        state.open_settings_overlay();
-        state.compose(width, height).unwrap();
-        let section = state
-            .hits
-            .settings_tabs
-            .iter()
-            .find(|(_, section)| *section == ClientSettingsSection::Sound)
-            .copied();
-        if width == 26 {
-            assert!(
-                section.is_none(),
-                "clipping must not promote the hidden sound tab"
-            );
-        } else {
-            let (rect, _) = section.expect("sound tab is visible");
-            click(&mut state, rect);
-            state.compose(width, height).unwrap();
-            assert_eq!(state.hits.settings_choices.len(), 2);
-            // Indicators, Sound and Toast apply immediately on a choice click,
-            // which writes the config file. That write is covered by the private
-            // organization TUI gate; keep this test on the non-writing section
-            // switch and keyboard selection so it needs no config path of its own.
-            let selected = match &state.overlay {
-                Some(ClientShellOverlay::Settings(settings))
-                    if settings.section == ClientSettingsSection::Sound =>
-                {
-                    settings.selected
-                }
-                _ => panic!("sound section stays open after a tab click"),
-            };
-            let away = if selected == 0 {
-                b"\x1b[B".as_slice()
-            } else {
-                b"\x1b[A".as_slice()
-            };
-            let moved = state.handle_input_bytes(away);
-            assert!(moved.requests.is_empty() && moved.actions.is_empty());
-            assert!(
-                matches!(&state.overlay, Some(ClientShellOverlay::Settings(settings))
-                if settings.section == ClientSettingsSection::Sound
-                    && settings.selected == 1 - selected)
-            );
-        }
-        let escape = state.handle_input_bytes(b"\x1b");
-        assert!(escape.requests.is_empty() && escape.actions.is_empty());
-        assert!(state.overlay.is_none());
-    }
-}
-
-#[test]
 fn short_rename_dialog_does_not_put_the_editor_cursor_on_a_button_or_border() {
     for height in [6, 7] {
-        let frame = painted_dialog(Rect::new(0, 0, 44, height), true, &Palette::catppuccin());
+        let frame = painted_dialog(Rect::new(0, 0, 44, height), true, &Palette::test_palette());
         assert!(
             frame.cursor.is_none(),
             "short viewport has no separate input row"

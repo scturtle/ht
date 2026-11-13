@@ -285,7 +285,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.experimental = section,
     );
-    diagnostics.extend(config.theme.diagnostics());
 
     Ok(LoadedConfig {
         config,
@@ -477,46 +476,6 @@ fn load_live_section<T>(
 }
 
 /// Write a key = value pair in a TOML section (creates section if missing).
-pub fn upsert_section_value(content: &str, section: &str, key: &str, value: &str) -> String {
-    upsert_section_raw(content, section, key, value)
-}
-
-pub fn upsert_section_bool(content: &str, section: &str, key: &str, value: bool) -> String {
-    upsert_section_raw(content, section, key, &value.to_string())
-}
-
-pub fn remove_section_key(content: &str, section: &str, key: &str) -> String {
-    let header = format!("[{section}]");
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result = Vec::new();
-    let mut i = 0;
-    let mut in_section = false;
-
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim();
-
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_section = trimmed == header;
-            result.push(line.to_string());
-            i += 1;
-            continue;
-        }
-
-        if in_section
-            && (trimmed.starts_with(&format!("{key} ")) || trimmed.starts_with(&format!("{key}=")))
-        {
-            i += 1;
-            continue;
-        }
-
-        result.push(line.to_string());
-        i += 1;
-    }
-
-    result.join("\n") + "\n"
-}
-
 pub fn remove_keybinding_config_sections(content: &str) -> (String, bool) {
     let mut result = Vec::new();
     let mut removed = false;
@@ -569,86 +528,9 @@ fn is_top_level_keys_assignment(trimmed: &str) -> bool {
     trimmed.starts_with("keys ") || trimmed.starts_with("keys=") || trimmed.starts_with("keys.")
 }
 
-fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> String {
-    let header = format!("[{section}]");
-    let assignment = format!("{key} = {value}");
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result = Vec::new();
-    let mut i = 0;
-    let mut found_section = false;
-    let mut inserted = false;
-
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim();
-
-        if trimmed == header {
-            found_section = true;
-            result.push(line.to_string());
-            i += 1;
-
-            while i < lines.len() {
-                let current = lines[i];
-                let current_trimmed = current.trim();
-                if current_trimmed.starts_with('[') && current_trimmed.ends_with(']') {
-                    if !inserted {
-                        result.push(assignment.clone());
-                        inserted = true;
-                    }
-                    break;
-                }
-
-                if current_trimmed.starts_with(&format!("{key} "))
-                    || current_trimmed.starts_with(&format!("{key}="))
-                {
-                    result.push(assignment.clone());
-                    inserted = true;
-                } else {
-                    result.push(current.to_string());
-                }
-                i += 1;
-            }
-
-            continue;
-        }
-
-        result.push(line.to_string());
-        i += 1;
-    }
-
-    if !found_section {
-        if !result.is_empty() && !result.last().is_some_and(|line| line.trim().is_empty()) {
-            result.push(String::new());
-        }
-        result.push(header);
-        result.push(assignment);
-    } else if !inserted {
-        result.push(assignment);
-    }
-
-    result.join("\n") + "\n"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn upsert_section_bool_adds_missing_section() {
-        let updated = upsert_section_bool("", "ui.toast", "enabled", true);
-        assert!(updated.contains("[ui.toast]"));
-        assert!(updated.contains("enabled = true"));
-    }
-
-    #[test]
-    fn remove_section_key_removes_matching_key_from_section() {
-        let content =
-            "[ui.toast]\nenabled = true\ndelivery = \"herdr\"\n[ui.sound]\nenabled = true\n";
-        let updated = remove_section_key(content, "ui.toast", "enabled");
-        assert!(!updated.contains("[ui.toast]\nenabled = true"));
-        assert!(updated.contains("delivery = \"herdr\""));
-        assert!(updated.contains("[ui.sound]\nenabled = true"));
-    }
 
     #[test]
     fn config_diagnostic_summary_uses_compact_actionable_banner() {
@@ -854,20 +736,6 @@ detach = "f10"
     }
 
     #[test]
-    fn load_live_config_warns_about_unknown_theme_names() {
-        let loaded = load_live_config_from_str(
-            r#"
-[theme]
-name = "catppucin"
-"#,
-        )
-        .unwrap();
-
-        assert_eq!(loaded.diagnostics.len(), 1);
-        assert!(loaded.diagnostics[0].contains("theme.name = \"catppucin\""));
-    }
-
-    #[test]
     fn load_live_config_warns_about_unknown_top_level_sections() {
         let loaded = load_live_config_from_str(
             r#"
@@ -990,6 +858,69 @@ claude = [["terminal_title"]]
             .bindings
             .iter()
             .any(|binding| binding.label == "prefix+z"));
+    }
+
+    #[test]
+    fn retired_theme_sound_and_settings_keep_the_single_override_and_live_siblings() {
+        let content = r##"
+[theme]
+name = { ignored = true }
+auto_switch = []
+light_name = false
+dark_name = 42
+[theme.custom]
+accent = "#12ab34"
+light = false
+dark = 42
+[ui]
+sound = { enabled = "invalid", path = 42 }
+accent = false
+status_indicators = "symbols"
+[keys]
+settings = { ignored = true }
+new_tab = "f7"
+"##;
+        let loaded = load_live_config_from_str(content).expect("retired fields are ignored");
+        assert!(
+            loaded.invalid_sections.is_empty(),
+            "{:?}",
+            loaded.diagnostics
+        );
+        let startup: Config = toml::from_str(content).expect("startup accepts retired values");
+        for config in [&loaded.config, &startup] {
+            assert_eq!(
+                config.theme.custom.as_ref().unwrap().accent.as_deref(),
+                Some("#12ab34")
+            );
+            assert_eq!(
+                config.ui.status_indicators,
+                super::super::StatusIndicatorStyle::Symbols
+            );
+            assert_eq!(
+                config.keys.new_tab.clone(),
+                super::super::BindingConfig::one("f7")
+            );
+        }
+        for retired in [
+            "theme.name",
+            "theme.auto_switch",
+            "theme.light_name",
+            "theme.dark_name",
+            "theme.custom.light",
+            "theme.custom.dark",
+            "ui.sound",
+            "ui.accent",
+            "keys.settings",
+        ] {
+            assert!(
+                loaded
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.contains(retired) && d.contains("ignoring")),
+                "missing retired diagnostic {retired}: {:?}",
+                loaded.diagnostics
+            );
+        }
     }
 
     #[test]

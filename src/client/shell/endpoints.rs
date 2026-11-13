@@ -32,7 +32,7 @@ impl ClientShellState {
     /// Adopt the advertised method set. Returns whether it actually changed.
     ///
     /// Open overlays keep the set they were built against, so a real change
-    /// re-gates them here. An equal set leaves the user's highlight, settings
+    /// re-gates them here. An equal set leaves the user's highlight
     /// section and theme preview untouched.
     pub(crate) fn set_endpoint_methods(&mut self, methods: Option<Vec<String>>) -> bool {
         let methods: Option<HashSet<String>> = methods.map(|methods| methods.into_iter().collect());
@@ -41,7 +41,6 @@ impl ClientShellState {
         }
         self.endpoint.methods = methods;
         self.refresh_context_menu_methods();
-        self.refresh_settings_sections();
         true
     }
     pub(crate) fn endpoint_status(&self) -> ClientEndpointStatus {

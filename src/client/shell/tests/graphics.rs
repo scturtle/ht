@@ -154,7 +154,6 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
                     kind: SemanticNotificationKind::Custom,
                     title: "notice".into(),
                     body: Some("body".into()),
-                    sound: None,
                     agent: None,
                     workspace_id: None,
                     tab_id: None,
@@ -226,7 +225,6 @@ fn endpoint_notice_and_multiline_diagnostic_cover_the_actual_rows() {
 
 #[test]
 fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
-    let palette = ClientShellConfig::from_config(&Config::default()).palette;
     let overlays = vec![
         ClientShellOverlay::Rename(ClientRenameOverlay {
             title: "rename",
@@ -259,13 +257,6 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             highlighted: 0,
         }),
         ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay { highlighted: 0 }),
-        ClientShellOverlay::Settings(ClientSettingsOverlay {
-            sections: ClientSettingsSection::ALL.to_vec(),
-            section: ClientSettingsSection::Theme,
-            selected: 0,
-            original_theme_name: String::new(),
-            original_palette: palette,
-        }),
     ];
     for overlay in overlays {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));

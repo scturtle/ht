@@ -4,8 +4,8 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::{
-    BindingConfig, SoundConfig, TabBarRightEntryConfig, ThemeConfig,
-    DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_LINES,
+    BindingConfig, TabBarRightEntryConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD,
+    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_LINES,
 };
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
@@ -206,8 +206,6 @@ pub struct KeysConfig {
     pub prefix: BindingConfig,
     /// Open keybinding help. Default: "prefix+?"
     pub help: BindingConfig,
-    /// Open settings. Default: "prefix+s"
-    pub settings: BindingConfig,
     /// Create a new workspace. Default: "prefix+shift+n"
     pub new_workspace: BindingConfig,
     /// Rename the selected workspace. Default: "prefix+shift+w"
@@ -327,7 +325,6 @@ struct KeysConfigOverlay {
     /// Legacy additional prefixes, merged with the main prefix setting.
     extra_prefixes: Option<BindingConfig>,
     help: Option<BindingConfig>,
-    settings: Option<BindingConfig>,
     new_workspace: Option<BindingConfig>,
     rename_workspace: Option<BindingConfig>,
     close_workspace: Option<BindingConfig>,
@@ -422,7 +419,6 @@ impl<'de> Deserialize<'de> for KeysConfig {
         }
 
         apply_field!(help);
-        apply_field!(settings);
         apply_field!(new_workspace);
         apply_field!(rename_workspace);
         apply_field!(close_workspace);
@@ -616,13 +612,8 @@ pub struct UiConfig {
     _legacy_agent_panel_scope: Option<LegacyAgentPanelScopeConfig>,
     /// Agent status indicator style. Saved values are "dots" or "symbols". Default: "dots".
     pub status_indicators: StatusIndicatorStyle,
-    /// Accent color for highlights, borders, and navigation UI.
-    /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
-    pub accent: String,
     /// Optional visual toast notifications for background workspace events.
     pub toast: ToastConfig,
-    /// Play sounds when agents change state in background workspaces.
-    pub sound: SoundConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -652,7 +643,6 @@ impl Default for KeysConfig {
         Self {
             prefix: BindingConfig::one("ctrl+b"),
             help: BindingConfig::one("prefix+?"),
-            settings: BindingConfig::one("prefix+s"),
             new_workspace: BindingConfig::one("prefix+shift+n"),
             rename_workspace: BindingConfig::one("prefix+shift+w"),
             close_workspace: BindingConfig::one("prefix+shift+d"),
@@ -738,9 +728,7 @@ impl Default for UiConfig {
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
-            accent: "cyan".into(),
             toast: ToastConfig::default(),
-            sound: SoundConfig::default(),
         }
     }
 }

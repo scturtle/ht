@@ -1,8 +1,8 @@
 //! Pure client-side drawing and geometry.
+mod colors;
 mod palette;
-mod theme;
+pub(crate) use colors::palette_from_config;
 pub(crate) use palette::Palette;
-pub(crate) use theme::ThemeRuntimeConfig;
 pub(crate) mod dialog;
 mod panes;
 mod scrollbar;

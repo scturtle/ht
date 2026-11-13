@@ -1166,8 +1166,6 @@ pub struct TerminalFrame {
 /// Notification kind forwarded from server to client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NotifyKind {
-    /// Play a sound (bell/agent-done, etc.).
-    Sound,
     /// Display a toast message through the outer terminal.
     Toast,
     /// Display a toast message through the host OS notification service.
@@ -1183,18 +1181,11 @@ pub enum SemanticNotificationKind {
     Custom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SemanticNotificationSound {
-    Done,
-    Request,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SemanticNotification {
     pub kind: SemanticNotificationKind,
     pub title: String,
     pub body: Option<String>,
-    pub sound: Option<SemanticNotificationSound>,
     pub agent: Option<String>,
     pub workspace_id: Option<String>,
     pub tab_id: Option<String>,
@@ -1260,11 +1251,11 @@ pub enum ServerMessage {
         reason: Option<String>,
     },
 
-    /// A notification event (sound/toast) to be rendered locally by the client.
+    /// A notification event to be rendered locally by the client.
     Notify {
         /// What kind of notification.
         kind: NotifyKind,
-        /// Human-readable title or sound label.
+        /// Human-readable title.
         message: String,
         /// Optional human-readable notification body.
         body: Option<String>,
@@ -1281,9 +1272,6 @@ pub enum ServerMessage {
         /// Sanitized title to write with OSC 0. `None` restores Herdr's default title.
         title: Option<String>,
     },
-
-    /// Client-local runtime config changed on disk; refresh it without reconnecting.
-    ReloadSoundConfig,
 
     /// Whether the client should currently capture host mouse input.
     MouseCapture {

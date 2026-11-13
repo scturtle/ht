@@ -24,22 +24,10 @@ fn a_new_projection_epoch_accepts_restarted_revisions_but_its_stale_updates_do_n
 }
 
 #[test]
-fn core_settings_and_context_menu_only_offer_implemented_actions() {
+fn core_config_reload_and_context_menu_only_offer_implemented_actions() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     state.set_endpoint_methods(Some(vec![]));
-    state.open_settings_overlay();
-    let Some(ClientShellOverlay::Settings(settings)) = &state.overlay else {
-        panic!("settings");
-    };
-    assert_eq!(
-        settings.sections,
-        vec![
-            ClientSettingsSection::Theme,
-            ClientSettingsSection::Indicators,
-            ClientSettingsSection::Sound
-        ]
-    );
     let mut outcome = ClientShellInput::default();
     state.record_binding(
         crate::input::KeybindMatch::Action(crate::input::KeybindAction::ReloadConfig),
@@ -325,84 +313,6 @@ fn capability_refresh_preserves_an_open_context_menu_for_an_equivalent_set() {
         before
     );
     assert_eq!(menu.highlighted, split_down);
-}
-
-#[test]
-fn capability_refresh_regates_an_open_settings_overlay() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    let mut outcome = ClientShellInput::default();
-    // Capabilities are still unknown, so the client-local toast section is offered.
-    state.open_settings_overlay();
-    state.select_settings_section(ClientSettingsSection::Theme, &mut outcome);
-    state.move_settings_selection(1);
-    state.select_settings_section(ClientSettingsSection::Toast, &mut outcome);
-    state.move_settings_selection(2);
-    let previewed_theme = state.config.theme_name.clone();
-    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
-        panic!("settings overlay");
-    };
-    assert_eq!(settings.sections, ClientSettingsSection::ALL.to_vec());
-    assert_eq!(settings.section, ClientSettingsSection::Toast);
-    assert_eq!(settings.selected, 2);
-    let original_theme = settings.original_theme_name.clone();
-    let original_palette = settings.original_palette.clone();
-
-    // The recovered Core advertises methods, so semantic toast options are hidden.
-    assert!(state.set_endpoint_methods(Some(vec!["pane.focus".into()])));
-
-    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
-        panic!("the open settings overlay survives a capability refresh");
-    };
-    assert_eq!(
-        settings.sections,
-        vec![
-            ClientSettingsSection::Theme,
-            ClientSettingsSection::Indicators,
-            ClientSettingsSection::Sound
-        ]
-    );
-    assert_eq!(settings.section, ClientSettingsSection::Theme);
-    let previewed_index = crate::config::THEME_NAMES
-        .iter()
-        .position(|name| {
-            super::settings::normalized_theme_name(name)
-                == super::settings::normalized_theme_name(&previewed_theme)
-        })
-        .expect("previewed theme is a known theme");
-    assert_eq!(settings.selected, previewed_index);
-    // The preview and the cancel baseline still belong to the user's edits.
-    assert_eq!(state.config.theme_name, previewed_theme);
-    assert_eq!(settings.original_theme_name, original_theme);
-    assert_eq!(settings.original_palette, original_palette);
-}
-
-#[test]
-fn capability_refresh_preserves_open_settings_choice_when_sections_stay_equal() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_endpoint_methods(Some(vec!["pane.focus".into()]));
-    let mut outcome = ClientShellInput::default();
-    state.open_settings_overlay();
-    state.select_settings_section(ClientSettingsSection::Indicators, &mut outcome);
-    state.move_settings_selection(1);
-    let sections = ClientSettingsSection::ALL[..3].to_vec();
-    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
-        panic!("settings overlay");
-    };
-    assert_eq!(settings.sections, sections);
-    assert_eq!(settings.section, ClientSettingsSection::Indicators);
-    assert_eq!(settings.selected, 1);
-
-    // A different method set that gates the same settings sections.
-    assert!(state.set_endpoint_methods(Some(vec!["workspace.list".into(), "pane.zoom".into(),])));
-
-    let Some(ClientShellOverlay::Settings(settings)) = state.overlay.as_ref() else {
-        panic!("the open settings overlay survives a capability refresh");
-    };
-    assert_eq!(settings.sections, sections);
-    assert_eq!(settings.section, ClientSettingsSection::Indicators);
-    assert_eq!(settings.selected, 1);
 }
 
 #[test]

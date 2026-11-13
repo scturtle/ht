@@ -20,17 +20,6 @@ impl HostAppearance {
     }
 }
 
-impl RgbColor {
-    pub fn inferred_appearance(self) -> HostAppearance {
-        let luminance = u32::from(self.r) * 299 + u32::from(self.g) * 587 + u32::from(self.b) * 114;
-        if luminance >= 128_000 {
-            HostAppearance::Light
-        } else {
-            HostAppearance::Dark
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalTheme {
     pub foreground: Option<RgbColor>,

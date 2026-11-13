@@ -4,8 +4,6 @@ use crate::ui::{
     widgets::{paint_button, paint_panel, paint_text_line},
 };
 
-mod settings_overlay;
-
 #[derive(Default)]
 pub(crate) struct OverlayRender {
     pub(crate) area: Rect,
@@ -21,9 +19,6 @@ pub(crate) struct OverlayRender {
     pub(crate) help_scrollbar: Rect,
     pub(crate) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(crate) help_max_scroll: usize,
-    pub(crate) settings_popup: Rect,
-    pub(crate) settings_tabs: Vec<(Rect, ClientSettingsSection)>,
-    pub(crate) settings_choices: Vec<(Rect, usize)>,
     pub(crate) cursor: Option<crate::protocol::CursorState>,
 }
 
@@ -52,7 +47,6 @@ pub(crate) fn render_client_overlay(
         ClientShellOverlay::ConfirmClose(v) => render_confirm_close_overlay(b, v, p),
         ClientShellOverlay::Help(v) => render_help_overlay(b, v, k, p),
         ClientShellOverlay::Navigator(v) => render_navigator_overlay(b, v, endpoints, p),
-        ClientShellOverlay::Settings(v) => settings_overlay::render_settings_overlay(b, v, p),
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }
 }

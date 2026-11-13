@@ -530,104 +530,13 @@ fn client_error_display_remote_connection_lost_has_reattach_hint() {
 }
 
 #[test]
-fn sound_from_notify_message_maps_done() {
-    assert_eq!(
-        sound_from_notify_message("agent done"),
-        Some(crate::sound::Sound::Done)
-    );
-}
-
-#[test]
-fn sound_from_notify_message_maps_attention() {
-    assert_eq!(
-        sound_from_notify_message("agent attention"),
-        Some(crate::sound::Sound::Request)
-    );
-}
-
-#[test]
-fn sound_from_notify_message_rejects_unknown_payloads() {
-    assert_eq!(sound_from_notify_message("toast"), None);
-}
-
-#[test]
-fn reload_local_client_config_refreshes_local_client_presentation_state() {
-    let _guard = crate::config::test_config_env_lock().lock().unwrap();
-    let path = std::env::temp_dir().join(format!(
-        "herdr-client-config-reload-{}-{}.toml",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::write(
-        &path,
-        "[ui]\nredraw_on_focus_gained = false\nhost_cursor = \"drawn\"\nmouse_capture = false\n",
-    )
-    .unwrap();
-    let path_string = path.to_string_lossy().to_string();
-    let _env = EnvVarGuard::set(crate::config::CONFIG_PATH_ENV_VAR, &path_string);
-    let mut sound_config = crate::config::SoundConfig::default();
-    let mut redraw_on_focus_gained = true;
-    let mut draw_host_cursor = false;
-    let mut mouse_capture = true;
-
-    reload_local_client_config(
-        &mut sound_config,
-        &mut redraw_on_focus_gained,
-        &mut draw_host_cursor,
-        &mut mouse_capture,
-    );
-
-    assert!(!redraw_on_focus_gained);
-    assert!(draw_host_cursor);
-    assert!(!mouse_capture);
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn reload_local_client_config_keeps_ui_preferences_when_ui_is_invalid() {
-    let _guard = crate::config::test_config_env_lock().lock().unwrap();
-    let path = std::env::temp_dir().join(format!(
-        "herdr-client-invalid-ui-reload-{}-{}.toml",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::write(&path, "[ui]\nmouse_capture = \"invalid\"\n").unwrap();
-    let path_string = path.to_string_lossy().to_string();
-    let _env = EnvVarGuard::set(crate::config::CONFIG_PATH_ENV_VAR, &path_string);
-    let mut sound_config = crate::config::SoundConfig::default();
-    let mut redraw_on_focus_gained = false;
-    let mut draw_host_cursor = true;
-    let mut mouse_capture = false;
-
-    reload_local_client_config(
-        &mut sound_config,
-        &mut redraw_on_focus_gained,
-        &mut draw_host_cursor,
-        &mut mouse_capture,
-    );
-
-    assert!(!mouse_capture);
-    assert!(!redraw_on_focus_gained);
-    assert!(draw_host_cursor);
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
 fn toast_notify_from_server_is_emitted_even_when_attach_config_was_off() {
-    let sound_config = crate::config::SoundConfig::default();
     let mut emitted = None;
 
     handle_notify_with_notifiers(
         NotifyKind::Toast,
         "pi finished",
         Some("workspace 1"),
-        &sound_config,
         |title, body| {
             emitted = Some((title.to_string(), body.map(str::to_string)));
             Ok(true)
@@ -643,14 +552,12 @@ fn toast_notify_from_server_is_emitted_even_when_attach_config_was_off() {
 
 #[test]
 fn system_toast_notify_from_server_uses_system_notifier() {
-    let sound_config = crate::config::SoundConfig::default();
     let mut emitted = None;
 
     handle_notify_with_notifiers(
         NotifyKind::SystemToast,
         "pi finished",
         Some("workspace 1"),
-        &sound_config,
         |_, _| Ok(false),
         |title, body| {
             emitted = Some((title.to_string(), body.map(str::to_string)));
@@ -666,14 +573,12 @@ fn system_toast_notify_from_server_uses_system_notifier() {
 
 #[test]
 fn system_toast_notify_preserves_colon_in_title() {
-    let sound_config = crate::config::SoundConfig::default();
     let mut emitted = None;
 
     handle_notify_with_notifiers(
         NotifyKind::SystemToast,
         "build: failed",
         Some("api workspace"),
-        &sound_config,
         |_, _| Ok(false),
         |title, body| {
             emitted = Some((title.to_string(), body.map(str::to_string)));

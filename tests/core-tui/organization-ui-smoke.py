@@ -100,7 +100,6 @@ confirm_close = false
 prompt_new_tab_name = false
 prompt_new_workspace_name = false
 [keys]
-settings = "f1"
 split_vertical = "f2"
 new_tab = "f3"
 close_tab = "f4"
@@ -162,35 +161,22 @@ close_pane = "f12"
             send_marker("ORIGINAL_FIRST")
             first_address = leaves(first["value"]["workspaces"][0]["tabs"][0]["root"])[0]
             first_pid = hc("get", first_address)["pid"]
-            # Settings are client-local: preview/cancel must not save, apply must
-            # use the actual painted hits and write only this gate's config.
+            # UI configuration is file-only: a fixed terminal palette plus one
+            # optional override layer. The actual reload must paint the new RGB
+            # without touching organization, program identity, or writing config.
             config_path = home / "config.toml"
-            original_config = config_path.read_bytes()
-            viewer.send(b"\x1bOP")  # F1
-            UI.until(lambda: "↑↓ select  tab section" in screen(), "settings overlay")
-            click_label("nord")
-            UI.until(lambda: "▸ nord" in screen(), "theme preview selection")
-            click_label("esc close")
-            UI.until(lambda: "↑↓ select  tab section" not in screen(), "cancel preview")
-            assert config_path.read_bytes() == original_config
-            viewer.send(b"\x1bOP")
-            UI.until(lambda: "↑↓ select  tab section" in screen(), "settings reopen")
-            click_label("nord")
-            UI.until(lambda: "▸ nord" in screen(), "selected theme before apply")
-            click_label("↵ apply")
-            UI.until(lambda: "↑↓ select  tab section" not in screen(), "theme apply closes")
-            assert tomllib.loads(config_path.read_text())["theme"]["name"] == "nord"
-            viewer.send(b"\x1bOP")
-            UI.until(lambda: "▸ nord ✓" in screen(), "saved theme is current")
-            click_label(" sound ")
-            UI.until(lambda: "sound alerts" in screen(), "sound section tab")
-            click_label(" off")
-            UI.until(lambda: "▸ off" in screen(), "sound choice")
-            click_label("↵ apply")
-            UI.until(lambda: tomllib.loads(config_path.read_text()).get("ui", {}).get("sound", {}).get("enabled") is False, "sound apply")
-            UI.until(lambda: "sound alerts" in screen(), "non-theme apply keeps settings open")
-            viewer.send(b"\x1b")
-            UI.until(lambda: "↑↓ select  tab section" not in screen(), "settings escape")
+            original_config = config_path.read_text()
+            custom_config = original_config + '\n[theme.custom]\naccent = "#12ab34"\n'
+            config_path.write_text(custom_config)
+            output_start = len(viewer.output)
+            viewer.send(b"\x02R")
+            UI.until(lambda: (viewer.read(), re.search(rb"(?:38|48);2;18;171;52(?:;|m)", viewer.output[output_start:]))[1],
+                     "file override appears in the actual frame")
+            assert config_path.read_text() == custom_config, "reload must not rewrite configuration"
+            config_path.write_text(original_config)
+            viewer.send(b"\x02R")
+            # The retired settings binding must not intercept the next live overlay.
+            viewer.send(b"\x02s")
             viewer.send(b"\x02?")  # Default prefix+? opens help.
             UI.until(lambda: "search / · scroll" in screen(), "help overlay")
             viewer.send(b"/reload")
@@ -199,7 +185,8 @@ close_pane = "f12"
             UI.until(lambda: "press / to filter by command or shortcut" in screen(), "help back clears search")
             click_label("esc close")
             UI.until(lambda: "search / · scroll" not in screen() and "keybinds" not in screen(), "help close")
-            assert rpc.doc() == first, "settings/help must not write shared organization"
+            assert rpc.doc() == first, "file reload/help must not write shared organization"
+            assert config_path.read_text() == original_config, "UI must not save configuration"
             assert hc("get", first_address)["pid"] == first_pid
             viewer.send(b"\x1bOR")  # F3
             UI.until(lambda: len(rpc.doc()["value"]["workspaces"][0]["tabs"]) == 2, "tab creation")
@@ -267,8 +254,8 @@ close_pane = "f12"
             assert not (home / "forbidden-client.sock").exists()
             viewer.detach()
             print(json.dumps({"default_tui": True, "workspaces_and_tabs": True, "tab_local_bsp": True,
-                              "rename_overlays": True, "settings_preview_cancel": True,
-                              "settings_mouse_apply_and_tabs": True, "settings_are_client_local": True,
+                              "rename_overlays": True, "file_override_reload": True,
+                              "configuration_not_rewritten": True, "settings_page_removed": True,
                               "help_filter_header_back_and_close": True, "desktop_workspace_selector": True,
                               "focus_is_client_local": True, "external_cas_invalidation": True,
                               "stale_cas_rejected": True, "close_intent_before_termination": True,

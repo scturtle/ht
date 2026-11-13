@@ -280,15 +280,9 @@ impl ClientShellState {
                         .requests
                         .push(ClientMessage::ClientShellFocus { focused: false });
                 }
-                RawInputEvent::HostColorSchemeChanged(appearance) => {
-                    self.host_appearance = Some(appearance);
-                    self.host_appearance_explicit = true;
+                RawInputEvent::HostColorSchemeChanged(_) => {
+                    // Refresh native PTY colors, without switching UI overrides.
                     outcome.query_host_theme = true;
-                    if self.config.theme_runtime.auto_switch {
-                        self.config.palette =
-                            self.config.theme_runtime.palette_for_appearance(appearance);
-                        outcome.repaint = true;
-                    }
                 }
                 RawInputEvent::HostDefaultColor {
                     kind: crate::terminal_theme::DefaultColorKind::Background,
@@ -297,15 +291,6 @@ impl ClientShellState {
                     if self.host_background != Some(color) {
                         self.host_background = Some(color);
                         outcome.repaint = true;
-                    }
-                    if !self.host_appearance_explicit {
-                        let appearance = color.inferred_appearance();
-                        self.host_appearance = Some(appearance);
-                        if self.config.theme_runtime.auto_switch {
-                            self.config.palette =
-                                self.config.theme_runtime.palette_for_appearance(appearance);
-                            outcome.repaint = true;
-                        }
                     }
                 }
                 RawInputEvent::HostDefaultColor { .. }

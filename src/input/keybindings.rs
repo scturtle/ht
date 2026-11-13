@@ -60,7 +60,6 @@ pub(crate) enum KeybindAction {
     CyclePanePrevious,
     LastPane,
     Help,
-    Settings,
     ReloadConfig,
     OpenNotificationTarget,
     Detach,
@@ -92,7 +91,6 @@ pub(crate) fn resolve_non_indexed_action(
 ) -> Option<KeybindAction> {
     for (bindings, action) in [
         (&keybinds.help, KeybindAction::Help),
-        (&keybinds.settings, KeybindAction::Settings),
         (&keybinds.workspace_picker, KeybindAction::WorkspacePicker),
         (&keybinds.new_workspace, KeybindAction::NewWorkspace),
         (&keybinds.rename_workspace, KeybindAction::RenameWorkspace),

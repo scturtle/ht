@@ -27,7 +27,6 @@ mod notifications;
 mod overlay_input;
 mod preferences;
 mod render;
-mod settings;
 mod state;
 mod surface_patch;
 mod text_editor;
@@ -51,7 +50,7 @@ use crate::config::{Config, LiveKeybindConfig, TabBarPositionConfig};
 use crate::protocol::{
     ClientMessage, ClientMousePosition, ClientPaneInputEvent, ClientShellSnapshot, ClientShellTab,
     ClientShellWorkspace, ClientSurfaceSize, FrameData, PaneSurfaceFrame, SemanticNotification,
-    SemanticNotificationKind, SemanticNotificationSound,
+    SemanticNotificationKind,
 };
 #[cfg(test)]
 use crate::raw_input::RawInputEvent;

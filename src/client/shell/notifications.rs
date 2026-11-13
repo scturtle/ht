@@ -210,7 +210,6 @@ mod tests {
                 kind: SemanticNotificationKind::Custom,
                 title: "notice".into(),
                 body: None,
-                sound: None,
                 agent: None,
                 workspace_id: None,
                 tab_id: None,
@@ -223,7 +222,7 @@ mod tests {
 
     #[test]
     fn mobile_notification_is_a_bottom_banner_with_released_title() {
-        let palette = crate::ui::ThemeRuntimeConfig::from_config(&Config::default()).palette();
+        let palette = crate::ui::palette_from_config(&Config::default());
         let mut notification = notification();
         notification.event.kind = SemanticNotificationKind::NeedsAttention;
         notification.event.title = "pi needs attention".into();
@@ -256,7 +255,6 @@ mod tests {
                 kind: SemanticNotificationKind::NeedsAttention,
                 title: "agent needs attention".into(),
                 body: None,
-                sound: None,
                 agent: Some("agent".into()),
                 workspace_id: Some("workspace".into()),
                 tab_id: Some("tab".into()),
@@ -307,7 +305,6 @@ mod tests {
                 kind: SemanticNotificationKind::Finished,
                 title: "agent finished".into(),
                 body: None,
-                sound: Some(SemanticNotificationSound::Done),
                 agent: Some("agent".into()),
                 workspace_id: Some("ws_1".into()),
                 tab_id: Some("tab_1".into()),
@@ -351,7 +348,6 @@ mod tests {
             kind: SemanticNotificationKind::Finished,
             title: "agent finished".into(),
             body: None,
-            sound: None,
             agent: Some("agent".into()),
             workspace_id: Some("ws_1".into()),
             tab_id: Some("background-tab".into()),
@@ -397,7 +393,6 @@ mod tests {
                     kind: SemanticNotificationKind::Custom,
                     title: title.into(),
                     body: None,
-                    sound: None,
                     agent: None,
                     workspace_id: None,
                     tab_id: None,
@@ -431,7 +426,7 @@ mod tests {
 
     #[test]
     fn notification_rect_stays_inside_short_nonzero_area() {
-        let palette = crate::ui::ThemeRuntimeConfig::from_config(&Config::default()).palette();
+        let palette = crate::ui::palette_from_config(&Config::default());
         for height in [1, 2] {
             let area = Rect::new(3, 4, 8, height);
             for position in [

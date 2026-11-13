@@ -107,7 +107,7 @@ fn painted_context(
 #[test]
 fn menu_frames_keep_the_existing_cells_styles_and_row_hits() {
     let mut hashes = Vec::new();
-    for palette in [Palette::catppuccin(), Palette::terminal()] {
+    for palette in [Palette::test_palette(), Palette::terminal()] {
         // Global menu: normal screen, first row selected.
         hashes.push(
             painted_global(
@@ -216,25 +216,26 @@ fn menu_frames_keep_the_existing_cells_styles_and_row_hits() {
         );
     }
     // Frozen from the pre-refactor renderers; regenerate only for an explained
-    // visual change, never to hide a diff.
+    // visual change, never to hide a diff. Only global-menu hashes changed
+    // when the settings action was removed; all context-menu hashes stay fixed.
     assert_eq!(
         hashes,
         [
-            16943740507671231435,
-            14506650915638529728,
-            5742452995851408945,
-            14240457581948027955,
-            9110786152916210926,
+            15644633182556899954,
+            10381320392559697235,
+            984853612958845479,
+            4899042652364715673,
+            11504084752447570824,
             14185752707311983027,
             1787853764353740496,
             11095759789957850041,
             12679051088765218619,
             17418703810515401257,
-            14660649996251977621,
-            6926737806155357394,
-            1186044374333244317,
-            3448961666666879291,
-            6379167179755150126,
+            4575950338187869240,
+            18332453669329466153,
+            17386366343749310575,
+            17246734716826370417,
+            12317814179807246960,
             9260004210172304611,
             7523002780273074418,
             1487556178163551511,
@@ -246,7 +247,7 @@ fn menu_frames_keep_the_existing_cells_styles_and_row_hits() {
 
 #[test]
 fn menu_rows_draw_exactly_the_rects_they_publish_as_hits() {
-    let palette = Palette::catppuccin();
+    let palette = Palette::test_palette();
     let selected = Style::default()
         .fg(crate::ui::widgets::panel_contrast_fg(&palette))
         .bg(palette.accent)
@@ -466,10 +467,6 @@ fn global_menu_items_keep_their_fixed_order_and_actions() {
     assert_eq!(
         global_menu::global_menu_items(),
         [
-            (
-                "settings",
-                Action::Binding(crate::input::KeybindAction::Settings)
-            ),
             (
                 "keybinds",
                 Action::Binding(crate::input::KeybindAction::Help)

@@ -55,7 +55,7 @@ CORE_UI_CONFIG="$PWD/scripts/core-tui/try-config.toml" \
 **F10** detach。嵌套外层截获 Ctrl+b 时，可改用 F12（例如 F12 然后 `?` 查看帮助）。
 
 本工作目录另有不提交的个人配置副本 `.local/core-tui/personal-config.toml`，
-保留当时全局配置的 fish、底部 Tab、主题和 Ctrl+a 键位；只增加 F12 备用前缀、
+保留配置中的 fish、底部 Tab、配色 override 和 Ctrl+a 键位；只增加 F12 备用前缀、
 旧终端 `|` / `_` 别名及允许嵌套。原全局配置不变：
 
 ```sh
@@ -88,7 +88,7 @@ CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
 上下键选择工作区、Enter 确认、Esc 返回，右键条目可重命名/关闭。
 默认 `Ctrl+b` 后按 `g` 打开导航器，使用方向键或 j/k、Enter 选择；不再提供搜索、状态过滤或搜索输入框。自定义前缀/键位继续生效。
 Tab 栏可在顶部或底部，不再显示左侧 `spaces` 或右侧 `menu` 按钮，也不为它们预留宽度。
-`prefix+w` 选择器不再显示 menu 区块（移动布局相同）。设置/帮助分别使用 `prefix+s` / `prefix+?`；诊断使用 pane 上下文菜单。
+`prefix+w` 选择器不再显示 menu 区块（移动布局相同）。设置页及其 `prefix+s` 入口已删除；帮助使用 `prefix+?`，诊断使用 pane 上下文菜单。
 隐藏单 Tab 栏不影响这些键盘入口，移动端原有 switch 按钮也保留。
 
 退役的 `ui.sidebar*`、`[ui.sidebar.*]`、`keys.toggle_sidebar` 和 theme 的
@@ -106,6 +106,18 @@ Core 公开快照中的 `cwd` 是程序启动目录，当前目录在 `foregroun
 自定义工作区名称不被覆盖；新建 Tab/分屏仍继承当前目标 pane 的目录，显式 cwd 优先。
 `just core-cwd-smoke` 用私有 HOME 启动 shell、cd 到 code/herdr、detach 后从 HOME
 重新 attach，验证第一次选择器和导航路径即正确，且 PID、网格与共享文档不变。
+
+## 配置文件与配色
+
+设置页面、音效提醒和内置主题已删除。UI 固定使用宿主终端默认色/ANSI 调色板，
+仅支持一层 `[theme.custom]` token override；不支持 light/dark override、auto_switch、
+name/light_name/dark_name，也不再使用旧的 `ui.accent`。这些退役字段和 `ui.sound`、
+`keys.settings` 会诊断后忽略，即使值类型不合法也不会阻止有效 sibling 配置生效。
+不会修改用户的旧配置文件。
+
+修改配置后可用默认 `prefix+Shift+r` 重载客户端 UI 配置；启动时选项（例如滚动保留策略）
+需要 detach 后按原选择重新 attach。终端原生 OSC 颜色同步和程序 BEL 协议仍保留，
+不属于 UI 主题切换或音效播放器。颜色只在读取/重载配置时解析，不在逐 pane 绘制循环重新解析。
 
 ## 单连接与事件驱动调度
 
@@ -183,7 +195,7 @@ Ghostty 仍按整页回收：仅在回收最旧页后还能保留有效目标行
 - pane/workspace/tab 右键菜单按实际方法表过滤；例如 Core 缺少 `terminal.label` 时不显示重命名。
 - Core 未实现 integration list/install 与 worktree 操作，客户端已移除对应设置页、右键/键位动作、对话框和响应分支；`api/schema` 中的相关词汇仍作为共享 schema 保留。旧配置里的 `keys.new_worktree`/`open_worktree`/`remove_worktree` 与 `[worktrees]` 仍能加载，只报告 unknown key/section 并忽略，不改写用户文件。
 - Core 转发真实终端 BEL 与 OSC 52，因此声音/剪贴板链路保留。它没有 semantic agent-notification
-  事件生产者，设置中不展示对应 toasts 选项；历史配置仍可解析，但不会凭空生成通知。
+  事件生产者；配置文件中的历史 toasts 选项仍可解析，但不会凭空生成通知。
   剪贴板 toast 是另一条客户端链路，不受此限制。
 
 `tests/core-tui/harness.py` 统一身份清理、私有 session/socket 校验、exec 前 PTY 几何和停止逻辑。
@@ -191,10 +203,7 @@ Ghostty 仍按整页回收：仅在回收最旧页后还能保留有效目标行
 不再用已经废弃的 `core/core.sock` 判断清理是否必要。harness 安全测试随 `just test` 执行。
 旧 `existing-ui-smoke.py` 只保留兼容导入入口，直接运行改为当前 organization gate，不再运行已失效的
 “单客户端独占 / tab.create 不支持 / layout.json 权威”断言。
-`just core-organization-smoke` 还通过真实鼠标命中验证设置弹窗：主题预览取消不写配置、
-应用主题后关闭、分区/选项点击及非主题应用后保持打开。写入只落在私有测试配置中，
-共享组织文档和程序 PID 保持不变。还验证帮助弹窗的过滤、右上角返回清空搜索、再次点击关闭；
-单元测试另覆盖窄屏、非零坐标、折行/滚动条/光标以及完整 cell 样式基准。
+`just core-organization-smoke` 通过编辑私有配置文件并使用实际重载快捷键，验证 `[theme.custom]` override 出现在真实 ANSI 帧；重载不改写配置、不修改共享组织、不更换程序 PID。帮助过滤/返回仍经真实鼠标命中验证。
 
 `just core-network-smoke` 对私有 PTY 的双向传输加入约 40ms 名义 RTT、±5ms 抖动、
 1/2/7/31/127/1024 字节分片、650ms 停止读输出和有界 32KiB 队列。

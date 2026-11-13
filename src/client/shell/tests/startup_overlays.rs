@@ -4,7 +4,6 @@ use super::*;
 fn retired_announcement_data_does_not_open_a_modal_or_disable_live_overlays() {
     let mut config = Config::default();
     config.keys.help = crate::config::BindingConfig::one("f2");
-    config.keys.settings = crate::config::BindingConfig::one("f3");
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     assert!(state.overlay.is_none());
     let mut projection = snapshot();
@@ -25,25 +24,20 @@ fn retired_announcement_data_does_not_open_a_modal_or_disable_live_overlays() {
         input.requests.as_slice(),
         [ClientMessage::ClientShellPaneInput { pane_id, .. }] if pane_id == "pane_1"
     ));
-    for (code, kind) in [
-        (KeyCode::F(2), ClientShellOverlayKind::Help),
-        (KeyCode::F(3), ClientShellOverlayKind::Settings),
-    ] {
-        state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-            code,
-            KeyModifiers::NONE,
-        ))]);
-        assert_eq!(
-            state.overlay.as_ref().map(ClientShellOverlay::kind),
-            Some(kind)
-        );
-        assert!(state.compose(106, 30).is_some());
-        state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-            KeyCode::Esc,
-            KeyModifiers::NONE,
-        ))]);
-        assert!(state.overlay.is_none());
-    }
+    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        KeyCode::F(2),
+        KeyModifiers::NONE,
+    ))]);
+    assert_eq!(
+        state.overlay.as_ref().map(ClientShellOverlay::kind),
+        Some(ClientShellOverlayKind::Help)
+    );
+    assert!(state.compose(106, 30).is_some());
+    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        KeyCode::Esc,
+        KeyModifiers::NONE,
+    ))]);
+    assert!(state.overlay.is_none());
 }
 
 #[test]
@@ -102,7 +96,6 @@ fn config_diagnostic_offsets_only_the_pane_rows_it_overlaps() {
             kind: SemanticNotificationKind::Custom,
             title: "notification".into(),
             body: None,
-            sound: None,
             agent: None,
             workspace_id: None,
             tab_id: None,
@@ -204,16 +197,4 @@ fn local_reload_keeps_key_diagnostics_and_ignores_retired_commands() {
     )
     .is_none());
     assert!(state.endpoint_error.is_none());
-}
-
-#[test]
-fn live_client_config_keeps_sound_diagnostics() {
-    let mut shell_config = ClientShellConfig::from_config(&Config::default());
-    let mut config = Config::default();
-    config.ui.sound.path = Some(std::path::PathBuf::from("invalid.wav"));
-
-    let diagnostics = shell_config.apply_live_config(&config, &[], &[]);
-    assert!(diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.contains("expected an mp3 file")));
 }

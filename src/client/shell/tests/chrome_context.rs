@@ -301,13 +301,9 @@ fn client_action_shortcuts_work_without_chooser_menu_or_tab_buttons() {
     assert!(help.actions.is_empty() && help.requests.is_empty());
     assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(_))));
     state.handle_input_bytes(b"\x1b");
-    let settings = state.handle_input_bytes(b"\x02s");
-    assert!(settings.actions.is_empty() && settings.requests.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Settings(_))
-    ));
-    state.handle_input_bytes(b"\x1b");
+    let retired = state.handle_input_bytes(b"\x02s");
+    assert!(retired.actions.is_empty() && retired.requests.is_empty());
+    assert!(state.overlay.is_none());
     let detach = state.handle_input_bytes(b"\x02q");
     assert!(detach.detach);
     assert!(state.overlay.is_none());

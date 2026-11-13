@@ -12,11 +12,7 @@ pub(super) fn global_menu_items() -> &'static [(&'static str, ClientGlobalMenuAc
 
 /// The global menu content is fixed, so one static array serves painting,
 /// selection, activation and the mobile menu instead of a `Vec` per call.
-static GLOBAL_MENU_ITEMS: [(&str, ClientGlobalMenuAction); 5] = [
-    (
-        "settings",
-        ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Settings),
-    ),
+static GLOBAL_MENU_ITEMS: [(&str, ClientGlobalMenuAction); 4] = [
     (
         "keybinds",
         ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Help),

@@ -277,10 +277,6 @@ impl ClientShellState {
             return;
         }
 
-        if self.route_settings_key(key, outcome) {
-            return;
-        }
-
         if matches!(self.overlay, Some(ClientShellOverlay::ContextMenu(_))) {
             match key.code {
                 KeyCode::Esc => {
