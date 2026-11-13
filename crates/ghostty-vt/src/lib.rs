@@ -512,7 +512,12 @@ impl CellWide {
 
 type WritePtyCallback = dyn FnMut(&[u8]) + Send;
 
-const MAX_CLIPBOARD_BYTES: usize = 192 * 1024;
+// Match the decoded ceiling of libghostty-vt's 8 MiB allocating OSC capture
+// (src/terminal/osc.zig, Parser.MAX_ALLOCATING_BUF): base64 expands 3 bytes to 4.
+// OSC 52's selector, separator and trailing NUL also occupy that capture, so
+// its actual decoded maximum is a few bytes below this ceiling. Keep this
+// callback bound in sync with the vendor policy; it also handles OSC 5522.
+const MAX_CLIPBOARD_BYTES: usize = 6 * 1024 * 1024;
 
 #[derive(Default)]
 struct TerminalCallbackState {
@@ -5029,7 +5034,6 @@ mod tests {
         let success = ffi::GhosttyClipboardWriteResult_GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS;
         let unsupported =
             ffi::GhosttyClipboardWriteResult_GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED;
-        let invalid = ffi::GhosttyClipboardWriteResult_GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA;
 
         assert_eq!(invoke_clipboard_callback(&mut terminal, &[]), success);
         assert!(terminal.take_clipboard_writes().is_empty());
@@ -5045,14 +5049,65 @@ mod tests {
             invoke_clipboard_callback(&mut terminal, &[text, image]),
             unsupported
         );
+        assert!(terminal.take_clipboard_writes().is_empty());
+    }
 
-        let oversized = vec![b'x'; MAX_CLIPBOARD_BYTES + 1];
-        let oversized = test_clipboard_content(b"text/plain", &oversized);
+    #[test]
+    fn clipboard_callback_enforces_decoded_limit() {
+        let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        let bytes = vec![b'x'; MAX_CLIPBOARD_BYTES + 1];
+        let at_limit = test_clipboard_content(b"text/plain", &bytes[..MAX_CLIPBOARD_BYTES]);
+        assert_eq!(
+            invoke_clipboard_callback(&mut terminal, &[at_limit]),
+            ffi::GhosttyClipboardWriteResult_GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS
+        );
+        let writes = terminal.take_clipboard_writes();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].len(), MAX_CLIPBOARD_BYTES);
+        assert!(writes[0] == bytes[..MAX_CLIPBOARD_BYTES]);
+
+        let oversized = test_clipboard_content(b"text/plain", &bytes);
         assert_eq!(
             invoke_clipboard_callback(&mut terminal, &[oversized]),
-            invalid
+            ffi::GhosttyClipboardWriteResult_GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA
         );
         assert!(terminal.take_clipboard_writes().is_empty());
+    }
+
+    #[test]
+    fn osc52_writes_follow_vendor_encoded_limit() {
+        use base64::Engine as _;
+
+        // The capture contains "c;", padded base64, and a parser-added NUL.
+        // This is the largest decoded payload that fits the vendor's 8 MiB.
+        let max_decoded = (8 * 1024 * 1024 - 3) / 4 * 3;
+        assert!(max_decoded <= MAX_CLIPBOARD_BYTES);
+        let bytes = vec![b'x'; max_decoded + 1];
+        let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        for terminator in [b"\x07".as_slice(), b"\x1b\\".as_slice()] {
+            for len in [max_decoded, max_decoded + 1] {
+                terminal.write(b"\x1b]52;c;");
+                // Feed PTY-sized chunks without building a huge sequence.
+                // Non-final chunks must be divisible by 3 for base64 padding.
+                for chunk in bytes[..len].chunks(48 * 1024) {
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(chunk);
+                    terminal.write(encoded.as_bytes());
+                    assert!(terminal.take_clipboard_writes().is_empty());
+                }
+                terminal.write(terminator);
+                let writes = terminal.take_clipboard_writes();
+                if len == max_decoded {
+                    assert_eq!(writes.len(), 1);
+                    assert_eq!(writes[0].len(), len);
+                    assert!(writes[0] == bytes[..len]);
+                } else {
+                    assert!(writes.is_empty());
+                }
+                // Oversize input must not poison the next clipboard write.
+                terminal.write(b"\x1b]52;c;b2s=\x07");
+                assert_eq!(terminal.take_clipboard_writes(), vec![b"ok".to_vec()]);
+            }
+        }
     }
 
     #[test]
