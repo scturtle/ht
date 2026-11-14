@@ -143,10 +143,6 @@ pub(crate) enum ClientShellAction {
         boot_id: String,
         request: Box<crate::actions::ActionRequest>,
     },
-    DumpPaneDiagnostics {
-        pane_id: String,
-        client: Box<serde_json::Value>,
-    },
     ClipboardWrite(Vec<u8>),
     OpenSafeWebUrl(String),
     ReplayMouse(Vec<crossterm::event::MouseEvent>),
@@ -259,7 +255,6 @@ pub(super) enum ClientContextMenuAction {
     RenamePane,
     ClearPaneName,
     SwapWithFocusedPane,
-    DumpPaneDiagnostics,
     SplitRight,
     SplitDown,
     Zoom,
@@ -385,7 +380,6 @@ pub(super) struct PendingEndpointRequest {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ClientEndpointNoticeKind {
-    Diagnostic,
     Unsupported,
     Rejected,
     Timeout,

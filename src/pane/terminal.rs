@@ -7,7 +7,6 @@ use tracing::{debug, error, warn};
 
 use crate::layout::PaneId;
 
-mod diagnostics;
 mod render;
 mod responses;
 mod text;

@@ -53,7 +53,6 @@ fn core_config_reload_and_context_menu_only_offer_implemented_actions() {
     assert!(menu.items().iter().all(|i| matches!(
         i.action,
         ClientContextMenuAction::ToggleRightClickPassthrough
-            | ClientContextMenuAction::DumpPaneDiagnostics
     )));
 }
 

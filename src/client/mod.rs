@@ -6,7 +6,6 @@
 mod clipboard_forwarding;
 pub(crate) mod connection;
 mod core;
-mod diagnostics;
 mod direct_graphics;
 mod endpoint_commands;
 mod errors;
@@ -939,15 +938,6 @@ async fn run_client_loop(
                     io::ErrorKind::UnexpectedEof,
                     "connection was lost",
                 ));
-            }
-            ClientLoopEvent::PaneDiagnosticsFinished { path, warning } => {
-                let shell = &mut state.shell;
-                if shell.diagnostic_notice(&path, warning.as_deref()) {
-                    if let Some(frame) = shell.compose(state.reported_size.0, state.reported_size.1)
-                    {
-                        state.present_frame(frame);
-                    }
-                }
             }
             ClientLoopEvent::Timer => {
                 client_timer.fired();

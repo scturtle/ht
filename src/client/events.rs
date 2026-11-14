@@ -14,9 +14,5 @@ pub(super) enum ClientLoopEvent {
     ServerDisconnected {
         generation: u64,
     },
-    PaneDiagnosticsFinished {
-        path: std::path::PathBuf,
-        warning: Option<String>,
-    },
     Timer,
 }

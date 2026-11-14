@@ -6,32 +6,6 @@ use std::{
     sync::OnceLock,
 };
 
-/// On-demand, self-only process evidence; never samples other users' programs.
-/// Missing procfs permissions are data, not a reason to discard the pane dump.
-pub(crate) fn diagnostic_process_snapshot() -> serde_json::Value {
-    use serde_json::json;
-    let read = |path: &std::path::Path| match std::fs::read_to_string(path) {
-        Ok(text) => json!({"text":text}),
-        Err(error) => json!({"error":error.to_string()}),
-    };
-    let threads = match std::fs::read_dir("/proc/self/task") {
-        Ok(entries) => serde_json::Value::Array(
-            entries
-                .filter_map(Result::ok)
-                .take(128)
-                .map(|entry| {
-                    let path = entry.path();
-                    json!({"tid":entry.file_name().to_string_lossy(),
-                "name":read(&path.join("comm")),"wait_channel":read(&path.join("wchan")),
-                "status":read(&path.join("status"))})
-                })
-                .collect(),
-        ),
-        Err(error) => json!({"error":error.to_string()}),
-    };
-    json!({"pid":std::process::id(),"status":read(std::path::Path::new("/proc/self/status")),"threads":threads,"thread_limit":128})
-}
-
 pub(crate) use super::unix_common::{create_remote_private_dir, create_remote_ssh_config_file};
 
 pub(crate) fn create_private_state_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {

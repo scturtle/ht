@@ -245,36 +245,6 @@ impl Session {
         Ok(())
     }
 
-    /// The socket a recovery probe reaches. Its absence is the observable
-    /// difference between a restart (which recreates it) and an explicit stop.
-    pub(super) fn diagnostic_options(&self) -> Option<super::Options> {
-        self.options.clone()
-    }
-
-    /// No RPC, render, geometry or lifecycle operations: observe only this pane.
-    pub(super) fn diagnostic_snapshot(&self, address: &str) -> Value {
-        let id = self.model.id(address);
-        let view = id.and_then(|id| self.views.get(&id));
-        json!({
-            "boot_id":self.model.boot,"revision":self.model.revision,
-            "document_version":self.document_version,"event_sequence":self.seq,
-            "scrollback_limit_lines":self.scrollback.scrollback_limit_lines,
-            "scrollback_limit_bytes":self.scrollback.scrollback_limit_bytes,
-            "active_workspace":self.model.active_workspace,"active_tab":self.model.active_tab(),
-            "organization_tab":id.and_then(|id| self.model.context(id)).map(|(_,tab)| tab),
-            "dirty":self.dirty,"snapshot_dirty":self.snapshot_dirty,
-            "focused":self.focused,"focused_id":self.model.focused().map(|id| id.raw()),
-            "last_focus":self.last_focus.map(|id| id.raw()),"size":[self.size.cols,self.size.rows],"cells":self.cells,
-            "facts":id.and_then(|id| self.model.records.get(&id)).map(|r| &r.facts),
-            "view":view.map(|v| json!({"channel":v.channel,"revision":v.revision,
-                "closed":v.closed,"visible":v.visible,"size":v.size,"requested":v.requested,
-                "channel_mapped":self.channels.get(&v.channel)==id.as_ref(),
-                "terminal":v.terminal.diagnostic_snapshot()})),
-            "transport":self.core.diagnostic_snapshot(),
-            "graphics_pending":self.renderer.graphics_pending(),
-        })
-    }
-
     pub fn socket_path(&self) -> PathBuf {
         self.options
             .as_ref()

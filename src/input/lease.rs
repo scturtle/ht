@@ -262,6 +262,7 @@ where
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.leases.len()
     }

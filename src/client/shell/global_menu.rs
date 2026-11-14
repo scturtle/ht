@@ -3,7 +3,6 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
-    DumpPaneDiagnostics,
 }
 
 pub(super) fn global_menu_items() -> &'static [(&'static str, ClientGlobalMenuAction)] {
@@ -12,7 +11,7 @@ pub(super) fn global_menu_items() -> &'static [(&'static str, ClientGlobalMenuAc
 
 /// The global menu content is fixed, so one static array serves painting,
 /// selection, activation and the mobile menu instead of a `Vec` per call.
-static GLOBAL_MENU_ITEMS: [(&str, ClientGlobalMenuAction); 4] = [
+static GLOBAL_MENU_ITEMS: [(&str, ClientGlobalMenuAction); 3] = [
     (
         "keybinds",
         ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Help),
@@ -20,10 +19,6 @@ static GLOBAL_MENU_ITEMS: [(&str, ClientGlobalMenuAction); 4] = [
     (
         "reload config",
         ClientGlobalMenuAction::Binding(crate::input::KeybindAction::ReloadConfig),
-    ),
-    (
-        "dump pane diagnostics",
-        ClientGlobalMenuAction::DumpPaneDiagnostics,
     ),
     (
         "detach",
@@ -72,9 +67,6 @@ impl ClientShellState {
         match action {
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
-            }
-            ClientGlobalMenuAction::DumpPaneDiagnostics => {
-                self.dump_pane_diagnostics(self.focused_pane_id().unwrap_or_default(), outcome);
             }
         }
         outcome.repaint = true;

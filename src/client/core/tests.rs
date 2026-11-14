@@ -94,36 +94,9 @@ fn endpoint() -> (CoreEndpoint, mpsc::Receiver<Command>) {
             queued: Arc::new(AtomicUsize::new(0)),
             stopped: Arc::new(AtomicBool::new(false)),
             error: Arc::new(Mutex::new(None)),
-            options: None,
-            events: tokio::sync::mpsc::channel(1).0,
         },
         receiver,
     )
-}
-
-#[test]
-fn diagnostic_capture_is_a_barrier_even_when_pane_input_is_stopped() {
-    let (mut endpoint, receiver) = endpoint();
-    endpoint.options = Some(Options {
-        binary: "hc".into(),
-        home: "/unused".into(),
-        socket: "/unused/socket".into(),
-        isolate: false,
-        client_id: None,
-    });
-    endpoint.stopped.store(true, Ordering::Release);
-    let source = endpoint
-        .diagnostic_source("pane-1")
-        .expect("diagnostics remain available during outage");
-    let Command::Diagnostics { pane, done, .. } = receiver.try_recv().unwrap() else {
-        panic!("diagnostic command, not input")
-    };
-    assert_eq!(pane, "pane-1");
-    assert!(endpoint.pending.is_none());
-    assert_eq!(endpoint.queued.load(Ordering::Acquire), 0);
-    done.send(json!({"closed":false})).unwrap();
-    assert_eq!(source.local.unwrap().recv().unwrap()["closed"], false);
-    assert!(receiver.try_recv().is_err());
 }
 
 #[test]

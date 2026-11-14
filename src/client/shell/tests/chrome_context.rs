@@ -150,51 +150,6 @@ fn focused_last_overflow_tab_shows_its_full_label() {
 }
 
 #[test]
-fn diagnostic_menus_capture_only_local_state_without_focus_or_input_requests() {
-    for global in [false, true] {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot(Box::new(snapshot()));
-        state.set_pane_surface(surface());
-        state.compose(106, 30).unwrap();
-        let before = state.endpoint.snapshot.clone();
-        let before_surface = state.pane_surface.clone();
-        let mut outcome = ClientShellInput::default();
-        if global {
-            state.toggle_global_menu();
-            let index = global_menu::global_menu_items()
-                .iter()
-                .position(|(_, action)| {
-                    *action == global_menu::ClientGlobalMenuAction::DumpPaneDiagnostics
-                })
-                .unwrap();
-            state.activate_global_menu_item(index, &mut outcome);
-        } else {
-            state.open_pane_context_menu("pane_1".into(), 30, 4);
-            let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
-                panic!("menu")
-            };
-            let index = menu
-                .items()
-                .iter()
-                .position(|item| item.action == ClientContextMenuAction::DumpPaneDiagnostics)
-                .unwrap();
-            state.activate_context_menu_item(index, &mut outcome);
-        }
-        assert!(outcome.requests.is_empty());
-        assert!(!outcome.resize && !outcome.detach);
-        assert_eq!(state.endpoint.snapshot, before);
-        assert_eq!(state.pane_surface, before_surface);
-        let [ClientShellAction::DumpPaneDiagnostics { pane_id, client }] = &outcome.actions[..]
-        else {
-            panic!("one local diagnostic action")
-        };
-        assert_eq!(pane_id, "pane_1");
-        assert_eq!(client["pane_id"], "pane_1");
-        assert!(client["pane_cells"].is_array());
-    }
-}
-
-#[test]
 fn context_menus_capture_stable_targets_and_route_actions() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));

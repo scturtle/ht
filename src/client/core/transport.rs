@@ -267,12 +267,6 @@ impl Core {
         self.input.deadline()
     }
 
-    pub(super) fn diagnostic_snapshot(&self) -> Value {
-        json!({"failed":self.failed,"next_rpc_id":self.next_id,"pending_frames":self.pending.len(),
-            "pending_bytes":self.pending_bytes,"events_channel":self.events_channel,
-            "write_deadline_remaining_ms":self.write_deadline().map(|t|t.saturating_duration_since(Instant::now()).as_millis())})
-    }
-
     pub fn send(&mut self, channel: u32, kind: u8, payload: &[u8]) -> io::Result<()> {
         self.send_with_timeout(channel, kind, payload, Duration::from_secs(5))
     }
@@ -441,64 +435,6 @@ impl Drop for Core {
     }
 }
 
-/// A separate, existing-only relay: never consumes a viewer or its credit.
-/// These are the only diagnostic RPCs; `lines:0` does not scroll a TUI.
-pub(in crate::client) fn diagnostic_probe(
-    options: &super::Options,
-    pane: &str,
-    deadline: Instant,
-) -> io::Result<Value> {
-    let mut core = Core::open(
-        &options.binary,
-        &options.home,
-        &options.socket,
-        options.isolate,
-        true,
-        deadline
-            .saturating_duration_since(Instant::now())
-            .min(Duration::from_secs(2)),
-        // Diagnostic relay errors belong in the report, not in the user's TUI.
-        Stdio::null(),
-    )?;
-    Ok(collect_diagnostic_rpc(pane, |method, params| {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "diagnostic deadline expired",
-            ));
-        }
-        core.request_with_timeout(method, params, remaining)
-    }))
-}
-
-fn collect_diagnostic_rpc(
-    pane: &str,
-    mut request: impl FnMut(&str, Value) -> io::Result<Value>,
-) -> Value {
-    let mut capture = serde_json::Map::new();
-    for (method, params) in [
-        ("server.status", json!({})),
-        ("terminal.get", json!({"terminal":pane})),
-        ("terminal.read", json!({"terminal":pane,"lines":0})),
-    ] {
-        if pane.is_empty() && method != "server.status" {
-            continue;
-        }
-        let started = Instant::now();
-        let value = match request(method, params) {
-            Ok(value) => value,
-            Err(error) => json!({"error":error.to_string()}),
-        };
-        capture.insert(
-            format!("{method}.duration_ms"),
-            json!(started.elapsed().as_millis()),
-        );
-        capture.insert(method.into(), value);
-    }
-    Value::Object(capture)
-}
-
 fn rpc_result(reply: &Value) -> io::Result<Value> {
     if let Some(error) = reply.get("error") {
         let kind = match error["data"]["kind"].as_str() {
@@ -516,55 +452,6 @@ fn rpc_result(reply: &Value) -> io::Result<Value> {
 
 #[cfg(test)]
 pub(super) use tests::test_core;
-
-#[cfg(test)]
-mod diagnostic_tests {
-    use super::*;
-
-    #[test]
-    fn diagnostic_rpc_is_read_only_and_never_scrolls_the_program() {
-        let mut calls = Vec::new();
-        let value = collect_diagnostic_rpc("pane-7", |method, params| {
-            calls.push((method.to_owned(), params));
-            Ok(json!({"text":"frozen screen"}))
-        });
-        assert_eq!(
-            calls,
-            vec![
-                ("server.status".into(), json!({})),
-                ("terminal.get".into(), json!({"terminal":"pane-7"})),
-                (
-                    "terminal.read".into(),
-                    json!({"terminal":"pane-7","lines":0})
-                ),
-            ]
-        );
-        assert_eq!(value["terminal.read"]["text"], "frozen screen");
-    }
-
-    #[test]
-    fn a_missing_focus_never_reads_an_implicit_program() {
-        let mut calls = Vec::new();
-        collect_diagnostic_rpc("", |method, _| {
-            calls.push(method.to_owned());
-            Ok(json!({}))
-        });
-        assert_eq!(calls, ["server.status"]);
-    }
-
-    #[test]
-    fn diagnostic_rpc_preserves_partial_results_and_timeout_errors() {
-        let value = collect_diagnostic_rpc("pane-7", |method, _| {
-            if method == "server.status" {
-                Ok(json!({"pid":123}))
-            } else {
-                Err(io::Error::new(io::ErrorKind::TimedOut, "probe timed out"))
-            }
-        });
-        assert_eq!(value["server.status"]["pid"], 123);
-        assert_eq!(value["terminal.read"]["error"], "probe timed out");
-    }
-}
 
 #[cfg(test)]
 mod tests {

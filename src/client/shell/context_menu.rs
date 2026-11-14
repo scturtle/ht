@@ -43,7 +43,6 @@ impl ClientContextMenuOverlay {
                         },
                         Action::ToggleRightClickPassthrough,
                     ),
-                    item("Dump pane diagnostics", Action::DumpPaneDiagnostics),
                     item("Close pane", Action::ClosePane),
                 ]);
                 items
@@ -65,7 +64,7 @@ impl ClientContextMenuOverlay {
                     ClientContextMenuTarget::Workspace { .. } => "workspace.close",
                     _ => "tab.close",
                 },
-                Action::ToggleRightClickPassthrough | Action::DumpPaneDiagnostics => return true,
+                Action::ToggleRightClickPassthrough => return true,
             };
             self.methods
                 .as_ref()
@@ -355,9 +354,6 @@ impl ClientShellState {
         };
 
         match action {
-            ClientContextMenuAction::DumpPaneDiagnostics => {
-                self.dump_pane_diagnostics(pane_id, outcome)
-            }
             ClientContextMenuAction::RenamePane => {
                 let label = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
                     snapshot

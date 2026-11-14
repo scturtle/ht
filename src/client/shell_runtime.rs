@@ -32,19 +32,6 @@ pub(super) fn dispatch_client_shell_actions(
                     repaint |= shell.cancel_endpoint_request(&request.id);
                 }
             }
-            shell::ClientShellAction::DumpPaneDiagnostics {
-                pane_id,
-                mut client,
-            } => {
-                let source = endpoints.diagnostic_source(&pane_id, &mut client);
-                repaint |= match super::diagnostics::start(pane_id, *client, source) {
-                    Ok(path) => shell.diagnostic_notice(
-                        &path,
-                        Some("Collecting; contains pane screen text. Keep private."),
-                    ),
-                    Err(error) => shell.diagnostic_error(error.to_string()),
-                };
-            }
             shell::ClientShellAction::ClipboardWrite(bytes) => {
                 if crate::selection::write_osc52_bytes(&bytes) {
                     repaint |= shell.show_copy_feedback(Instant::now());
@@ -139,7 +126,7 @@ pub(super) fn install_client_shell_snapshot(
 }
 pub(super) fn finish_client_shell_input(
     state: &mut ClientState,
-    mut outcome: shell::ClientShellInput,
+    outcome: shell::ClientShellInput,
     frame: Option<super::frame_output::ComposedFrame>,
     endpoints: &mut connection::CoreConnection,
     commands: &mut endpoint_commands::EndpointCommands,
@@ -166,14 +153,6 @@ pub(super) fn finish_client_shell_input(
         query_host_terminal_theme();
     }
     sync_client_shell_keyboard_report_all(state)?;
-    for action in &mut outcome.actions {
-        if let shell::ClientShellAction::DumpPaneDiagnostics { client, .. } = action {
-            client["request_lane"] = commands.diagnostic_snapshot();
-            client["client_loop"] = serde_json::json!({"reported_size":state.reported_size,"cell_size":state.reported_cell_size,
-                "mouse_capture":state.mouse_capture_active,
-                "keyboard_report_all":state.keyboard_report_all_active});
-        }
-    }
     let (replay, repaint) = dispatch_client_shell_actions(
         outcome.actions,
         commands,

@@ -20,12 +20,6 @@ pub(crate) trait CoreTransport: Send {
     fn take_error(&mut self) -> Option<io::Error> {
         None
     }
-    fn diagnostic_source(
-        &mut self,
-        _pane: &str,
-    ) -> Option<crate::client::diagnostics::DiagnosticSource> {
-        None
-    }
 }
 pub(crate) struct ConnectionFailure {
     pub(crate) generation: u64,
@@ -59,18 +53,6 @@ impl CoreConnection {
     }
     pub(crate) fn accepts(&self, generation: u64) -> bool {
         self.generation() == Some(generation)
-    }
-    /// The diagnostic lane remains usable when presentation/input is unavailable.
-    pub(crate) fn diagnostic_source(
-        &mut self,
-        pane: &str,
-        client: &mut serde_json::Value,
-    ) -> Option<crate::client::diagnostics::DiagnosticSource> {
-        // Preserve the existing dump field name for diagnostic readers.
-        client["endpoint_registry"] = serde_json::json!({"input_enabled":self.is_connected(),
-            "surface_available":self.is_connected(),"endpoint":"local",
-            "generation":self.generation()});
-        self.transport.as_mut()?.diagnostic_source(pane)
     }
     /// Failed sends revoke the transport and leave one failure for the lifecycle
     /// loop. Callers must not bypass that transition or retry uncertain delivery.

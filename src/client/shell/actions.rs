@@ -207,10 +207,7 @@ impl ClientShellState {
             code: code.into(),
         };
         let body = body.into();
-        if matches!(
-            kind,
-            ClientEndpointNoticeKind::Rejected | ClientEndpointNoticeKind::Diagnostic
-        ) {
+        if matches!(kind, ClientEndpointNoticeKind::Rejected) {
             if self
                 .visible_endpoint_notice
                 .as_ref()

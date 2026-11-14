@@ -87,6 +87,8 @@ impl EndpointCommands {
     pub(super) fn accepts_response(&self, generation: u64, boot: &str, id: &str) -> bool {
         self.matches(generation, boot, id)
     }
+    /// Queue and in-flight state for tests that assert the lane stays idle.
+    #[cfg(test)]
     pub(super) fn diagnostic_snapshot(&self) -> serde_json::Value {
         serde_json::json!({"queued":self.queued.len(),"retired":self.retired.len(),
             "in_flight":self.in_flight.as_ref().map(|c|serde_json::json!({"generation":c.generation,"boot_id":c.boot_id,"request_id":c.request_id,"elapsed_ms":c.sent_at.elapsed().as_millis()}))})
