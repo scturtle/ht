@@ -402,7 +402,6 @@ fn synchronized_effects_and_input_protocols_are_not_gated_on_paint() {
 
 #[test]
 fn synchronized_images_keep_the_committed_scene_without_reuploading_or_losing_delivery() {
-    crate::kitty_graphics::set_enabled(true);
     let (mut s, ids) = fixture(1);
     let id = ids[0];
     data(
@@ -478,7 +477,6 @@ fn complete_sync_in_one_data_frame_needs_no_wait_and_recovery_clears_frozen_cont
 #[test]
 fn reserved_graphics_slots_do_not_upload_or_spin_on_unrepresentable_assets() {
     use crate::kitty_graphics::{surface::*, HostCellSize};
-    crate::kitty_graphics::set_enabled(true);
     let (mut s, ids) = fixture(1);
     let id = ids[0];
     data(
@@ -506,7 +504,6 @@ fn reserved_graphics_slots_do_not_upload_or_spin_on_unrepresentable_assets() {
 
 #[test]
 fn synchronized_image_moves_and_clips_with_latest_pane_geometry() {
-    crate::kitty_graphics::set_enabled(true);
     let (mut s, ids) = fixture(2);
     let id = ids[1];
     data(

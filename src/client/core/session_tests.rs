@@ -3,7 +3,6 @@ use base64::Engine as _;
 
 #[test]
 fn graphics_over_budget_finish_without_another_input_or_core_event() {
-    crate::kitty_graphics::set_enabled(true);
     let mut model = Model::new("budget-test".into());
     let id = model
         .insert(json!({"address":"test", "state":"live", "pid":7}))

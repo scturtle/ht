@@ -121,8 +121,6 @@ fn ghostty_collect_dirty_patch(
     let palette_overrides = colors
         .zip(terminal.default_palette().ok())
         .and_then(|(colors, default)| PaletteOverrides::new(&colors.palette, &default));
-    let hide_kitty_placeholders = crate::kitty_graphics::is_enabled();
-
     let Ok(mut row_iterator) = crate::ghostty::RowIterator::new() else {
         fallback!("row_iterator_new_error");
     };
@@ -178,7 +176,6 @@ fn ghostty_collect_dirty_patch(
             let symbol = match ghostty_buffer_symbol_into(
                 &cells,
                 basic.wide,
-                hide_kitty_placeholders,
                 &mut grapheme_bytes,
                 &mut symbol_scratch,
             ) {
@@ -2792,15 +2789,10 @@ fn render_cells_to_symbols(
         let mut cells = rows.populate_cells(&mut row_cells).unwrap();
         while cells.next() {
             let wide = cells.wide().unwrap_or(crate::ghostty::CellWide::Narrow);
-            let symbol = ghostty_buffer_symbol_into(
-                &cells,
-                wide,
-                false,
-                &mut grapheme_bytes,
-                &mut symbol_scratch,
-            )
-            .unwrap()
-            .to_string();
+            let symbol =
+                ghostty_buffer_symbol_into(&cells, wide, &mut grapheme_bytes, &mut symbol_scratch)
+                    .unwrap()
+                    .to_string();
             out.push((wide, symbol));
         }
     }
@@ -3290,7 +3282,6 @@ fn synchronized_output_suppresses_intermediate_render_requests_until_batch_ends(
 
 #[test]
 fn kitty_graphics_write_requests_render_with_settle_backstop() {
-    crate::kitty_graphics::set_enabled(true);
     let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
     let pane_terminal = GhosttyPaneTerminal::new(terminal).unwrap();
     let pane_id = PaneId::from_raw(1);
@@ -3402,8 +3393,7 @@ fn render_leaves_unknown_host_default_background_transparent() {
 }
 
 #[test]
-fn render_blanks_kitty_unicode_placeholders_when_graphics_enabled() {
-    crate::kitty_graphics::set_enabled(true);
+fn render_blanks_kitty_unicode_placeholders() {
     let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
     let pane = GhosttyPaneTerminal::new(terminal).unwrap();
     {
@@ -3417,7 +3407,6 @@ fn render_blanks_kitty_unicode_placeholders_when_graphics_enabled() {
     terminal
         .draw(|frame| pane.render(frame, Rect::new(0, 0, 20, 5), false))
         .unwrap();
-    crate::kitty_graphics::set_enabled(false);
 
     let buffer = terminal.backend().buffer();
     assert_eq!(buffer[(0, 0)].symbol(), "b");

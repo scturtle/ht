@@ -163,8 +163,6 @@ pub struct ClipboardToastConfig {
 pub struct TerminalConfig {
     /// Executable used for new interactive panes. Empty means SHELL, then /bin/sh.
     pub default_shell: String,
-    /// Render Kitty graphics in compatible outer terminals. Default: true.
-    pub kitty_graphics: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -189,7 +187,6 @@ pub struct Config {
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
-    pub experimental: ExperimentalConfig,
 }
 
 #[derive(Debug)]
@@ -629,15 +626,6 @@ pub struct AdvancedConfig {
     pub scrollback_limit_bytes: Option<usize>,
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct ExperimentalConfig {
-    /// Allow launching herdr inside an existing herdr pane. Default: false.
-    pub allow_nested: bool,
-    /// Deprecated compatibility key for `terminal.kitty_graphics`.
-    pub kitty_graphics: Option<bool>,
-}
-
 impl Default for KeysConfig {
     fn default() -> Self {
         Self {
@@ -1005,9 +993,7 @@ delay_seconds = {}
     }
 
     #[test]
-    fn kitty_graphics_default_on_with_stable_opt_out() {
-        assert!(Config::default().kitty_graphics_enabled());
-
+    fn kitty_graphics_setting_is_ignored() {
         let config: Config = toml::from_str(
             r#"
 [terminal]
@@ -1015,31 +1001,7 @@ kitty_graphics = false
 "#,
         )
         .unwrap();
-        assert!(!config.kitty_graphics_enabled());
-    }
-
-    #[test]
-    fn legacy_experimental_kitty_graphics_setting_remains_compatible() {
-        let disabled: Config = toml::from_str(
-            r#"
-[experimental]
-kitty_graphics = false
-"#,
-        )
-        .unwrap();
-        assert!(!disabled.kitty_graphics_enabled());
-
-        let stable_setting_wins: Config = toml::from_str(
-            r#"
-[terminal]
-kitty_graphics = false
-
-[experimental]
-kitty_graphics = true
-"#,
-        )
-        .unwrap();
-        assert!(!stable_setting_wins.kitty_graphics_enabled());
+        assert_eq!(config.terminal.default_shell, "");
     }
 
     #[test]

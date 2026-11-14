@@ -46,13 +46,6 @@ pub(crate) fn test_config_env_lock() -> &'static std::sync::Mutex<()> {
 }
 
 impl Config {
-    pub fn kitty_graphics_enabled(&self) -> bool {
-        self.terminal
-            .kitty_graphics
-            .or(self.experimental.kitty_graphics)
-            .unwrap_or(true)
-    }
-
     pub fn prefix_keys(&self) -> Vec<(KeyCode, KeyModifiers)> {
         self.validated_keybinds().1
     }

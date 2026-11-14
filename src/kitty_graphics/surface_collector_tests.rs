@@ -38,7 +38,6 @@ fn collect_for(
 
 #[test]
 fn an_uploaded_image_becomes_one_asset_and_one_placement_at_its_pane_origin() {
-    crate::kitty_graphics::set_enabled(true);
     let pane = pane(20, 5);
     pane.process_pty_bytes(PaneId::from_raw(1), UPLOAD);
 
@@ -69,7 +68,6 @@ fn an_uploaded_image_becomes_one_asset_and_one_placement_at_its_pane_origin() {
 
 #[test]
 fn a_pane_leaving_the_surface_retains_its_delivered_image() {
-    crate::kitty_graphics::set_enabled(true);
     let pane = pane(20, 5);
     pane.process_pty_bytes(PaneId::from_raw(1), UPLOAD);
     let (_, cache) = collect_for(&pane, Rect::new(0, 0, 20, 5), &DeliveryCache::default());
@@ -93,7 +91,6 @@ fn a_pane_leaving_the_surface_retains_its_delivered_image() {
 
 #[test]
 fn unknown_cell_size_collects_nothing() {
-    crate::kitty_graphics::set_enabled(true);
     let pane = pane(20, 5);
     pane.process_pty_bytes(PaneId::from_raw(1), UPLOAD);
     let panes = [ScenePane {

@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use base64::Engine;
 use ratatui::layout::Rect;
@@ -106,18 +105,6 @@ pub(crate) struct HostGraphicsCache {
     sources: HashMap<HostSourceKey, u32>,
     replay_placements: bool,
     replayed_placements: HashSet<(u32, u32)>,
-}
-
-static KITTY_GRAPHICS_ENABLED: AtomicBool = AtomicBool::new(false);
-
-/// The process that owns pane images decides: the retired server set this from
-/// its configuration, and in the Core-backed client the client does.
-pub(crate) fn set_enabled(enabled: bool) {
-    KITTY_GRAPHICS_ENABLED.store(enabled, Ordering::Release);
-}
-
-pub(crate) fn is_enabled() -> bool {
-    KITTY_GRAPHICS_ENABLED.load(Ordering::Acquire)
 }
 
 pub(crate) fn image_transfer_estimated_size(data_len: usize) -> usize {

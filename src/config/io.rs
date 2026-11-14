@@ -4,15 +4,8 @@ use tracing::warn;
 
 use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
-const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
-    "advanced",
-    "experimental",
-    "keys",
-    "terminal",
-    "theme",
-    "ui",
-    "update",
-];
+const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] =
+    &["advanced", "keys", "terminal", "theme", "ui", "update"];
 
 pub fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
@@ -277,15 +270,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.advanced = section,
     );
-    load_live_section(
-        table,
-        "experimental",
-        "experimental config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.experimental = section,
-    );
-
     Ok(LoadedConfig {
         config,
         diagnostics,
@@ -666,11 +650,9 @@ resume_agents_on_restore = "unused"
 startup_per_agent_delay_ms = -1
 [terminal]
 default_shell = "fish"
-kitty_graphics = false
 shell_mode = ["unused"]
 new_cwd = false
 [experimental]
-allow_nested = true
 kitty_graphics = true
 pane_history = "unused"
 reveal_hidden_cursor_for_cjk_ime = "unused"
@@ -697,20 +679,13 @@ detach = "f10"
         std::fs::remove_file(&path).unwrap();
         assert_eq!(unchanged, content);
 
-        let mut expected = ["remote", "server", "session"]
+        let mut expected = ["experimental", "remote", "server", "session"]
             .map(|section| format!("unknown config section [{section}]; ignoring section"))
             .to_vec();
         expected.push("unknown config key onboarding; ignoring key".into());
         expected.extend(
-            [
-                "terminal.shell_mode",
-                "terminal.new_cwd",
-                "experimental.pane_history",
-                "experimental.reveal_hidden_cursor_for_cjk_ime",
-                "experimental.cjk_ime_agents",
-                "experimental.cjk_ime_cursor_shape",
-            ]
-            .map(|key| format!("unknown config key {key}; ignoring key")),
+            ["terminal.shell_mode", "terminal.new_cwd"]
+                .map(|key| format!("unknown config key {key}; ignoring key")),
         );
         expected.sort();
         for loaded in [startup, live.unwrap()] {
@@ -719,9 +694,6 @@ detach = "f10"
             assert_eq!(diagnostics, expected);
             assert!(loaded.invalid_sections.is_empty());
             assert_eq!(loaded.config.terminal.default_shell, "fish");
-            assert!(!loaded.config.kitty_graphics_enabled());
-            assert_eq!(loaded.config.experimental.kitty_graphics, Some(true));
-            assert!(loaded.config.experimental.allow_nested);
             assert_eq!(loaded.config.advanced.scrollback_limit_lines, 5000);
             assert_eq!(loaded.config.ui.mobile_width_threshold, 32);
             assert!(!loaded.config.ui.mouse_capture);
@@ -1058,12 +1030,8 @@ mobile_width_threshold = 32
     fn retired_ascii_input_source_setting_loads_with_ignored_key_diagnostic() {
         let loaded = load_live_config_from_str(
             r#"
-[experimental]
-switch_ascii_input_source_in_prefix = true
-allow_nested = true
-kitty_graphics = true
-
 [ui]
+switch_ascii_input_source_in_prefix = true
 mobile_width_threshold = 32
 
 [keys]
@@ -1075,16 +1043,11 @@ new_workspace = "prefix+shift+n"
         assert!(loaded.invalid_sections.is_empty());
         assert_eq!(
             loaded.diagnostics,
-            vec![
-                "unknown config key experimental.switch_ascii_input_source_in_prefix; ignoring key"
-            ],
+            vec!["unknown config key ui.switch_ascii_input_source_in_prefix; ignoring key"],
             "the retired key must only be reported as ignored"
         );
         // The retired key must not stop the sibling keys in the same section from
         // parsing, nor the other live sections from applying.
-        assert!(loaded.config.experimental.allow_nested);
-        assert_eq!(loaded.config.experimental.kitty_graphics, Some(true));
-        assert!(loaded.config.kitty_graphics_enabled());
         assert_eq!(loaded.config.ui.mobile_width_threshold, 32);
         assert!(loaded
             .config
@@ -1096,14 +1059,14 @@ new_workspace = "prefix+shift+n"
     }
 
     #[test]
-    fn invalid_experimental_section_is_reported_without_discarding_valid_sections() {
+    fn invalid_section_is_reported_without_discarding_valid_sections() {
         let loaded = load_live_config_from_str(
             r#"
-[experimental]
-allow_nested = "yes"
-
 [ui]
-mobile_width_threshold = 33
+mouse_capture = "yes"
+
+[advanced]
+scrollback_limit_lines = 5000
 "#,
         )
         .unwrap();
@@ -1112,19 +1075,19 @@ mobile_width_threshold = 33
         // previous values for that section; this load verifies the signal and that
         // the rejected section is not applied, not that a running client kept a
         // pre-existing non-default value.
-        assert_eq!(loaded.invalid_sections, vec!["experimental"]);
+        assert_eq!(loaded.invalid_sections, vec!["ui"]);
         assert_eq!(loaded.diagnostics.len(), 1);
         assert!(
-            loaded.diagnostics[0].contains("invalid experimental config")
-                && loaded.diagnostics[0].contains("keeping current experimental settings"),
+            loaded.diagnostics[0].contains("invalid ui config")
+                && loaded.diagnostics[0].contains("keeping current ui settings"),
             "unexpected diagnostic: {:?}",
             loaded.diagnostics
         );
         assert!(
-            !loaded.config.experimental.allow_nested,
+            loaded.config.ui.mouse_capture,
             "the rejected section's values are not applied"
         );
-        assert_eq!(loaded.config.ui.mobile_width_threshold, 33);
+        assert_eq!(loaded.config.advanced.scrollback_limit_lines, 5000);
     }
 
     #[test]

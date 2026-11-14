@@ -13,7 +13,7 @@ class HarnessTest(unittest.TestCase):
                 "HERDR_SOCKET_PATH":"/human-legacy.sock","PI_SESSION":"private",
                 "BASH_ENV":"/inject","SSH_TTY":"/dev/pts/1","HERDR_ENV":"1"}, clear=True):
             env=H.isolated_env("/var/tmp/owned","/var/tmp/owned/core")
-        self.assertEqual(env["HERDR_ENV"],"1")
+        self.assertNotIn("HERDR_ENV", env)
         for key in ("HC_SOCKET","HERDR_SOCKET_PATH","PI_SESSION","BASH_ENV","SSH_TTY"):
             self.assertNotIn(key,env)
         self.assertEqual(H.private_socket(env),Path(env["XDG_RUNTIME_DIR"])/"herdr-core"/(env["HC_SESSION"]+".sock"))

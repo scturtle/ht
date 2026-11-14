@@ -81,7 +81,7 @@ def main():
     core = root / 'core'
     env = UI.isolated_env(root, core)
     env.update(XDG_CONFIG_HOME=str(core/'config'), XDG_STATE_HOME=str(core/'state'))
-    (root/'config.toml').write_text('[experimental]\nallow_nested=true\n[keys]\ndetach="f10"\n')
+    (root/'config.toml').write_text('[keys]\ndetach="f10"\n')
     fixture = root/'screen_fixture.py'
     fixture.write_text(FIXTURE)
     settings=core/'config/herdr-core'; settings.mkdir(parents=True)

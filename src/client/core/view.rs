@@ -585,7 +585,7 @@ impl Renderer {
         views: &HashMap<PaneId, View>,
         infos: &[PaneInfo],
     ) -> SurfaceGraphicsScene {
-        if !crate::kitty_graphics::is_enabled() || !self.cell_size.is_known() {
+        if !self.cell_size.is_known() {
             self.delivery = Default::default();
             return SurfaceGraphicsScene::default();
         }

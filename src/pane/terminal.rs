@@ -429,13 +429,11 @@ impl PaneTerminal {
 
 impl GhosttyPaneTerminal {
     pub fn new(mut terminal: crate::ghostty::Terminal) -> std::io::Result<Self> {
-        // Same gate the retired server applied when it spawned a pane terminal:
-        // without this the parser consumes kitty sequences but stores no image.
-        if crate::kitty_graphics::is_enabled() {
-            terminal
-                .enable_kitty_graphics()
-                .map_err(|e| std::io::Error::other(e.to_string()))?;
-        }
+        // The parser must store kitty images; without this it consumes the
+        // sequences but retains no image.
+        terminal
+            .enable_kitty_graphics()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         let pending_pty_responses = Arc::new(Mutex::new(Vec::new()));
         let callback_responses = pending_pty_responses.clone();
         terminal
@@ -536,8 +534,7 @@ impl GhosttyPaneTerminal {
         } = take_terminal_effects(&mut core.terminal);
         crate::render_prof::duration_since("pty.ghostty_write", write_started);
 
-        let has_kitty_graphics_sequence =
-            crate::kitty_graphics::is_enabled() && contains_kitty_graphics_sequence(bytes);
+        let has_kitty_graphics_sequence = contains_kitty_graphics_sequence(bytes);
         if has_kitty_graphics_sequence {
             debug!(pane = pane_id.raw(), "processed kitty graphics sequence");
         }

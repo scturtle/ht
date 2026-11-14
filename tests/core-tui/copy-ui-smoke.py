@@ -43,9 +43,7 @@ def main():
             HERDR_SOCKET_PATH=str(home / "forbidden-old.sock"),
             HERDR_CLIENT_SOCKET_PATH=str(home / "forbidden-client.sock"),
         )
-        (home / "config.toml").write_text('''[experimental]
-allow_nested = true
-[keys]
+        (home / "config.toml").write_text('''[keys]
 copy_mode = "f7"
 detach = "f10"
 ''')

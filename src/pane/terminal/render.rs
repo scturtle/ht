@@ -53,8 +53,6 @@ impl GhosttyPaneTerminal {
         let palette_overrides = colors
             .zip(terminal.default_palette().ok())
             .and_then(|(colors, default)| PaletteOverrides::new(&colors.palette, &default));
-        let hide_kitty_placeholders = crate::kitty_graphics::is_enabled();
-
         let mut row_iterator = match crate::ghostty::RowIterator::new() {
             Ok(iterator) => iterator,
             Err(_) => return,
@@ -130,7 +128,6 @@ impl GhosttyPaneTerminal {
                     let symbol = match ghostty_buffer_symbol_into(
                         &cells,
                         basic.wide,
-                        hide_kitty_placeholders,
                         &mut grapheme_bytes,
                         &mut symbol_scratch,
                     ) {
@@ -253,7 +250,6 @@ pub(super) fn is_halfwidth_katakana_voiced_grapheme(symbol: &str) -> bool {
 pub(super) fn ghostty_buffer_symbol_into<'a>(
     cells: &crate::ghostty::RowCellIter<'_>,
     wide: crate::ghostty::CellWide,
-    hide_kitty_placeholders: bool,
     grapheme_bytes: &mut Vec<u8>,
     symbol_scratch: &'a mut String,
 ) -> Result<&'a str, crate::ghostty::Error> {
@@ -263,9 +259,8 @@ pub(super) fn ghostty_buffer_symbol_into<'a>(
         crate::ghostty::CellWide::SpacerHead => symbol_scratch.push(' '),
         crate::ghostty::CellWide::Narrow | crate::ghostty::CellWide::Wide => {
             cells.grapheme_text_into(grapheme_bytes, symbol_scratch)?;
-            let hidden_kitty_placeholder = hide_kitty_placeholders
-                && symbol_scratch.chars().next().map(u32::from)
-                    == Some(crate::ghostty::KITTY_UNICODE_PLACEHOLDER);
+            let hidden_kitty_placeholder = symbol_scratch.chars().next().map(u32::from)
+                == Some(crate::ghostty::KITTY_UNICODE_PLACEHOLDER);
             if hidden_kitty_placeholder || symbol_scratch.is_empty() {
                 symbol_scratch.clear();
                 symbol_scratch.push(' ');

@@ -31,18 +31,6 @@ mod terminal_modes;
 mod terminal_notify;
 mod terminal_theme;
 mod ui;
-pub(crate) const HERDR_ENV_VAR: &str = "HERDR_ENV";
-
-pub(crate) const HERDR_ENV_VALUE: &str = "1";
-
-const NESTED_HERDR_MESSAGES: [&str; 6] = [
-    "inception detected. we need to go deeper... said no one ever.",
-    "recursion is a pathway to many abilities some consider to be... unnatural.",
-    "you were so preoccupied with whether you could, you didn't stop to think if you should. — dr. malcolm",
-    "recursive herdring is disabled. somewhere, a call stack breathes a sigh of relief.",
-    "recursive descent denied. there is, in fact, such a thing as too much herdr.",
-    "recursion detected. base case not found. aborting.",
-];
 
 const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Place this file at ~/.config/herdr/config.toml
@@ -59,9 +47,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Executable used for new interactive panes.
 # Empty means $SHELL, then /bin/sh.
 # default_shell = ""
-
-# Render pane images in Kitty graphics-compatible outer terminals.
-# kitty_graphics = true
 
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
@@ -242,9 +227,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # enabled = true
 # position = "bottom-center"
 
-[experimental]
-# Allow launching herdr from inside a herdr-managed pane.
-# allow_nested = false
 [advanced]
 # Physical scrollback rows retained per client pane (default: 1000; 0 disables).
 # Applied on client startup; Ghostty prunes whole pages, so counts are approximate.
@@ -255,35 +237,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 "##;
 
 // Bundled at build time so the printed skill always matches this binary's release.
-
-fn should_block_nested(config: &config::Config) -> bool {
-    should_block_nested_for_env(config, std::env::var(HERDR_ENV_VAR).ok().as_deref())
-}
-
-fn should_block_nested_for_env(config: &config::Config, herdr_env: Option<&str>) -> bool {
-    !config.experimental.allow_nested && herdr_env == Some(HERDR_ENV_VALUE)
-}
-
-fn random_nested_message() -> &'static str {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.subsec_nanos() as usize)
-        .unwrap_or(0);
-    let index = (nanos ^ (std::process::id() as usize)) % NESTED_HERDR_MESSAGES.len();
-    NESTED_HERDR_MESSAGES[index]
-}
-
-fn exit_if_nested_disabled(config: &config::Config) {
-    if should_block_nested(config) {
-        eprintln!("\x1b[1merror:\x1b[0m nested herdr is disabled by default.");
-        eprintln!("see configuration if you want to enable it.");
-        eprintln!();
-        eprintln!("\x1b[2m\"{}\"\x1b[0m", random_nested_message());
-        std::process::exit(1);
-    }
-}
 
 fn args_as_utf8<I>(args: I) -> Result<Vec<String>, String>
 where
@@ -304,11 +257,6 @@ const CORE_ONLY_UNAVAILABLE: &str = "the legacy Herdr runtime has been removed; 
 /// Test harnesses and the isolated launcher use it to run against a private
 /// Core. It is an argument rather than an environment variable so a client can
 /// never be retargeted by something that merely exported a variable.
-/// Pull `--core-home <path>` or `--core-session <name>` out of the arguments.
-///
-/// `--core-home` moves client-local state; `--core-session` selects which `hc`
-/// session socket to drive, which is how an isolated test runs without touching
-/// the session a person is working in.
 fn take_core_home(args: &mut Vec<String>) -> io::Result<Option<PathBuf>> {
     let Some(index) = args.iter().position(|arg| arg == "--core-home") else {
         return Ok(None);
@@ -331,6 +279,11 @@ fn take_core_home(args: &mut Vec<String>) -> io::Result<Option<PathBuf>> {
     }))
 }
 
+/// Select which `hc` session socket this client drives.
+///
+/// An isolated test uses a named session so it never touches the one a person
+/// is working in. The name is restricted to a safe alphabet because it is
+/// interpolated into a socket path.
 fn take_core_session(args: &mut Vec<String>) -> io::Result<Option<String>> {
     let Some(index) = args.iter().position(|arg| arg == "--core-session") else {
         return Ok(None);
@@ -371,25 +324,40 @@ fn main() -> io::Result<()> {
     let args = args;
     let tail = &args[1..];
     match tail {
-        [] => {},
-        [flag] if flag=="--core" => {},
-        [flag] if flag=="--help" || flag=="-h" || flag=="help" => {
+        [] => {}
+        [flag] if flag == "--core" => {}
+        [flag] if flag == "--help" || flag == "-h" || flag == "help" => {
             println!("ht — existing TUI, powered exclusively by herdr-core\n\nUsage: ht [--core] [--core-home <dir>] [--core-session <name>]\n       ht --version | --default-config\n       ht config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nCore home (client state): --core-home <dir>\nCore session: --core-session <name> (default: default, the session hc uses)\nCore socket: HC_SOCKET overrides the default socket (cannot combine with --core-session)\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
-            return Ok(())
-        },
-        [flag] if flag=="--version" || flag=="-V" => {println!("herdr {} (Core-only)",build_info::version());return Ok(())},
-        [flag] if flag=="--default-config" => {print!("# Core-only client: legacy server/detection/integration and semantic agent-notification settings are inert; clipboard toasts and terminal bells remain active.\n{DEFAULT_CONFIG}");return Ok(())},
-        [group,..] if group=="config" => {
-            let outcome=cli::maybe_run(&args)?;
-            if let cli::CommandOutcome::Handled(code)=outcome {std::process::exit(code)}
-            return Err(io::Error::new(io::ErrorKind::InvalidInput,"unsupported client command"));
-        },
-        // Updating this personal fork with upstream binaries would restore the retired runtime.
-        [group,..] if group=="update" => return Err(io::Error::new(io::ErrorKind::Unsupported,"self-update is disabled in this Core-only fork; rebuild this checkout so the legacy runtime cannot be restored by an upstream binary")),
-        _ => { eprintln!("herdr: {CORE_ONLY_UNAVAILABLE}");std::process::exit(2) }
+            return Ok(());
+        }
+        [flag] if flag == "--version" || flag == "-V" => {
+            println!("herdr {} (Core-only)", build_info::version());
+            return Ok(());
+        }
+        [flag] if flag == "--default-config" => {
+            print!("# Core-only client: legacy server/detection/integration and semantic agent-notification settings are inert; clipboard toasts and terminal bells remain active.\n{DEFAULT_CONFIG}");
+            return Ok(());
+        }
+        [group, ..] if group == "config" => {
+            let outcome = cli::maybe_run(&args)?;
+            if let cli::CommandOutcome::Handled(code) = outcome {
+                std::process::exit(code)
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported client command",
+            ));
+        }
+        // Updating this personal fork with upstream binaries would restore the
+        // retired runtime, so `update` is not a known command.
+        _ => {
+            eprintln!("herdr: {CORE_ONLY_UNAVAILABLE}");
+            std::process::exit(2)
+        }
     }
-    let loaded = config::Config::load();
-    exit_if_nested_disabled(&loaded.config);
+    // Loading here surfaces configuration diagnostics before the client starts;
+    // the client re-reads the live configuration itself.
+    let _ = config::Config::load();
     client::run_core_client()
 }
 

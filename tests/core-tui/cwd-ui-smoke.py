@@ -25,7 +25,7 @@ def main():
     env = H.isolated_env(home, core)
     env.update(HERDR_ENV="1", PS1="cwd$ ", HISTFILE=str(home / "history"),
                HERDR_CORE_CLIENT_ID="cwd-reattach")
-    (home / "config.toml").write_text('[experimental]\nallow_nested=true\n[keys]\ndetach="f10"\n')
+    (home / "config.toml").write_text('[keys]\ndetach="f10"\n')
     config = core / "config/herdr-core"
     config.mkdir(parents=True)
     (config / "config.toml").write_text('shell=["/bin/bash","--noprofile","--norc"]\nnotes=false\n')

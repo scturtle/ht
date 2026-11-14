@@ -109,11 +109,10 @@ pub fn run_core_client() -> io::Result<()> {
         .with_process_endpoint_preferences(&preference_key);
     let mouse_capture = loaded_config.config.ui.mouse_capture;
     let host_cursor = loaded_config.config.ui.host_cursor;
-    let kitty_graphics_enabled = loaded_config.config.kitty_graphics_enabled();
-    // Pane images are parsed and drawn by this client now, so it owns the flag
-    // the retired server used to set from its own configuration.
-    crate::kitty_graphics::set_enabled(kitty_graphics_enabled);
-    let pixel_geometry_enabled = kitty_graphics_enabled;
+    // Pane images are always on; the client also probes the host cell size so
+    // it can place them.
+    let kitty_graphics_enabled = true;
+    let pixel_geometry_enabled = true;
     let mut loop_config = ClientLoopConfig {
         host_cursor,
         kitty_graphics_enabled,

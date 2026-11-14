@@ -52,7 +52,7 @@ def run_case(name):
     env = H.isolated_env(home, home / "core")
     env["SHELL"] = str(fixture)
     (home / "config.toml").write_text(
-        '[experimental]\nallow_nested=true\n[keys]\ndetach="f10"\n'
+        '[keys]\ndetach="f10"\n'
     )
     viewers, paused = [], set()
     try:

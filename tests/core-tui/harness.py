@@ -35,14 +35,12 @@ def core_session(home):
 
 
 def isolated_env(home, core):
-    """One selector policy for all private gates; preserve only the nesting marker."""
+    """One selector policy for all private gates."""
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("HC_", "HERDR_", "PI_", "CORE_UI_", "CORE_TUI_"))
            and k not in {"DISPLAY", "WAYLAND_DISPLAY", "BASH_ENV", "ENV", "ZDOTDIR",
                         "TMUX", "TMUX_PANE", "STY", "SSH_CONNECTION", "SSH_TTY",
                         "VSCODE_IPC_HOOK_CLI"}}
-    if "HERDR_ENV" in os.environ:
-        env["HERDR_ENV"] = os.environ["HERDR_ENV"]
     home, core = Path(home), Path(core)
     env.update(HOME=str(home), SHELL="/bin/bash", TERM="xterm-256color",
                CORE_TUI_HOME=str(core), HERDR_CORE_BIN=str(HC), HC_SESSION=core_session(core),
