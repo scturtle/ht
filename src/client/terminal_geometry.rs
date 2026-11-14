@@ -100,16 +100,8 @@ fn current_terminal_geometry(
 
 /// Reads terminal geometry before the handshake. Pixel input and direct graphics
 /// are eligible only when one ioctl supplied a coherent exact geometry snapshot.
-pub(super) fn initial_terminal_geometry(
-    pixel_geometry_enabled: bool,
-    pixel_geometry_fallback: bool,
-) -> io::Result<TerminalGeometry> {
-    current_terminal_geometry(
-        pixel_geometry_enabled,
-        pixel_geometry_fallback,
-        &AtomicU64::new(0),
-        None,
-    )
+pub(super) fn initial_terminal_geometry() -> io::Result<TerminalGeometry> {
+    current_terminal_geometry(true, true, &AtomicU64::new(0), None)
 }
 
 pub(super) fn resize_report_required(

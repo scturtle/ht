@@ -30,15 +30,11 @@ impl ClientShellState {
     pub(crate) fn reload_client_config(&mut self) {
         match crate::config::load_live_config() {
             Ok(loaded) => {
-                let agent_panel_sort = self.config.agent_panel_sort;
                 let diagnostics = self.config.apply_live_config(
                     &loaded.config,
                     &loaded.diagnostics,
                     &loaded.invalid_sections,
                 );
-                if self.agent_panel_sort_manual {
-                    self.config.agent_panel_sort = agent_panel_sort;
-                }
                 self.set_local_config_diagnostic(crate::config::config_diagnostic_summary(
                     &diagnostics,
                 ));
@@ -82,26 +78,12 @@ impl ClientShellConfig {
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
-            preferences: preferences::ClientChromePreferences::default(),
             startup_config_diagnostic: None,
         }
     }
 
     pub(crate) fn with_startup_config_diagnostic(mut self, diagnostic: Option<String>) -> Self {
         self.startup_config_diagnostic = diagnostic;
-        self
-    }
-
-    pub(crate) fn with_local_endpoint(self, socket_path: &std::path::Path) -> Self {
-        self.with_preferences_path(preferences::path_for_local_endpoint(socket_path))
-    }
-
-    pub(crate) fn with_process_endpoint_preferences(self, socket_path: &std::path::Path) -> Self {
-        self.with_local_endpoint(socket_path)
-    }
-
-    pub(super) fn with_preferences_path(mut self, path: std::path::PathBuf) -> Self {
-        self.preferences = preferences::load(&path).unwrap_or_default();
         self
     }
 
@@ -288,23 +270,6 @@ accent = "#abcdef"
             shell.keybinds.prefix,
             vec![(KeyCode::Char('a'), KeyModifiers::CONTROL)]
         );
-    }
-
-    #[test]
-    fn initial_surface_size_uses_persisted_endpoint_chrome() {
-        let path = std::env::temp_dir().join(format!(
-            "herdr-initial-shell-preferences-{}.json",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&path);
-        std::fs::write(&path, r#"{"sidebar_collapsed":true,"sidebar_width":32}"#)
-            .expect("legacy chrome preferences");
-        let config =
-            ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone());
-        let initial = config.initial_surface_size(100, 30);
-        let state = ClientShellState::new(config);
-        assert_eq!(initial, state.surface_size(100, 30));
-        std::fs::remove_file(path).expect("remove endpoint chrome");
     }
 
     #[test]

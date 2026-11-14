@@ -26,7 +26,6 @@ pub(crate) struct ClientShellConfig {
     pub(super) mouse_scroll_lines: usize,
     pub(super) right_click_passthrough_modifiers: Option<crossterm::event::KeyModifiers>,
     pub(super) redraw_on_focus_gained: bool,
-    pub(super) preferences: preferences::ClientChromePreferences,
     pub(super) startup_config_diagnostic: Option<String>,
 }
 
@@ -542,7 +541,6 @@ pub(crate) struct ClientShellState {
     pub(super) pending_pane_surface: Option<PaneSurfaceFrame>,
     pub(super) graphics: crate::kitty_graphics::surface::ClientState,
     pub(super) graphics_cell_size: crate::kitty_graphics::HostCellSize,
-    pub(super) agent_panel_sort_manual: bool,
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) tab_press: Option<ClientTabPress>,
     pub(super) tab_scroll: usize,
@@ -618,11 +616,7 @@ pub(super) struct WorkspaceEntry {
 
 impl ClientShellState {
     pub(crate) fn new(mut config: ClientShellConfig) -> Self {
-        let preferences = config.preferences.clone();
         let local_config_diagnostic = config.startup_config_diagnostic.take();
-        if let Some(sort) = preferences.agent_panel_sort {
-            config.agent_panel_sort = sort;
-        }
         Self {
             config,
             pane_surface_generation: None,
@@ -633,7 +627,6 @@ impl ClientShellState {
                 width_px: 1,
                 height_px: 1,
             },
-            agent_panel_sort_manual: preferences.agent_panel_sort.is_some(),
             chrome_drag: None,
             tab_press: None,
             tab_scroll: 0,

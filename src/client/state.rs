@@ -39,7 +39,6 @@ pub(super) struct ClientState {
     pub(super) reported_size: (u16, u16),
     pub(super) reported_cell_size: (u32, u32),
     pub(super) kitty_graphics_enabled: bool,
-    pub(super) pixel_geometry_enabled: bool,
     pub(super) pixel_geometry_exact: bool,
     /// The host's answer to the SGR pixel mouse probe; None when unknown.
     pub(super) host_sgr_pixel_mouse: Option<bool>,
@@ -80,7 +79,6 @@ impl ClientState {
             reported_size: (100, 30),
             reported_cell_size: (0, 0),
             kitty_graphics_enabled: false,
-            pixel_geometry_enabled: false,
             pixel_geometry_exact: false,
             host_sgr_pixel_mouse: None,
             direct_graphics_response: Default::default(),

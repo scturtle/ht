@@ -100,24 +100,14 @@ pub fn run_core_client() -> io::Result<()> {
 
     let loaded_config = crate::config::Config::load();
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
-    // Keep the existing chrome preference key; it is not a transport socket.
-    let preference_key = crate::config::config_dir().join("herdr-client.sock");
     let shell_config = shell::ClientShellConfig::from_config(&loaded_config.config)
         .with_startup_config_diagnostic(crate::config::config_diagnostic_summary(
             &loaded_config.diagnostics,
-        ))
-        .with_process_endpoint_preferences(&preference_key);
+        ));
     let mouse_capture = loaded_config.config.ui.mouse_capture;
     let host_cursor = loaded_config.config.ui.host_cursor;
-    // Pane images are always on; the client also probes the host cell size so
-    // it can place them.
-    let kitty_graphics_enabled = true;
-    let pixel_geometry_enabled = true;
     let mut loop_config = ClientLoopConfig {
         host_cursor,
-        kitty_graphics_enabled,
-        pixel_geometry_enabled,
-        pixel_geometry_fallback: kitty_graphics_enabled,
         mouse_capture_active: mouse_capture,
         host_escape_disambiguation_active: false,
         host_sgr_pixel_mouse: None,
@@ -129,8 +119,7 @@ pub fn run_core_client() -> io::Result<()> {
     info!(path = %core_options.socket.display(), "connecting to Core");
 
     // Get one coherent geometry snapshot before raw mode changes the terminal.
-    let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) =
-        initial_terminal_geometry(pixel_geometry_enabled, kitty_graphics_enabled)?;
+    let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) = initial_terminal_geometry()?;
 
     let mut terminal_guard = setup_terminal(mouse_capture).map_err(|err| {
         eprintln!("ht: failed to set up terminal: {err}");
@@ -259,8 +248,7 @@ async fn run_client_loop(
         keyboard_report_all_active: false,
         reported_size: (cols, rows),
         reported_cell_size: (initial_cell_width_px, initial_cell_height_px),
-        kitty_graphics_enabled: config.kitty_graphics_enabled,
-        pixel_geometry_enabled: config.pixel_geometry_enabled,
+        kitty_graphics_enabled: true,
         pixel_geometry_exact: initial_pixel_geometry_exact,
         host_sgr_pixel_mouse: config.host_sgr_pixel_mouse,
         direct_graphics_response: Arc::new(Mutex::new(direct_graphics::ResponseMatcher::default())),
@@ -341,8 +329,6 @@ async fn run_client_loop(
     let resize_quit = should_quit.clone();
     let resize_tx = event_tx.clone();
     let resize_cell_size = reported_cell_size.clone();
-    let pixel_geometry_enabled = state.pixel_geometry_enabled;
-    let pixel_geometry_fallback = config.pixel_geometry_fallback;
     std::thread::spawn(move || {
         resize_poll_loop(
             resize_tx,
@@ -351,8 +337,8 @@ async fn run_client_loop(
             initial_cell_width_px,
             initial_cell_height_px,
             initial_pixel_geometry_exact,
-            pixel_geometry_enabled,
-            pixel_geometry_fallback,
+            true,
+            true,
             &resize_cell_size,
             &resize_quit,
         );

@@ -25,7 +25,6 @@ mod mouse;
 mod notification_policy;
 mod notifications;
 mod overlay_input;
-mod preferences;
 mod render;
 mod state;
 mod surface_patch;

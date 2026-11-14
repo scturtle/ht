@@ -9,7 +9,7 @@ mod window_title;
 
 pub use self::{
     io::{
-        config_diagnostic_summary, config_dir, config_path, load_live_config,
+        config_diagnostic_summary, config_path, load_live_config,
         remove_keybinding_config_sections, state_dir,
     },
     keybinds::{
