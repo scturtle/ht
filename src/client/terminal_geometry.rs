@@ -1,96 +1,62 @@
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::debug;
 
 use super::ClientLoopEvent;
 
-const DEFAULT_CELL_WIDTH_PX: u32 = 8;
-const DEFAULT_CELL_HEIGHT_PX: u32 = 16;
+const DEFAULT_CELL_SIZE: (u32, u32) = (8, 16);
 
-/// Average cell size derived from a terminal ioctl pixel extent.
-///
-/// The extent need not divide evenly by the grid because terminals may include
-/// padding; mouse mapping uses the resulting integer cell pitch.
-pub(super) fn ioctl_cell_size(
-    columns: u16,
-    rows: u16,
-    width_px: u32,
-    height_px: u32,
-) -> Option<(u32, u32)> {
-    if columns == 0 || rows == 0 || width_px == 0 || height_px == 0 {
+pub(super) fn ioctl_terminal_geometry() -> Option<(u16, u16, u32, u32)> {
+    let size = crossterm::terminal::window_size().ok()?;
+    if size.columns == 0 || size.rows == 0 || size.width == 0 || size.height == 0 {
         return None;
     }
+    // Pixel extents may include padding, so use the integer average cell pitch.
     Some((
-        (width_px / u32::from(columns)).max(1),
-        (height_px / u32::from(rows)).max(1),
+        size.columns,
+        size.rows,
+        (u32::from(size.width) / u32::from(size.columns)).max(1),
+        (u32::from(size.height) / u32::from(size.rows)).max(1),
     ))
 }
 
-fn ioctl_terminal_geometry() -> Option<(u16, u16, u32, u32)> {
-    let size = crossterm::terminal::window_size().ok()?;
-    let (cell_width_px, cell_height_px) = ioctl_cell_size(
-        size.columns,
-        size.rows,
-        u32::from(size.width),
-        u32::from(size.height),
-    )?;
-    Some((size.columns, size.rows, cell_width_px, cell_height_px))
-}
-
 pub(super) fn cell_size_fallback(reported: u64, last: Option<(u32, u32)>) -> (u32, u32) {
-    unpack_cell_size(reported)
+    let width_px = (reported >> 32) as u32;
+    let height_px = reported as u32;
+    (width_px > 0 && height_px > 0)
+        .then_some((width_px, height_px))
         .or(last.filter(|(width, height)| *width > 0 && *height > 0))
-        .unwrap_or((DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX))
+        .unwrap_or(DEFAULT_CELL_SIZE)
 }
 
 pub(super) fn pack_cell_size(width_px: u32, height_px: u32) -> u64 {
     (u64::from(width_px) << 32) | u64::from(height_px)
 }
 
-fn unpack_cell_size(packed: u64) -> Option<(u32, u32)> {
-    let width_px = (packed >> 32) as u32;
-    let height_px = (packed & u64::from(u32::MAX)) as u32;
-    (width_px > 0 && height_px > 0).then_some((width_px, height_px))
-}
-
 type TerminalGeometry = (u16, u16, u32, u32, bool);
 
 pub(super) fn current_terminal_geometry_with(
-    pixel_geometry_enabled: bool,
-    pixel_geometry_fallback: bool,
-    reported_cell_size: &AtomicU64,
+    reported_cell_size: u64,
     last_cell_size: Option<(u32, u32)>,
     exact_geometry: Option<(u16, u16, u32, u32)>,
     terminal_grid_size: impl FnOnce() -> io::Result<(u16, u16)>,
 ) -> io::Result<TerminalGeometry> {
-    if !pixel_geometry_enabled {
-        let (cols, rows) = terminal_grid_size()?;
-        return Ok((cols, rows, 0, 0, false));
-    }
     if let Some((cols, rows, cell_width_px, cell_height_px)) = exact_geometry {
         return Ok((cols, rows, cell_width_px, cell_height_px, true));
     }
     let (cols, rows) = terminal_grid_size()?;
-    if !pixel_geometry_fallback {
-        return Ok((cols, rows, 0, 0, false));
-    }
-    let (cell_width_px, cell_height_px) =
-        cell_size_fallback(reported_cell_size.load(Ordering::Acquire), last_cell_size);
+    let (cell_width_px, cell_height_px) = cell_size_fallback(reported_cell_size, last_cell_size);
     Ok((cols, rows, cell_width_px, cell_height_px, false))
 }
 
-fn current_terminal_geometry(
-    pixel_geometry_enabled: bool,
-    pixel_geometry_fallback: bool,
-    reported_cell_size: &AtomicU64,
+/// Pixel geometry is exact only when one ioctl supplies the complete snapshot.
+pub(super) fn current_terminal_geometry(
+    reported_cell_size: u64,
     last_cell_size: Option<(u32, u32)>,
 ) -> io::Result<TerminalGeometry> {
     current_terminal_geometry_with(
-        pixel_geometry_enabled,
-        pixel_geometry_fallback,
         reported_cell_size,
         last_cell_size,
         ioctl_terminal_geometry(),
@@ -98,53 +64,24 @@ fn current_terminal_geometry(
     )
 }
 
-/// Reads terminal geometry before the handshake. Pixel input and direct graphics
-/// are eligible only when one ioctl supplied a coherent exact geometry snapshot.
-pub(super) fn initial_terminal_geometry() -> io::Result<TerminalGeometry> {
-    current_terminal_geometry(true, true, &AtomicU64::new(0), None)
-}
-
-pub(super) fn resize_report_required(
-    signalled: bool,
-    new_size: (u16, u16, u32, u32, bool),
-    last_size: (u16, u16, u32, u32, bool),
-) -> bool {
-    signalled || new_size != last_size
-}
-
 /// Watches the terminal size and sends resize events when it changes.
 ///
 /// The baseline cell size must match what the handshake sent to the server:
 /// reading a fresh one here would race the host cell size reply and could
 /// swallow the first change.
-#[allow(clippy::too_many_arguments)] // The arguments are one immutable launch snapshot, not shared state.
 pub(super) fn resize_poll_loop(
     resize_tx: tokio::sync::mpsc::Sender<ClientLoopEvent>,
-    initial_cols: u16,
-    initial_rows: u16,
-    initial_cell_width: u32,
-    initial_cell_height: u32,
-    initial_pixel_geometry_exact: bool,
-    pixel_geometry_enabled: bool,
-    pixel_geometry_fallback: bool,
+    initial_size: TerminalGeometry,
     reported_cell_size: &AtomicU64,
-    should_quit: &Arc<AtomicBool>,
+    should_quit: &AtomicBool,
 ) {
     crate::platform::watch_terminal_resize_signal();
     resize_poll_loop_with(
         resize_tx,
-        (
-            initial_cols,
-            initial_rows,
-            initial_cell_width,
-            initial_cell_height,
-            initial_pixel_geometry_exact,
-        ),
+        initial_size,
         |last_cell_size| {
             current_terminal_geometry(
-                pixel_geometry_enabled,
-                pixel_geometry_fallback,
-                reported_cell_size,
+                reported_cell_size.load(Ordering::Acquire),
                 Some(last_cell_size),
             )
         },
@@ -157,10 +94,10 @@ pub(super) fn resize_poll_loop(
 /// injected so the transient/recovery behavior is testable without a terminal.
 pub(super) fn resize_poll_loop_with(
     resize_tx: tokio::sync::mpsc::Sender<ClientLoopEvent>,
-    initial_size: (u16, u16, u32, u32, bool),
+    initial_size: TerminalGeometry,
     mut read_geometry: impl FnMut((u32, u32)) -> io::Result<TerminalGeometry>,
     mut take_signal: impl FnMut() -> bool,
-    should_quit: &Arc<AtomicBool>,
+    should_quit: &AtomicBool,
 ) {
     let mut last_size = initial_size;
     // Retained across a transient sample so a resize that lands back on the
@@ -169,21 +106,20 @@ pub(super) fn resize_poll_loop_with(
     while !should_quit.load(Ordering::Acquire) {
         std::thread::sleep(Duration::from_millis(100));
         signalled |= take_signal();
-        let (cols, rows, cell_width_px, cell_height_px, exact) =
-            match read_geometry((last_size.2, last_size.3)) {
-                Ok(size) => size,
-                // A window drag can momentarily report a zero-sized grid. Keep
-                // the last known geometry and the pending signal, then resample
-                // instead of treating the terminal as gone.
-                Err(err) if crate::platform::is_transient_terminal_grid_error(&err) => continue,
-                Err(err) => {
-                    let _ = resize_tx.blocking_send(ClientLoopEvent::TerminalUnavailable(err));
-                    break;
-                }
-            };
-        let new_size = (cols, rows, cell_width_px, cell_height_px, exact);
-        if resize_report_required(signalled, new_size, last_size) {
+        let new_size = match read_geometry((last_size.2, last_size.3)) {
+            Ok(size) => size,
+            // A window drag can momentarily report a zero-sized grid. Keep
+            // the last known geometry and the pending signal, then resample
+            // instead of treating the terminal as gone.
+            Err(err) if crate::platform::is_transient_terminal_grid_error(&err) => continue,
+            Err(err) => {
+                let _ = resize_tx.blocking_send(ClientLoopEvent::TerminalUnavailable(err));
+                break;
+            }
+        };
+        if signalled || new_size != last_size {
             last_size = new_size;
+            let (cols, rows, cell_width_px, cell_height_px, exact) = new_size;
             if resize_tx
                 .blocking_send(ClientLoopEvent::Resize(
                     cols,
@@ -199,46 +135,6 @@ pub(super) fn resize_poll_loop_with(
         }
         signalled = false;
     }
-}
-
-pub(super) fn query_host_terminal_appearance() {
-    let _ = write_host_terminal_appearance_query(io::stdout());
-}
-
-pub(super) fn write_host_terminal_appearance_query(mut writer: impl io::Write) -> io::Result<()> {
-    writer.write_all(crate::terminal_theme::HOST_COLOR_SCHEME_QUERY_SEQUENCE.as_bytes())?;
-    writer.flush()
-}
-
-pub(super) fn query_host_terminal_theme() {
-    let _ = write_host_terminal_theme_query(io::stdout());
-}
-
-pub(super) fn write_host_terminal_theme_query(mut writer: impl io::Write) -> io::Result<()> {
-    let query = crate::terminal_theme::host_terminal_theme_query_sequence(
-        crate::platform::should_query_host_terminal_palette(),
-    );
-    writer.write_all(query.as_bytes())?;
-    writer.flush()
-}
-
-const HOST_CELL_SIZE_QUERY: &[u8] = b"\x1b[16t";
-
-pub(super) fn query_host_cell_size() {
-    let _ = write_host_cell_size_query(io::stdout());
-}
-
-pub(super) fn should_query_host_cell_size() -> bool {
-    true
-}
-
-pub(super) fn host_cell_size_query_required(kitty_graphics_enabled: bool) -> bool {
-    kitty_graphics_enabled && should_query_host_cell_size() && ioctl_terminal_geometry().is_none()
-}
-
-pub(super) fn write_host_cell_size_query(mut writer: impl io::Write) -> io::Result<()> {
-    writer.write_all(HOST_CELL_SIZE_QUERY)?;
-    writer.flush()
 }
 
 pub(super) fn store_reported_cell_size(

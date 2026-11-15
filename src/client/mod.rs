@@ -32,16 +32,10 @@ use shell_runtime::*;
 use state::ClientState;
 use state::RetiredDirectGraphicsMatch;
 
-use terminal_geometry::query_host_terminal_appearance;
+use crate::terminal_theme::{query_host_terminal_appearance, query_host_terminal_theme};
 #[cfg(test)]
-use terminal_geometry::{
-    cell_size_fallback, current_terminal_geometry_with, ioctl_cell_size, pack_cell_size,
-    resize_report_required,
-};
-use terminal_geometry::{
-    host_cell_size_query_required, initial_terminal_geometry, query_host_cell_size,
-    query_host_terminal_theme, resize_poll_loop,
-};
+use terminal_geometry::{cell_size_fallback, current_terminal_geometry_with, pack_cell_size};
+use terminal_geometry::{current_terminal_geometry, ioctl_terminal_geometry, resize_poll_loop};
 use terminal_geometry::{reported_cell_size_from_events, store_reported_cell_size};
 use terminal_setup::{
     effective_mouse_capture, effective_sgr_pixel_mouse, set_mouse_capture, setup_terminal,
@@ -118,7 +112,8 @@ pub fn run_core_client() -> io::Result<()> {
     info!(path = %core_options.socket.display(), "connecting to Core");
 
     // Get one coherent geometry snapshot before raw mode changes the terminal.
-    let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) = initial_terminal_geometry()?;
+    let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) =
+        current_terminal_geometry(0, None)?;
 
     let mut terminal_guard = setup_terminal(mouse_capture).map_err(|err| {
         eprintln!("ht: failed to set up terminal: {err}");
@@ -287,9 +282,9 @@ async fn run_client_loop(
     let will_query_host_terminal_theme = true;
     let host_theme_query_pending = Arc::new(AtomicU32::new(0));
     let stdin_host_theme_query_pending = host_theme_query_pending.clone();
-    // Terminals behind ConPTY report no pixel size through the ioctl, so ask the
-    // host terminal directly instead of falling back to an assumed cell size.
-    let will_query_host_cell_size = host_cell_size_query_required(state.kitty_graphics_enabled);
+    // Ask the host directly when ioctl cannot supply pixel geometry.
+    let will_query_host_cell_size =
+        state.kitty_graphics_enabled && ioctl_terminal_geometry().is_none();
     let stdin_quit = should_quit.clone();
     let stdin_mouse_capture_active = host_mouse_capture_active.clone();
     let stdin_sgr_pixels_active = host_sgr_pixels_active.clone();
@@ -324,7 +319,8 @@ async fn run_client_loop(
     }
 
     if will_query_host_cell_size {
-        query_host_cell_size();
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(b"\x1b[16t").and_then(|()| stdout.flush());
     }
 
     // Spawn the resize poller thread.
@@ -334,13 +330,13 @@ async fn run_client_loop(
     std::thread::spawn(move || {
         resize_poll_loop(
             resize_tx,
-            cols,
-            rows,
-            initial_cell_width_px,
-            initial_cell_height_px,
-            initial_pixel_geometry_exact,
-            true,
-            true,
+            (
+                cols,
+                rows,
+                initial_cell_width_px,
+                initial_cell_height_px,
+                initial_pixel_geometry_exact,
+            ),
             &resize_cell_size,
             &resize_quit,
         );

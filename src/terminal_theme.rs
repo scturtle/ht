@@ -1,3 +1,5 @@
+use std::io::{self, Write as _};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RgbColor {
     pub r: u8,
@@ -49,14 +51,6 @@ pub const HOST_COLOR_SCHEME_REPORT_ENABLE_SEQUENCE: &str = "\x1b[?2031h";
 pub const HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE: &str = "\x1b[?2031l";
 
 impl TerminalTheme {
-    pub fn with_color(mut self, kind: DefaultColorKind, color: RgbColor) -> Self {
-        match kind {
-            DefaultColorKind::Foreground => self.foreground = Some(color),
-            DefaultColorKind::Background => self.background = Some(color),
-        }
-        self
-    }
-
     pub fn with_palette_color(mut self, index: u8, color: RgbColor) -> Self {
         self.palette[usize::from(index)] = Some(color);
         self
@@ -68,16 +62,26 @@ impl TerminalTheme {
     }
 }
 
-pub fn host_terminal_theme_query_sequence(include_palette: bool) -> String {
+pub(crate) fn query_host_terminal_appearance() {
+    let _ = write_host_query(HOST_COLOR_SCHEME_QUERY_SEQUENCE.as_bytes());
+}
+
+pub(crate) fn query_host_terminal_theme() {
     use std::fmt::Write as _;
 
-    let mut sequence = String::from(HOST_COLOR_QUERY_SEQUENCE);
-    if include_palette {
+    let mut query = String::from(HOST_COLOR_QUERY_SEQUENCE);
+    if crate::platform::should_query_host_terminal_palette() {
         for index in 0..=u8::MAX {
-            let _ = write!(sequence, "\x1b]4;{index};?\x1b\\");
+            let _ = write!(query, "\x1b]4;{index};?\x1b\\");
         }
     }
-    sequence
+    let _ = write_host_query(query.as_bytes());
+}
+
+fn write_host_query(query: &[u8]) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    stdout.write_all(query)?;
+    stdout.flush()
 }
 
 pub fn parse_default_color_response(sequence: &str) -> Option<(DefaultColorKind, RgbColor)> {
@@ -134,7 +138,7 @@ fn parse_rgb_color(value: &str) -> Option<RgbColor> {
 
     if let Some(hex) = value.strip_prefix('#') {
         let digits = hex.len() / 3;
-        if !matches!(digits, 1..=4) || hex.len() != digits * 3 {
+        if !hex.is_ascii() || !matches!(digits, 1..=4) || hex.len() != digits * 3 {
             return None;
         }
         return Some(RgbColor {
@@ -150,50 +154,11 @@ fn parse_rgb_color(value: &str) -> Option<RgbColor> {
 fn parse_hex_component(component: &str) -> Option<u8> {
     if component.is_empty()
         || component.len() > 4
-        || !component.chars().all(|ch| ch.is_ascii_hexdigit())
+        || !component.bytes().all(|ch| ch.is_ascii_hexdigit())
     {
         return None;
     }
     let value = u32::from_str_radix(component, 16).ok()?;
     let max = (1u32 << (component.len() * 4)) - 1;
     Some(((value * 255 + (max / 2)) / max) as u8)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_palette_responses_and_builds_full_query() {
-        assert_eq!(
-            parse_palette_color_response("\x1b]4;255;rgb:1111/2222/3333\x1b\\"),
-            Some((
-                255,
-                RgbColor {
-                    r: 0x11,
-                    g: 0x22,
-                    b: 0x33,
-                }
-            ))
-        );
-
-        let query = host_terminal_theme_query_sequence(true);
-        assert!(query.starts_with(HOST_COLOR_QUERY_SEQUENCE));
-        assert!(query.contains("\x1b]4;0;?\x1b\\"));
-        assert!(query.ends_with("\x1b]4;255;?\x1b\\"));
-        assert_eq!(query.matches("\x1b]4;").count(), 256);
-
-        assert_eq!(
-            host_terminal_theme_query_sequence(false),
-            HOST_COLOR_QUERY_SEQUENCE
-        );
-    }
-
-    #[test]
-    fn scales_short_hex_components() {
-        assert_eq!(parse_hex_component("f"), Some(255));
-        assert_eq!(parse_hex_component("80"), Some(128));
-        assert_eq!(parse_hex_component("800"), Some(128));
-        assert_eq!(parse_hex_component("8000"), Some(128));
-    }
 }

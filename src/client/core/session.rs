@@ -514,14 +514,14 @@ impl Session {
     }
 
     pub fn theme(&mut self, update: ClientHostThemeUpdate) -> io::Result<()> {
-        use crate::terminal_theme::{DefaultColorKind, HostAppearance};
+        use crate::terminal_theme::HostAppearance;
         match update {
             ClientHostThemeUpdate::DefaultColor { kind, color } => {
-                let (key, kind) = match kind {
-                    ClientHostDefaultColorKind::Foreground => ("fg", DefaultColorKind::Foreground),
-                    ClientHostDefaultColorKind::Background => ("bg", DefaultColorKind::Background),
+                let (key, target) = match kind {
+                    ClientHostDefaultColorKind::Foreground => ("fg", &mut self.theme.foreground),
+                    ClientHostDefaultColorKind::Background => ("bg", &mut self.theme.background),
                 };
-                self.theme = self.theme.with_color(kind, color.into());
+                *target = Some(color.into());
                 self.display[key] =
                     json!(format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b));
             }

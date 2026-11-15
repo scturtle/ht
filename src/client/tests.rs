@@ -8,19 +8,45 @@ fn env_lock() -> &'static Mutex<()> {
 }
 
 #[test]
-fn resize_signal_reports_even_when_polled_size_is_unchanged() {
-    let size = (120, 40, 8, 16, true);
-    assert!(resize_report_required(true, size, size));
-    assert!(!resize_report_required(false, size, size));
-    assert!(resize_report_required(false, (120, 41, 8, 16, true), size));
-    assert!(resize_report_required(false, (120, 40, 9, 18, true), size));
-    assert!(resize_report_required(false, (120, 40, 8, 16, false), size));
+fn resize_poll_loop_reports_signals_and_geometry_changes() {
+    let initial = (120, 40, 8, 16, true);
+    for (signalled, new_size, expected_report) in [
+        (true, initial, true),
+        (false, initial, false),
+        (false, (121, 40, 8, 16, true), true),
+        (false, (120, 41, 8, 16, true), true),
+        (false, (120, 40, 9, 18, true), true),
+        (false, (120, 40, 8, 16, false), true),
+    ] {
+        let (resize_tx, mut resize_rx) = tokio::sync::mpsc::channel(8);
+        let should_quit = AtomicBool::new(false);
+        super::terminal_geometry::resize_poll_loop_with(
+            resize_tx,
+            initial,
+            |last_cell_size| {
+                assert_eq!(last_cell_size, (8, 16));
+                should_quit.store(true, Ordering::Release);
+                Ok(new_size)
+            },
+            || signalled,
+            &should_quit,
+        );
+
+        match resize_rx.try_recv() {
+            Ok(ClientLoopEvent::Resize(cols, rows, width, height, exact)) => {
+                assert!(expected_report);
+                assert_eq!((cols, rows, width, height, exact), new_size);
+            }
+            Err(_) => assert!(!expected_report),
+            Ok(_) => panic!("expected a resize event"),
+        }
+        assert!(resize_rx.try_recv().is_err());
+    }
 }
 
 #[test]
 fn unavailable_terminal_grid_is_not_fabricated() {
-    let reported_cell_size = AtomicU64::new(0);
-    let err = current_terminal_geometry_with(false, false, &reported_cell_size, None, None, || {
+    let err = current_terminal_geometry_with(0, None, None, || {
         Err(io::Error::new(
             io::ErrorKind::NotConnected,
             "terminal is gone",
@@ -115,17 +141,32 @@ fn resize_poll_loop_detaches_once_on_a_real_terminal_failure() {
 }
 
 #[test]
-fn missing_pixel_geometry_keeps_a_valid_terminal_grid() {
-    let reported_cell_size = AtomicU64::new(0);
+fn exact_terminal_geometry_takes_precedence_over_fallbacks() {
     let geometry = current_terminal_geometry_with(
-        true,
-        true,
-        &reported_cell_size,
+        pack_cell_size(10, 20),
         Some((9, 18)),
-        None,
-        || Ok((80, 24)),
+        Some((147, 41, 13, 27)),
+        || panic!("an exact snapshot must not read the terminal grid again"),
     )
-    .expect("grid geometry remains valid without pixel dimensions");
+    .expect("exact geometry is already complete");
+
+    assert_eq!(geometry, (147, 41, 13, 27, true));
+}
+
+#[test]
+fn missing_pixel_geometry_uses_reported_or_default_cell_size() {
+    for (reported, expected) in [(pack_cell_size(13, 27), (13, 27)), (0, (8, 16))] {
+        let geometry = current_terminal_geometry_with(reported, None, None, || Ok((80, 24)))
+            .expect("a valid grid must retain fallback pixel geometry");
+
+        assert_eq!(geometry, (80, 24, expected.0, expected.1, false));
+    }
+}
+
+#[test]
+fn missing_pixel_geometry_keeps_a_valid_terminal_grid() {
+    let geometry = current_terminal_geometry_with(0, Some((9, 18)), None, || Ok((80, 24)))
+        .expect("grid geometry remains valid without pixel dimensions");
 
     assert_eq!(geometry, (80, 24, 9, 18, false));
 }
@@ -201,21 +242,6 @@ fn cell_size_fallback_prefers_reported_then_previous_size() {
     );
     assert_eq!(cell_size_fallback(pack_cell_size(10, 0), None), (8, 16));
     assert_eq!(cell_size_fallback(pack_cell_size(0, 21), None), (8, 16));
-}
-
-#[test]
-fn reported_cell_size_is_taken_from_host_cell_size_events() {
-    let events = crate::raw_input::parse_raw_input_bytes_sync(b"\x1b[?997;1n");
-    assert_eq!(
-        super::terminal_geometry::reported_cell_size_from_events(&events),
-        None
-    );
-
-    let events = crate::raw_input::parse_raw_input_bytes_sync(b"\x1b[6;21;10t\x1b[6;18;9t");
-    assert_eq!(
-        super::terminal_geometry::reported_cell_size_from_events(&events),
-        Some((9, 18))
-    );
 }
 
 #[test]
@@ -332,14 +358,6 @@ fn system_toast_notify_preserves_colon_in_title() {
             Some("api workspace".to_string())
         ))
     );
-}
-
-#[test]
-fn ioctl_cell_size_accepts_fractional_terminal_geometry() {
-    assert_eq!(ioctl_cell_size(80, 24, 800, 480), Some((10, 20)));
-    assert_eq!(ioctl_cell_size(80, 24, 805, 480), Some((10, 20)));
-    assert_eq!(ioctl_cell_size(80, 24, 800, 485), Some((10, 20)));
-    assert_eq!(ioctl_cell_size(80, 24, 0, 485), None);
 }
 
 #[test]
