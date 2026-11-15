@@ -39,7 +39,7 @@ use terminal_geometry::{current_terminal_geometry, ioctl_terminal_geometry, resi
 use terminal_geometry::{reported_cell_size_from_events, store_reported_cell_size};
 use terminal_setup::{
     effective_mouse_capture, effective_sgr_pixel_mouse, set_mouse_capture, setup_terminal,
-    should_draw_host_cursor, TerminalGuard,
+    TerminalGuard,
 };
 
 fn refresh_host_mouse_capture(enabled: bool, sgr_pixels: bool) {
@@ -97,11 +97,8 @@ pub fn run_core_client() -> io::Result<()> {
         .with_startup_config_diagnostic(crate::config::config_diagnostic_summary(
             &loaded_config.diagnostics,
         ));
-    let mouse_capture = loaded_config.config.ui.mouse_capture;
-    let host_cursor = loaded_config.config.ui.host_cursor;
     let mut loop_config = ClientLoopConfig {
-        host_cursor,
-        mouse_capture_active: mouse_capture,
+        mouse_capture_active: true,
         host_escape_disambiguation_active: false,
         host_sgr_pixel_mouse: None,
         initial_host_input: Vec::new(),
@@ -115,7 +112,7 @@ pub fn run_core_client() -> io::Result<()> {
     let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) =
         current_terminal_geometry(0, None)?;
 
-    let mut terminal_guard = setup_terminal(mouse_capture).map_err(|err| {
+    let mut terminal_guard = setup_terminal(true).map_err(|err| {
         eprintln!("ht: failed to set up terminal: {err}");
         err
     })?;
@@ -232,8 +229,6 @@ async fn run_client_loop(
     mut config: ClientLoopConfig,
     _terminal_guard: &TerminalGuard,
 ) -> Result<(), ClientError> {
-    let draw_host_cursor = should_draw_host_cursor(config.host_cursor);
-
     let mut state = ClientState {
         blit_encoder: render_ansi::BlitEncoder::new(),
         image_files: image_files::FileTransport::from_environment(),
@@ -254,7 +249,6 @@ async fn run_client_loop(
         pending_native_cleanup: Vec::new(),
         pending_surface_graphics: HashMap::new(),
         repaint_pending: false,
-        draw_host_cursor,
         detached_process_children: Vec::new(),
         shell: shell::ClientShellState::new(config.shell_config),
     };
@@ -890,12 +884,6 @@ async fn run_client_loop(
                             }
                         }
                         let _ = io::stdout().flush();
-                    }
-                    ServerMessage::WindowTitle { title } => {
-                        let _ = crate::terminal_effects::write_window_title(
-                            &mut io::stdout(),
-                            title.as_deref(),
-                        );
                     }
                     ServerMessage::MouseCapture {
                         enabled,

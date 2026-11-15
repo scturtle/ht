@@ -6,7 +6,7 @@ mod overlays;
 mod tabs;
 
 pub(super) use overlays::{render_client_overlay, render_context_menu, render_global_menu};
-pub(super) use tabs::{render_tab_bar, tab_bar_status_width};
+pub(super) use tabs::render_tab_bar;
 
 pub(super) fn render_mode_bar(
     buffer: &mut Buffer,
@@ -227,12 +227,6 @@ pub(super) fn render_shell(
             state.tab_drag_insert_index,
             &mut hits,
         );
-    }
-    if !config.mouse_capture {
-        hits.tab_scroll_left = Rect::default();
-        hits.tab_scroll_right = Rect::default();
-        hits.new_tab = Rect::default();
-        hits.pane_splits.clear();
     }
     hits
 }

@@ -21,17 +21,11 @@ use crate::protocol::*;
 
 #[derive(Clone)]
 pub(super) struct ChromeConfig {
-    pub pane_borders: crate::config::PaneBordersConfig,
-    pub pane_gaps: bool,
-    pub pane_outer_borders: bool,
     pub palette: crate::ui::Palette,
 }
 impl ChromeConfig {
     pub fn from_config(config: &crate::config::Config) -> Self {
         Self {
-            pane_borders: config.ui.pane_borders,
-            pane_gaps: config.ui.pane_gaps,
-            pane_outer_borders: config.ui.pane_outer_borders,
             palette: crate::ui::palette_from_config(config),
         }
     }
@@ -142,11 +136,11 @@ impl View {
         scrollback: &crate::config::AdvancedConfig,
     ) -> io::Result<Self> {
         // A byte-only default can discard the requested history before the row
-        // target is reached. Rows bound retention; bytes are an optional extra cap.
+        // target is reached. Only the row limit bounds retained history.
         let bytes = if scrollback.scrollback_limit_lines == 0 {
             0
         } else {
-            scrollback.scrollback_limit_bytes.unwrap_or(usize::MAX)
+            usize::MAX
         };
         let mut terminal =
             crate::ghostty::Terminal::new(cols, rows, bytes).map_err(io::Error::other)?;
@@ -217,50 +211,25 @@ pub(super) fn first_leaf(node: &crate::layout::Node) -> Option<PaneId> {
     }
 }
 
-pub(super) fn pane_infos(model: &Model, area: Rect, config: &ChromeConfig) -> Vec<PaneInfo> {
+pub(super) fn pane_infos(model: &Model, area: Rect) -> Vec<PaneInfo> {
     let Some(layout) = model.layout() else {
         return Vec::new();
     };
     if model.active_zoomed() {
-        vec![zoomed_info(layout, area, config)]
+        vec![zoomed_info(layout, area)]
     } else {
-        layout_infos(layout, area, config)
+        layout_infos(layout, area)
     }
 }
 
 /// Same full-area geometry as the original zoom path; hidden BSP leaves remain
 /// available for navigation but must not receive a competing resize.
-pub(super) fn zoomed_info(
-    layout: &crate::layout::TileLayout,
-    area: Rect,
-    config: &ChromeConfig,
-) -> PaneInfo {
-    crate::ui::zoomed_pane_info(
-        layout.focused(),
-        area,
-        config.pane_borders,
-        config.pane_outer_borders,
-        layout.pane_count() > 1,
-    )
+pub(super) fn zoomed_info(layout: &crate::layout::TileLayout, area: Rect) -> PaneInfo {
+    crate::ui::zoomed_pane_info(layout.focused(), area)
 }
 
-pub(super) fn layout_infos(
-    layout: &crate::layout::TileLayout,
-    area: Rect,
-    config: &ChromeConfig,
-) -> Vec<PaneInfo> {
-    crate::ui::apply_pane_chrome(
-        layout.panes(area),
-        config.pane_borders,
-        config.pane_gaps,
-        config.pane_outer_borders,
-    )
-    .into_iter()
-    .map(|mut p| {
-        p.inner_rect = crate::ui::pane_inner_rect(p.rect, p.borders);
-        p
-    })
-    .collect()
+pub(super) fn layout_infos(layout: &crate::layout::TileLayout, area: Rect) -> Vec<PaneInfo> {
+    crate::ui::apply_pane_chrome(layout.panes(area))
 }
 
 /// Original public layout replies retain the hidden BSP while zoomed and apply
@@ -269,7 +238,6 @@ pub(super) fn api_layout_snapshot(
     model: &Model,
     tab: &str,
     area: Rect,
-    config: &ChromeConfig,
 ) -> io::Result<crate::actions::PaneLayoutSnapshot> {
     let mut snapshot = if model.active_tab() == Some(tab) {
         model.layout_snapshot(area)?
@@ -277,7 +245,7 @@ pub(super) fn api_layout_snapshot(
         model.layout_snapshot_for(tab, area)?
     };
     if let Some(layout) = model.layouts.get(tab) {
-        snapshot.panes = layout_infos(layout, area, config)
+        snapshot.panes = layout_infos(layout, area)
             .into_iter()
             .map(|pane| crate::actions::PaneLayoutPane {
                 pane_id: model.records[&pane.id].address.clone(),
@@ -379,7 +347,7 @@ impl Renderer {
         #[cfg(test)]
         let mut stage = std::time::Instant::now();
         let area = Rect::new(0, 0, size.cols.max(1), size.rows.max(1));
-        let infos = pane_infos(model, area, config);
+        let infos = pane_infos(model, area);
         self.frozen.retain(|pane| {
             views
                 .get(&pane.id)

@@ -5,11 +5,6 @@ use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 
 const LOCAL_INPUT_SOURCE: u8 = 0;
 
-fn is_retained_selection_copy_key(key: &crate::input::TerminalKey) -> bool {
-    matches!(key.code, KeyCode::Char('c' | 'C'))
-        && matches!(key.modifiers, KeyModifiers::CONTROL | KeyModifiers::SUPER)
-}
-
 /// True for Ctrl+[, the terminal-level equivalent of Esc.
 ///
 /// A legacy terminal sends Ctrl+[ as 0x1b, the same byte as Esc, so it already
@@ -482,22 +477,6 @@ impl ClientShellState {
             return None;
         }
         self.word_selection_gesture = None;
-        if self.mode != ClientShellMode::Copy
-            && self.copy_or_terminal_mode() != ClientShellMode::Copy
-            && !self.config.copy_on_select
-            && is_retained_selection_copy_key(key)
-            && self
-                .selection
-                .as_ref()
-                .is_some_and(crate::selection::Selection::is_visible)
-        {
-            self.request_selection_copy(outcome, true);
-            self.selection = None;
-            self.stop_selection_autoscroll();
-            self.selection_highlight_clear_deadline = None;
-            outcome.repaint = true;
-            return None;
-        }
         if self.mode != ClientShellMode::Copy
             && self.copy_or_terminal_mode() != ClientShellMode::Copy
             && self.selection.take().is_some()

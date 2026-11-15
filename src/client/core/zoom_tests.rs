@@ -1,9 +1,6 @@
 use super::super::{shared, view};
 use super::*;
-use crate::{
-    config::{Config, PaneBordersConfig},
-    protocol::ClientSurfaceSize,
-};
+use crate::{config::Config, protocol::ClientSurfaceSize};
 use ratatui::{layout::Rect, widgets::Borders};
 use serde_json::json;
 use std::collections::HashMap;
@@ -110,11 +107,10 @@ fn original_zoom_single_pane_in_other_tab_still_focuses_without_zooming() {
 }
 
 #[test]
-fn zoom_only_paints_focused_pane_hides_dividers_and_reuses_original_outer_borders() {
+fn zoom_only_paints_focused_pane_and_hides_all_dividers() {
     let (mut model, first, second) = split_model();
     let area = Rect::new(0, 0, 100, 28);
-    let mut config = view::ChromeConfig::from_config(&Config::default());
-    config.pane_borders = PaneBordersConfig::Off;
+    let config = view::ChromeConfig::from_config(&Config::default());
     let mut views = HashMap::new();
     let mut first_view = view::View::new(100, 28, 1).unwrap();
     first_view.process_output(first, b"FIRST_VISIBLE");
@@ -141,32 +137,16 @@ fn zoom_only_paints_focused_pane_hides_dividers_and_reuses_original_outer_border
         "hidden split boundaries must not intercept mouse input"
     );
     model.focus(second).unwrap();
-    let panes = view::pane_infos(&model, area, &config);
+    let panes = view::pane_infos(&model, area);
     assert_eq!(panes.len(), 1);
     assert_eq!(
         panes[0].id, second,
         "original navigation changes the full-screen pane without unzooming"
     );
-    for borders in [
-        PaneBordersConfig::Off,
-        PaneBordersConfig::Auto,
-        PaneBordersConfig::Always,
-    ] {
-        for outer in [false, true] {
-            config.pane_borders = borders;
-            config.pane_outer_borders = outer;
-            config.pane_gaps = true;
-            let pane = view::pane_infos(&model, area, &config).remove(0);
-            let expected = if borders != PaneBordersConfig::Off && outer {
-                Borders::ALL
-            } else {
-                Borders::NONE
-            };
-            assert_eq!(pane.borders, expected);
-            assert_eq!(pane.rect, area, "zoom does not retain inter-pane gaps");
-            assert_eq!(pane.inner_rect, crate::ui::pane_inner_rect(area, expected));
-        }
-    }
+    let pane = view::pane_infos(&model, area).remove(0);
+    assert_eq!(pane.borders, Borders::NONE);
+    assert_eq!(pane.rect, area);
+    assert_eq!(pane.inner_rect, area);
     model.zoom_pane(second, actions::PaneZoomMode::Off).unwrap();
     let surface = renderer
         .compose(
@@ -197,25 +177,14 @@ fn original_public_layout_geometry_applies_chrome_to_hidden_bsp_even_when_zoomed
     model.zoom_pane(first, actions::PaneZoomMode::On).unwrap();
     let tab = model.active_tab().unwrap();
     let area = Rect::new(3, 2, 100, 28);
-    let mut config = view::ChromeConfig::from_config(&Config::default());
-    for borders in [PaneBordersConfig::Off, PaneBordersConfig::Always] {
-        config.pane_borders = borders;
-        config.pane_gaps = true;
-        config.pane_outer_borders = true;
-        let snapshot = view::api_layout_snapshot(&model, tab, area, &config).unwrap();
-        assert!(snapshot.zoomed);
-        assert_eq!(snapshot.panes.len(), 2);
-        assert_eq!(snapshot.splits.len(), 1);
-        let original = crate::ui::apply_pane_chrome(
-            model.layout().unwrap().panes(area),
-            config.pane_borders,
-            config.pane_gaps,
-            config.pane_outer_borders,
-        );
-        for (api, native) in snapshot.panes.iter().zip(&original) {
-            assert_eq!(api.rect, native.rect.into());
-            assert_eq!(api.focused, native.is_focused);
-        }
+    let snapshot = view::api_layout_snapshot(&model, tab, area).unwrap();
+    assert!(snapshot.zoomed);
+    assert_eq!(snapshot.panes.len(), 2);
+    assert_eq!(snapshot.splits.len(), 1);
+    let original = crate::ui::apply_pane_chrome(model.layout().unwrap().panes(area));
+    for (api, native) in snapshot.panes.iter().zip(&original) {
+        assert_eq!(api.rect, native.rect.into());
+        assert_eq!(api.focused, native.is_focused);
     }
 }
 

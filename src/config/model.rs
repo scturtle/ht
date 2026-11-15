@@ -4,8 +4,8 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::{
-    BindingConfig, TabBarRightEntryConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD,
-    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_LINES,
+    BindingConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
+    DEFAULT_SCROLLBACK_LIMIT_LINES,
 };
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
@@ -51,13 +51,6 @@ pub enum AgentPanelSortConfig {
     Priority,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum LegacyAgentPanelScopeConfig {
-    Current,
-    All,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusIndicatorStyle {
@@ -73,15 +66,6 @@ impl StatusIndicatorStyle {
             Self::Symbols => "symbols",
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HostCursorModeConfig {
-    #[default]
-    Auto,
-    Native,
-    Drawn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -500,113 +484,23 @@ pub enum TabBarPositionConfig {
     Bottom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PaneBordersConfig {
-    #[default]
-    Auto,
-    Always,
-    Off,
-}
-
-impl PaneBordersConfig {
-    pub fn draws_borders(self) -> bool {
-        !matches!(self, Self::Off)
-    }
-
-    pub fn shows_borders(self, multi_pane: bool) -> bool {
-        self.draws_borders() && (multi_pane || matches!(self, Self::Always))
-    }
-}
-
-impl<'de> Deserialize<'de> for PaneBordersConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct PaneBordersVisitor;
-
-        impl<'de> de::Visitor<'de> for PaneBordersVisitor {
-            type Value = PaneBordersConfig;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("\"auto\", \"always\", \"off\", or a legacy boolean")
-            }
-
-            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
-                Ok(if value {
-                    PaneBordersConfig::Auto
-                } else {
-                    PaneBordersConfig::Off
-                })
-            }
-
-            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                match value {
-                    "auto" => Ok(PaneBordersConfig::Auto),
-                    "always" => Ok(PaneBordersConfig::Always),
-                    "off" => Ok(PaneBordersConfig::Off),
-                    other => Err(E::invalid_value(de::Unexpected::Str(other), &self)),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(PaneBordersVisitor)
-    }
-}
-
+/// Configurable presentation preferences. Mouse capture, automatic selection copy,
+/// native cursors, direct creation/closing, and inner-only pane dividers are fixed policy.
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct UiConfig {
     /// Terminal width at or below which Herdr uses the mobile single-column layout. Default: 64.
     pub mobile_width_threshold: u16,
-    /// Capture mouse input for Herdr's mouse UI. Default: true.
-    pub mouse_capture: bool,
-    /// Copy text selected with the mouse. Default: true.
-    pub copy_on_select: bool,
-    /// Host cursor policy. Default: auto.
-    pub host_cursor: HostCursorModeConfig,
     /// Modifier that lets right-click gestures pass through to pane apps. Empty disables it.
     pub right_click_passthrough_modifier: RightClickPassthroughModifierConfig,
     /// Force a full host-terminal redraw when the outer terminal regains focus. Default: true.
     pub redraw_on_focus_gained: bool,
     /// Lines to scroll per mouse wheel notch. Default: 3.
     pub mouse_scroll_lines: Option<NonZeroUsize>,
-    /// Ask for confirmation before closing a workspace. Default: true.
-    pub confirm_close: bool,
-    /// Ask for a tab name before creating a new tab. Default: true.
-    pub prompt_new_tab_name: bool,
-    /// Ask for a workspace name before interactive creation. Default: false.
-    pub prompt_new_workspace_name: bool,
-    /// Draw borders around split panes. auto draws them only for split panes,
-    /// always also frames a lone pane (only while pane_outer_borders is
-    /// enabled, since every edge of a lone pane is an outer edge), off
-    /// disables them. Legacy booleans map true to auto and false to off.
-    /// Default: auto.
-    pub pane_borders: PaneBordersConfig,
-    /// Draw borders along the outside edge of the pane area. Default: true.
-    pub pane_outer_borders: bool,
-    /// Draw interactive scrollbars beside terminal panes. Default: true.
-    pub pane_scrollbars: bool,
-    /// Keep split panes visually separated instead of sharing divider borders. Default: true.
-    pub pane_gaps: bool,
-    /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
-    pub show_agent_labels_on_pane_borders: bool,
-    /// Hide the tab row when the workspace has one tab. Default: false.
-    pub hide_tab_bar_when_single_tab: bool,
     /// Desktop tab row placement. Default: top.
     pub tab_bar_position: TabBarPositionConfig,
-    /// Ordered entries shown at the right edge of the desktop tab row. Empty by default.
-    pub tab_bar_right: Vec<TabBarRightEntryConfig>,
-    /// Text inserted between visible right-side tab bar entries. Default: one space.
-    pub tab_bar_right_separator: String,
-    /// Format for the outer terminal window title. Empty leaves the title alone.
-    /// Default: "{hostname}: {workspace}".
-    pub window_title: String,
     /// Agent navigation ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
-    /// Retired setting that Herdr wrote before the workspace filter was removed.
-    #[serde(rename = "agent_panel_scope")]
-    _legacy_agent_panel_scope: Option<LegacyAgentPanelScopeConfig>,
     /// Agent status indicator style. Saved values are "dots" or "symbols". Default: "dots".
     pub status_indicators: StatusIndicatorStyle,
     /// Optional visual toast notifications for background workspace events.
@@ -619,11 +513,6 @@ pub struct AdvancedConfig {
     /// Physical history rows retained per client pane, approximately (whole-page pruning).
     /// Default: 1000. Zero disables history. Applied when the client starts.
     pub scrollback_limit_lines: u32,
-    /// Optional additional byte budget. The first-reached limit wins.
-    /// Unset by default so it cannot silently truncate the configured row count.
-    /// The legacy `scrollback_lines` alias still means bytes, not rows.
-    #[serde(alias = "scrollback_lines")]
-    pub scrollback_limit_bytes: Option<usize>,
 }
 
 impl Default for KeysConfig {
@@ -694,27 +583,11 @@ impl Default for UiConfig {
     fn default() -> Self {
         Self {
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
-            mouse_capture: true,
-            copy_on_select: true,
-            host_cursor: HostCursorModeConfig::Auto,
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
             redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
-            confirm_close: true,
-            prompt_new_tab_name: true,
-            prompt_new_workspace_name: false,
-            pane_borders: PaneBordersConfig::Auto,
-            pane_outer_borders: true,
-            pane_scrollbars: true,
-            pane_gaps: true,
-            show_agent_labels_on_pane_borders: false,
-            hide_tab_bar_when_single_tab: false,
             tab_bar_position: TabBarPositionConfig::Top,
-            tab_bar_right: Vec::new(),
-            tab_bar_right_separator: " ".into(),
-            window_title: super::window_title::default_window_title(),
             agent_panel_sort: AgentPanelSortConfig::Spaces,
-            _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
             toast: ToastConfig::default(),
         }
@@ -802,7 +675,6 @@ impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
             scrollback_limit_lines: DEFAULT_SCROLLBACK_LIMIT_LINES,
-            scrollback_limit_bytes: None,
         }
     }
 }
@@ -831,38 +703,6 @@ agent_panel_sort = "workspaces"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.agent_panel_sort, AgentPanelSortConfig::Spaces);
-
-        let toml = r#"
-[ui]
-agent_panel_scope = "current"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.agent_panel_sort, AgentPanelSortConfig::Spaces);
-    }
-
-    #[test]
-    fn pane_borders_legacy_booleans_map_to_modes() {
-        let enabled: Config = toml::from_str("[ui]\npane_borders = true").unwrap();
-        assert_eq!(enabled.ui.pane_borders, PaneBordersConfig::Auto);
-
-        let disabled: Config = toml::from_str("[ui]\npane_borders = false").unwrap();
-        assert_eq!(disabled.ui.pane_borders, PaneBordersConfig::Off);
-
-        let auto: Config = toml::from_str("[ui]\npane_borders = \"auto\"").unwrap();
-        assert_eq!(auto.ui.pane_borders, PaneBordersConfig::Auto);
-
-        let off: Config = toml::from_str("[ui]\npane_borders = \"off\"").unwrap();
-        assert_eq!(off.ui.pane_borders, PaneBordersConfig::Off);
-
-        let unknown = toml::from_str::<Config>("[ui]\npane_borders = \"framed\"")
-            .unwrap_err()
-            .to_string();
-        assert!(unknown.contains("\"auto\", \"always\", \"off\", or a legacy boolean"));
-
-        let wrong_type = toml::from_str::<Config>("[ui]\npane_borders = 3")
-            .unwrap_err()
-            .to_string();
-        assert!(wrong_type.contains("\"auto\", \"always\", \"off\", or a legacy boolean"));
     }
 
     #[test]
@@ -1002,17 +842,6 @@ kitty_graphics = false
         )
         .unwrap();
         assert_eq!(config.terminal.default_shell, "");
-    }
-
-    #[test]
-    fn advanced_legacy_scrollback_lines_alias_parses() {
-        let toml = r#"
-[advanced]
-scrollback_lines = 12345
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.advanced.scrollback_limit_bytes, Some(12345));
-        assert_eq!(config.advanced.scrollback_limit_lines, 1000);
     }
 
     #[test]

@@ -278,41 +278,16 @@ impl ClientShellState {
         );
         match action {
             ClientContextMenuAction::NewTab => {
-                if self.config.prompt_new_tab_name {
-                    let default_name = (self
-                        .endpoint
-                        .snapshot
-                        .as_deref()
-                        .map(|snapshot| {
-                            snapshot
-                                .tabs
-                                .iter()
-                                .filter(|tab| tab.workspace_id == workspace_id)
-                                .count()
-                        })
-                        .unwrap_or(0)
-                        + 1)
-                    .to_string();
-                    self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
-                        title: "new tab",
-                        input: TextEditor::new(&default_name, true),
-                        target: ClientRenameTarget::NewTab {
-                            workspace_id,
-                            default_name,
-                        },
-                    }));
-                } else {
-                    self.push_endpoint_method(
-                        Action::TabCreate(crate::actions::TabCreateParams {
-                            workspace_id: Some(workspace_id),
-                            cwd: None,
-                            focus: true,
-                            label: None,
-                            env: Default::default(),
-                        }),
-                        outcome,
-                    );
-                }
+                self.push_endpoint_method(
+                    Action::TabCreate(crate::actions::TabCreateParams {
+                        workspace_id: Some(workspace_id),
+                        cwd: None,
+                        focus: true,
+                        label: None,
+                        env: Default::default(),
+                    }),
+                    outcome,
+                );
             }
             ClientContextMenuAction::Rename => {
                 let tab = self

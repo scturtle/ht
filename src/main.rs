@@ -121,24 +121,14 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows directly
 
 [ui]
+# Mouse capture and automatic selection copying are always enabled.
+# The cursor is native. Creation and closing are immediate, without prompts.
+# Panes share inner dividers only: no outer frame, gaps, or scrollbars.
+# The desktop tab bar stays visible even with a single tab.
+
 # Terminal width at or below which Herdr uses the mobile single-column layout.
 # Increase this for foldables, tablets, or wide phone terminals.
 # mobile_width_threshold = 64
-
-# Capture mouse input for Herdr's mouse UI.
-# Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
-# Pane apps like lazygit and btop can still receive mouse when they request it.
-# mouse_capture = true
-
-# Automatically copy text selected with the mouse.
-# Set false to retain drag or double-click word selection until Ctrl+C,
-# or Cmd+C when the host forwards it, copies and clears it.
-# copy_on_select = true
-
-# Host cursor policy: "auto", "native", or "drawn".
-# "auto" draws Herdr's own cursor on native Windows builds and WSL to avoid ConPTY cursor flicker, and uses the native terminal cursor elsewhere.
-# "native" always uses the outer terminal cursor. "drawn" always draws Herdr's cursor as terminal cell content.
-# host_cursor = "auto"
 
 # Optional modifier that forwards right-click hold/drag gestures to pane apps instead of opening Herdr's pane menu.
 # Empty/off disables this. Shift is intentionally unsupported because terminals commonly reserve Shift+mouse.
@@ -152,56 +142,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Pane scrollback lines to scroll per mouse wheel notch.
 # mouse_scroll_lines = 3
 
-# Ask for confirmation before closing a workspace
-# confirm_close = true
-
-# Ask for a tab name before creating a new tab.
-# Set false to create tabs immediately with generated names.
-# prompt_new_tab_name = true
-
-# Ask for a workspace name before interactive creation.
-# prompt_new_workspace_name = false
-
-# Draw borders around split panes.
-# "auto" draws them only for split panes, "always" also frames a lone pane
-# (only while pane_outer_borders is enabled), "off" disables them.
-# Legacy booleans still parse: true = "auto", false = "off".
-# pane_borders = "auto"
-
-# Draw borders along the outside edge of the pane area.
-# Disable for tmux-style internal splitters without an outside frame.
-# pane_outer_borders = true
-
-# Draw interactive scrollbars beside terminal panes.
-# Set false to reclaim the scrollbar column and keep it out of terminal-native selections.
-# pane_scrollbars = true
-
-# Keep split panes visually separated instead of sharing divider borders.
-# pane_gaps = true
-
-# Show detected/reported agent labels in split pane borders when no manual pane name is set.
-# show_agent_labels_on_pane_borders = false
-
-# Hide the tab row when a workspace has exactly one tab.
-# New tabs can still be created with the configured keybinding.
-# hide_tab_bar_when_single_tab = false
-
 # Desktop tab row placement: "top" or "bottom".
 # tab_bar_position = "top"
-
-# Ordered status entries at the right edge of the desktop tab bar.
-# Supported types: zoom, hostname, datetime, text, and command.
-# Hostname, datetime, and command entries resolve on the Herdr server.
-# tab_bar_right = []
-# tab_bar_right_separator = " "
-
-# Title Herdr writes to the terminal it runs in, which is what window managers
-# show in title, tab, and group bars. Tokens are {hostname}, {workspace}, {tab},
-# {pane}, and {terminal_title}; {{ and }} are literal braces.
-# The title renders on the Herdr server, so {hostname} names the host the panes
-# run on even when attaching from a remote client.
-# Set to "" to leave the outer terminal title alone.
-# window_title = "{hostname}: {workspace}"
 
 # Agent navigation ordering: "spaces" (grouped by space) or "priority" (attention queue).
 # "workspaces" is accepted as an alias for "spaces".
@@ -232,8 +174,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Applied on client startup; Ghostty prunes whole pages, so counts are approximate.
 # Attach/reconnect requests this many rows; Core may retain less.
 # scrollback_limit_lines = 1000
-# Optional additional memory cap in bytes; unset by default. First limit wins.
-# scrollback_limit_bytes = 10000000
 "##;
 
 // Bundled at build time so the printed skill always matches this binary's release.
@@ -378,6 +318,24 @@ mod tests {
             "# settings =",
             "theme.custom.light",
             "theme.custom.dark",
+            "mouse_capture",
+            "copy_on_select",
+            "host_cursor",
+            "confirm_close",
+            "prompt_new_tab_name",
+            "prompt_new_workspace_name",
+            "pane_borders",
+            "pane_outer_borders",
+            "pane_scrollbars",
+            "pane_gaps",
+            "show_agent_labels_on_pane_borders",
+            "hide_tab_bar_when_single_tab",
+            "window_title",
+            "tab_bar_right",
+            "tab_bar_right_separator",
+            "agent_panel_scope",
+            "scrollback_limit_bytes",
+            "scrollback_lines",
         ] {
             assert!(!DEFAULT_CONFIG.contains(retired), "{retired}");
         }

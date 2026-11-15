@@ -189,12 +189,8 @@ impl Session {
                 let p = super::swap::pin_source(&self.model, p)?;
                 let area = self.area();
                 let mut swap = self.change(|model| model.swap_panes(&p, area))?;
-                swap.layout = super::view::api_layout_snapshot(
-                    &self.model,
-                    &swap.layout.tab_id,
-                    area,
-                    &self.ui,
-                )?;
+                swap.layout =
+                    super::view::api_layout_snapshot(&self.model, &swap.layout.tab_id, area)?;
                 Ok(R::PaneSwap { swap })
             }
             M::PaneZoom(p) => {
@@ -204,8 +200,7 @@ impl Session {
                     .model
                     .active_tab()
                     .ok_or_else(|| invalid("no active tab"))?;
-                let layout =
-                    super::view::api_layout_snapshot(&self.model, tab, self.area(), &self.ui)?;
+                let layout = super::view::api_layout_snapshot(&self.model, tab, self.area())?;
                 Ok(R::PaneZoom {
                     zoom: actions::PaneZoomResult {
                         changed: outcome.changed || outcome.focus_changed,
@@ -321,12 +316,7 @@ impl Session {
                             .model
                             .focused()
                             .map(|id| self.model.records[&id].address.clone()),
-                        layout: super::view::api_layout_snapshot(
-                            &self.model,
-                            &tab,
-                            self.area(),
-                            &self.ui,
-                        )?,
+                        layout: super::view::api_layout_snapshot(&self.model, &tab, self.area())?,
                     },
                 })
             }
@@ -363,12 +353,7 @@ impl Session {
                             [&self.model.focused().ok_or_else(|| invalid("no focus"))?]
                             .address
                             .clone(),
-                        layout: super::view::api_layout_snapshot(
-                            &self.model,
-                            &tab,
-                            area,
-                            &self.ui,
-                        )?,
+                        layout: super::view::api_layout_snapshot(&self.model, &tab, area)?,
                     },
                 })
             }

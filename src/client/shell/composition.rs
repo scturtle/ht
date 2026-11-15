@@ -216,9 +216,6 @@ impl ClientShellState {
                 topology_signature,
             })
             .collect();
-        if !self.config.mouse_capture {
-            self.hits.pane_splits.clear();
-        }
         let mode_bar_area = if layout.mobile_header.is_empty()
             && self.config.tab_bar_position == TabBarPositionConfig::Bottom
             && !layout.tab_bar.is_empty()

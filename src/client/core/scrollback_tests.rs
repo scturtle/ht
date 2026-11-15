@@ -6,7 +6,7 @@ fn populated(config: &AdvancedConfig, cols: u16) -> View {
     let mut view = View::with_scrollback(cols, 54, 17, config).unwrap();
     let id = PaneId::alloc();
     for row in 0..12_000 {
-        // Include style and wide text; the byte budget is not a row-count proxy.
+        // Retention must remain row-based even with styled, wide text.
         view.process_output(
             id,
             format!(
@@ -47,7 +47,6 @@ fn default_scrollback_retains_about_a_thousand_rows_at_narrow_and_wide_grids() {
 fn configured_scrollback_retains_more_than_the_old_thousand_row_attach_limit() {
     let config = AdvancedConfig {
         scrollback_limit_lines: 5000,
-        ..Default::default()
     };
     let view = populated(&config, 195);
     let kept = history(&view);
@@ -61,29 +60,11 @@ fn configured_scrollback_retains_more_than_the_old_thousand_row_attach_limit() {
 }
 
 #[test]
-fn zero_scrollback_rows_or_an_explicit_zero_byte_budget_disables_history() {
-    for config in [
-        AdvancedConfig {
-            scrollback_limit_lines: 0,
-            ..Default::default()
-        },
-        AdvancedConfig {
-            scrollback_limit_bytes: Some(0),
-            ..Default::default()
-        },
-    ] {
-        let view = populated(&config, 195);
-        assert_eq!(history(&view), 0);
-        assert!(view.terminal.visible_text().contains("11999 中文"));
-    }
-}
-
-#[test]
-fn an_explicit_byte_budget_remains_an_additional_scrollback_limit() {
+fn zero_scrollback_rows_disables_history() {
     let config = AdvancedConfig {
-        scrollback_limit_lines: 5000,
-        scrollback_limit_bytes: Some(10_000),
+        scrollback_limit_lines: 0,
     };
     let view = populated(&config, 195);
-    assert!(history(&view) < 1000);
+    assert_eq!(history(&view), 0);
+    assert!(view.terminal.visible_text().contains("11999 中文"));
 }

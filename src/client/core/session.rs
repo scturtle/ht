@@ -341,9 +341,9 @@ impl Session {
         let zoomed = self.model.zoomed_tabs.contains(tab);
         let visible = self.model.active_tab() == Some(tab) && (!zoomed || layout.focused() == id);
         let info = if zoomed && layout.focused() == id {
-            view::zoomed_info(layout, self.area(), &self.ui)
+            view::zoomed_info(layout, self.area())
         } else {
-            view::layout_infos(layout, self.area(), &self.ui)
+            view::layout_infos(layout, self.area())
                 .into_iter()
                 .find(|p| p.id == id)
                 .ok_or_else(|| invalid("Core pane geometry missing"))?
@@ -437,8 +437,8 @@ impl Session {
             .flat_map(|(tab, layout)| {
                 let visible = self.model.active_tab() == Some(tab);
                 let zoomed = self.model.zoomed_tabs.contains(tab);
-                let zoom_info = zoomed.then(|| view::zoomed_info(layout, self.area(), &self.ui));
-                view::layout_infos(layout, self.area(), &self.ui)
+                let zoom_info = zoomed.then(|| view::zoomed_info(layout, self.area()));
+                view::layout_infos(layout, self.area())
                     .into_iter()
                     .map(move |info| {
                         let visible = visible && (!zoomed || info.is_focused);

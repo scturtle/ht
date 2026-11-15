@@ -102,14 +102,11 @@ fn active_preview_is_not_retargeted_by_deletion_or_reboot() {
         preview_key(&mut state, b"\r");
         assert_eq!(state.mode, ClientShellMode::Navigate);
         assert!(state.visible_endpoint_notice.is_some());
-        for confirm in [false, true] {
-            state.config.confirm_close = confirm;
-            for key in [b"W", b"D"] {
-                preview_key(&mut state, key);
-            }
-            assert!(state.overlay.is_none());
-            assert_eq!(state.mode, ClientShellMode::Navigate);
+        for key in [b"W", b"D"] {
+            preview_key(&mut state, key);
         }
+        assert!(state.overlay.is_none());
+        assert_eq!(state.mode, ClientShellMode::Navigate);
         assert_eq!(state.workspace_action_id().as_deref(), Some("ws_1"));
     }
 }
@@ -427,18 +424,6 @@ fn direct_agent_focus_repaints_when_releasing_a_workspace_highlight() {
         assert_eq!(outcome.repaint, pending);
         assert_local_highlight(&mut state, "ws_1");
     }
-}
-
-#[test]
-fn cancelled_close_does_not_restore_an_older_navigation_highlight() {
-    let mut state = local_navigation_state(false);
-    request_local_navigation(&mut state, 2);
-    state.open_confirm_close_overlay("ws_1".into());
-    preview_key(&mut state, b"\x1b");
-    assert_eq!(state.mode, ClientShellMode::Navigate);
-    preview_key(&mut state, b"\x1b");
-    assert_eq!(state.mode, ClientShellMode::Terminal);
-    assert_local_highlight(&mut state, "ws_1");
 }
 
 #[test]

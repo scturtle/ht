@@ -13,7 +13,6 @@ fn blit_frame_to(writer: impl Write, frame: &FrameData, prev: Option<&FrameData>
         prev,
         &mut last_visible_cursor,
         &mut last_cursor_shape,
-        false,
     );
 }
 
@@ -23,7 +22,6 @@ fn blit_frame_to_with_cursor_memory(
     prev: Option<&FrameData>,
     last_visible_cursor: &mut Option<(u16, u16)>,
     last_cursor_shape: &mut u8,
-    suppress_visible_cursor: bool,
 ) {
     blit_frame_to_with_cursor_memory_and_policy(
         writer,
@@ -32,7 +30,6 @@ fn blit_frame_to_with_cursor_memory(
         last_visible_cursor,
         last_cursor_shape,
         repeat_ime_anchor_after_sync(),
-        suppress_visible_cursor,
     );
 }
 
@@ -43,7 +40,6 @@ fn blit_frame_to_with_cursor_memory_and_policy(
     last_visible_cursor: &mut Option<(u16, u16)>,
     last_cursor_shape: &mut u8,
     repeat_ime_anchor: bool,
-    suppress_visible_cursor: bool,
 ) {
     blit_frame_to_with_cursor_memory_and_clear_policy(
         writer,
@@ -53,7 +49,6 @@ fn blit_frame_to_with_cursor_memory_and_policy(
         last_cursor_shape,
         repeat_ime_anchor,
         true,
-        suppress_visible_cursor,
     );
 }
 
@@ -128,7 +123,6 @@ fn wide_spacer_contents_cannot_hide_following_changed_cells() {
                         cells: next.cells.clone(),
                     }],
                     None,
-                    false,
                 )
                 .unwrap()
         } else {
@@ -283,7 +277,6 @@ fn blit_frame_begins_sync_before_hiding_cursor_after_visible_cursor_repeat() {
         &mut last_visible_cursor,
         &mut last_cursor_shape,
         true,
-        false,
     );
 
     let mut second_output = Vec::new();
@@ -294,7 +287,6 @@ fn blit_frame_begins_sync_before_hiding_cursor_after_visible_cursor_repeat() {
         &mut last_visible_cursor,
         &mut last_cursor_shape,
         true,
-        false,
     );
 
     let second_output_str = std::str::from_utf8(&second_output).unwrap();
@@ -348,7 +340,6 @@ fn blit_frame_can_repeat_final_cursor_state_after_synchronized_output() {
         &mut last_visible_cursor,
         &mut last_cursor_shape,
         true,
-        false,
     );
 
     let output_str = String::from_utf8(output).unwrap();
@@ -388,7 +379,6 @@ fn blit_frame_can_skip_final_cursor_state_after_synchronized_output() {
         &mut last_visible_cursor,
         &mut last_cursor_shape,
         false,
-        false,
     );
 
     let output_str = String::from_utf8(output).unwrap();
@@ -400,62 +390,6 @@ fn blit_frame_can_skip_final_cursor_state_after_synchronized_output() {
         trailing_cursor, "",
         "should not expose a post-sync cursor repeat when the target terminal flickers on it"
     );
-}
-
-#[test]
-fn drawn_cursor_reverses_visible_cursor_cell() {
-    let frame = FrameData {
-        cells: vec![make_cell("A", 0, 0, 0); 9],
-        width: 3,
-        height: 3,
-        cursor: Some(CursorState {
-            x: 2,
-            y: 1,
-            visible: true,
-            shape: 6,
-        }),
-        hyperlinks: Vec::new(),
-        graphics: Vec::new(),
-    };
-    let drawn = frame_with_drawn_cursor(frame.clone());
-
-    assert_eq!(drawn.cells[5].modifier, REVERSED_MODIFIER);
-    assert_eq!(frame.cells[5].modifier, 0);
-
-    let encoded = BlitEncoder::new().encode_with_suppressed_visible_cursor(&drawn, false);
-    let output_str = String::from_utf8(encoded.bytes).unwrap();
-
-    assert!(
-        output_str.contains("\x1b[2;3H\x1b[6 q\x1b[?25l"),
-        "drawn cursor mode should park the host cursor hidden at the focused cursor position"
-    );
-    assert!(
-        !output_str.contains("\x1b[?25h"),
-        "drawn cursor mode should not show the host cursor"
-    );
-    assert!(
-        output_str.contains("\x1b[0;7;39;49mA"),
-        "drawn cursor should be emitted as reverse-video cell content"
-    );
-}
-
-#[test]
-fn drawn_cursor_ignores_hidden_cursor() {
-    let frame = FrameData {
-        cells: vec![make_cell("A", 0, 0, 0)],
-        width: 1,
-        height: 1,
-        cursor: Some(CursorState {
-            x: 0,
-            y: 0,
-            visible: false,
-            shape: 0,
-        }),
-        hyperlinks: Vec::new(),
-        graphics: Vec::new(),
-    };
-
-    assert_eq!(frame_with_drawn_cursor(frame.clone()), frame);
 }
 
 #[test]
@@ -484,7 +418,6 @@ fn blit_frame_emits_cursor_shape_before_visibility_without_touching_ime_anchor()
         &mut last_visible_cursor,
         &mut last_cursor_shape,
         true,
-        false,
     );
 
     let output_str = String::from_utf8(output).unwrap();
@@ -544,7 +477,6 @@ fn blit_frame_repeats_explicit_hidden_cursor_anchor_after_synchronized_output() 
         &mut last_visible_cursor,
         &mut last_cursor_shape,
         true,
-        false,
     );
     output.clear();
     blit_frame_to_with_cursor_memory_and_policy(
@@ -554,7 +486,6 @@ fn blit_frame_repeats_explicit_hidden_cursor_anchor_after_synchronized_output() 
         &mut last_visible_cursor,
         &mut last_cursor_shape,
         true,
-        false,
     );
 
     let output_str = String::from_utf8(output).unwrap();
@@ -795,7 +726,7 @@ fn retained_patch_matches_full_diff_and_updates_the_encoder_baseline() {
 
     let full_diff = encoder.encode(&expected, false);
     let patch = encoder
-        .encode_patch(&rows, cursor.clone(), false)
+        .encode_patch(&rows, cursor.clone())
         .expect("valid retained patch");
     assert_eq!(patch.bytes, full_diff.bytes);
     assert!(encoder.commit_patch(&rows, cursor, patch));
@@ -827,7 +758,7 @@ fn retained_patch_width_transition_matches_full_diff_with_following_cell() {
 
     let full_diff = encoder.encode(&expected, false);
     let patch = encoder
-        .encode_patch(&rows, None, false)
+        .encode_patch(&rows, None)
         .expect("valid retained patch");
     assert_eq!(patch.bytes, full_diff.bytes);
 }
@@ -859,10 +790,10 @@ fn retained_patch_rejects_overlapping_rows() {
         },
     ];
 
-    assert!(encoder.encode_patch(&rows, None, false).is_none());
+    assert!(encoder.encode_patch(&rows, None).is_none());
     let mut reversed = rows.clone();
     reversed.reverse();
-    assert!(encoder.encode_patch(&reversed, None, false).is_none());
+    assert!(encoder.encode_patch(&reversed, None).is_none());
 
     // Input order need not match screen order; touching runs are disjoint.
     let disjoint = vec![
@@ -873,7 +804,7 @@ fn retained_patch_rejects_overlapping_rows() {
         },
         rows[0].clone(),
     ];
-    assert!(encoder.encode_patch(&disjoint, None, false).is_some());
+    assert!(encoder.encode_patch(&disjoint, None).is_some());
 }
 
 #[test]
@@ -898,7 +829,7 @@ fn metadata_only_patches_do_not_write_but_cursor_changes_do() {
         frame.cursor = cursor.clone();
         let initial = encoder.encode(&frame, false);
         encoder.commit(frame.clone(), initial);
-        let encoded = encoder.encode_patch(&[], cursor.clone(), false).unwrap();
+        let encoded = encoder.encode_patch(&[], cursor.clone()).unwrap();
         assert!(encoded.bytes.is_empty());
         assert!(encoder.commit_patch(&[], cursor, encoded));
         assert!(encoder.is_current(&frame));
@@ -917,90 +848,10 @@ fn metadata_only_patches_do_not_write_but_cursor_changes_do() {
             shape: 2,
         },
     ] {
-        let encoded = encoder
-            .encode_patch(&[], Some(cursor.clone()), false)
-            .unwrap();
+        let encoded = encoder.encode_patch(&[], Some(cursor.clone())).unwrap();
         assert!(String::from_utf8_lossy(&encoded.bytes).contains("\x1b[1;3H"));
         assert!(encoder.commit_patch(&[], Some(cursor), encoded));
     }
-    // Switching to a client-drawn cursor must still hide the visible host cursor.
-    let encoded = encoder
-        .encode_patch(
-            &[],
-            encoder.last_frame.as_ref().unwrap().cursor.clone(),
-            true,
-        )
-        .unwrap();
-    assert!(String::from_utf8_lossy(&encoded.bytes).contains("\x1b[?25l"));
-    let cursor = encoder.last_frame.as_ref().unwrap().cursor.clone();
-    assert!(encoder.commit_patch(&[], cursor.clone(), encoded));
-    assert!(encoder
-        .encode_patch(&[], cursor.clone(), true)
-        .unwrap()
-        .bytes
-        .is_empty());
-    let encoded = encoder.encode_patch(&[], cursor.clone(), false).unwrap();
-    assert!(String::from_utf8_lossy(&encoded.bytes).contains("\x1b[?25h"));
-    assert!(encoder.commit_patch(&[], cursor.clone(), encoded));
-    assert!(encoder
-        .encode_patch(&[], cursor, false)
-        .unwrap()
-        .bytes
-        .is_empty());
-}
-
-#[test]
-fn retained_patch_preserves_the_client_drawn_cursor_overlay() {
-    let mut previous = make_frame(
-        3,
-        1,
-        vec![
-            make_cell("a", 0, 0, 0),
-            make_cell("b", 0, 0, 0),
-            make_cell("c", 0, 0, 0),
-        ],
-    );
-    previous.cursor = Some(CursorState {
-        x: 0,
-        y: 0,
-        visible: true,
-        shape: 0,
-    });
-    let previous_drawn = frame_with_drawn_cursor(previous.clone());
-    let mut encoder = BlitEncoder::new();
-    let initial = encoder.encode_with_suppressed_visible_cursor(&previous_drawn, false);
-    encoder.commit(previous_drawn, initial);
-
-    let rows = vec![PaneSurfacePatchRow {
-        x: 0,
-        y: 0,
-        cells: vec![
-            make_cell("A", 0, 0, 0),
-            make_cell("b", 0, 0, 0),
-            make_cell("c", 0, 0, 0),
-        ],
-    }];
-    let cursor = Some(CursorState {
-        x: 1,
-        y: 0,
-        visible: true,
-        shape: 0,
-    });
-    let drawn_rows = encoder
-        .patch_rows_with_drawn_cursor(&rows, cursor.as_ref())
-        .expect("drawn cursor patch rows");
-    let mut expected = previous;
-    expected.cells[0..3].clone_from_slice(&rows[0].cells);
-    expected.cursor = cursor.clone();
-    let expected = frame_with_drawn_cursor(expected);
-
-    let full_diff = encoder.encode_with_suppressed_visible_cursor(&expected, false);
-    let patch = encoder
-        .encode_patch(&drawn_rows, cursor.clone(), true)
-        .expect("valid drawn cursor patch");
-    assert_eq!(patch.bytes, full_diff.bytes);
-    assert!(encoder.commit_patch(&drawn_rows, cursor, patch));
-    assert!(encoder.is_current(&expected));
 }
 
 #[test]
@@ -1201,7 +1052,6 @@ fn blit_frame_parks_hidden_cursor_at_last_visible_position() {
         None,
         &mut last_visible_cursor,
         &mut last_cursor_shape,
-        false,
     );
     output.clear();
     blit_frame_to_with_cursor_memory(
@@ -1210,7 +1060,6 @@ fn blit_frame_parks_hidden_cursor_at_last_visible_position() {
         Some(&visible),
         &mut last_visible_cursor,
         &mut last_cursor_shape,
-        false,
     );
 
     let output_str = String::from_utf8(output).unwrap();
@@ -1243,7 +1092,6 @@ fn blit_frame_parks_hidden_cursor_at_bottom_right_without_history() {
         None,
         &mut last_visible_cursor,
         &mut last_cursor_shape,
-        false,
     );
 
     let output_str = String::from_utf8(output).unwrap();

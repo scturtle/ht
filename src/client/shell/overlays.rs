@@ -44,7 +44,6 @@ pub(crate) fn render_client_overlay(
     }
     match o {
         ClientShellOverlay::Rename(v) => render_rename_overlay(b, v, p),
-        ClientShellOverlay::ConfirmClose(v) => render_confirm_close_overlay(b, v, p),
         ClientShellOverlay::Help(v) => render_help_overlay(b, v, k, p),
         ClientShellOverlay::Navigator(v) => render_navigator_overlay(b, v, endpoints, p),
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
@@ -617,35 +616,6 @@ fn render_help_overlay(
         help_scroll_metrics: Some(metrics),
         help_max_scroll: max_scroll,
         cursor,
-        ..OverlayRender::default()
-    })
-}
-fn render_confirm_close_overlay(
-    buffer: &mut Buffer,
-    close: &ClientConfirmCloseOverlay,
-    palette: &Palette,
-) -> Option<OverlayRender> {
-    let layout = DialogLayout::centered(buffer.area, (64, 6), [13, 12], Some(3))?;
-    let styles = DialogStyles::new(palette, palette.red);
-    layout.paint_panel(buffer, &styles);
-    layout.paint_buttons(buffer, &styles, [" ↵ confirm ", " esc cancel "]);
-    paint_text_line(
-        buffer,
-        layout.body_row(0),
-        &format!(" {}", close.title),
-        styles.heading.fg(palette.red),
-    );
-    paint_text_line(
-        buffer,
-        layout.body_row(1),
-        &format!(" {}", close.detail),
-        styles.text,
-    );
-    let [primary, cancel] = layout.buttons;
-    Some(OverlayRender {
-        area: layout.area,
-        primary,
-        cancel,
         ..OverlayRender::default()
     })
 }

@@ -51,22 +51,18 @@ impl ClientShellState {
                     return;
                 }
                 if action == crate::input::KeybindAction::NewWorkspace {
-                    if self.config.prompt_new_workspace_name {
-                        self.open_new_workspace_overlay();
-                    } else {
-                        self.push_endpoint_method(
-                            crate::actions::Action::WorkspaceCreate(
-                                crate::actions::WorkspaceCreateParams {
-                                    source_workspace_id: self.workspace_action_id(),
-                                    cwd: None,
-                                    focus: true,
-                                    label: None,
-                                    env: Default::default(),
-                                },
-                            ),
-                            outcome,
-                        );
-                    }
+                    self.push_endpoint_method(
+                        crate::actions::Action::WorkspaceCreate(
+                            crate::actions::WorkspaceCreateParams {
+                                source_workspace_id: self.workspace_action_id(),
+                                cwd: None,
+                                focus: true,
+                                label: None,
+                                env: Default::default(),
+                            },
+                        ),
+                        outcome,
+                    );
                     outcome.repaint = true;
                     return;
                 }
@@ -102,12 +98,6 @@ impl ClientShellState {
                     {
                         self.request_tab_close(tab_id, outcome);
                     }
-                    return;
-                }
-                if action == crate::input::KeybindAction::NewTab && self.config.prompt_new_tab_name
-                {
-                    self.open_new_tab_overlay();
-                    outcome.repaint = true;
                     return;
                 }
                 if action == crate::input::KeybindAction::RenameTab {
@@ -271,19 +261,6 @@ impl ClientShellState {
         let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return false;
         };
-        let confirmation_workspace_id = match &method {
-            crate::actions::Action::TabClose(target) => snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.tab_id == target.tab_id)
-                .map(|tab| tab.workspace_id.clone()),
-            crate::actions::Action::PaneClose(target) => snapshot
-                .panes
-                .iter()
-                .find(|pane| pane.pane_id == target.pane_id)
-                .map(|pane| pane.workspace_id.clone()),
-            _ => None,
-        };
         let request_id = self.next_request_id;
         self.next_request_id = self.next_request_id.saturating_add(1);
         let request_id = format!("client-shell:{request_id}");
@@ -292,7 +269,6 @@ impl ClientShellState {
             PendingEndpointRequest {
                 boot_id: snapshot.boot_id.clone(),
                 method_name,
-                confirmation_workspace_id,
                 kind,
             },
         );
@@ -458,8 +434,7 @@ impl ClientShellState {
                     event.kind
                         == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
                 });
-                let replay = (self.config.mouse_capture
-                    && self.mode == ClientShellMode::Terminal
+                let replay = (self.mode == ClientShellMode::Terminal
                     && self.overlay.is_none()
                     && self
                         .hits
@@ -608,20 +583,7 @@ impl ClientShellState {
                 return (repaint || outcome.repaint, outcome.actions);
             }
         }
-        let repaint = match result {
-            Ok(_) => false,
-            Err(error)
-                if self.config.confirm_close
-                    && error.code.as_deref() == Some("confirmation_required")
-                    && pending.confirmation_workspace_id.is_some() =>
-            {
-                if let Some(workspace_id) = pending.confirmation_workspace_id {
-                    self.open_confirm_close_overlay(workspace_id);
-                }
-                true
-            }
-            Err(_) => true,
-        };
+        let repaint = result.is_err();
         (repaint, Vec::new())
     }
 
@@ -775,15 +737,13 @@ impl ClientShellState {
                     insert_index,
                 }))
             }
-            KeybindAction::NewTab if !self.config.prompt_new_tab_name => {
-                Some(Action::TabCreate(TabCreateParams {
-                    workspace_id: Some(focused_workspace),
-                    cwd: None,
-                    focus: true,
-                    label: None,
-                    env: Default::default(),
-                }))
-            }
+            KeybindAction::NewTab => Some(Action::TabCreate(TabCreateParams {
+                workspace_id: Some(focused_workspace),
+                cwd: None,
+                focus: true,
+                label: None,
+                env: Default::default(),
+            })),
             KeybindAction::FocusPaneLeft
             | KeybindAction::FocusPaneDown
             | KeybindAction::FocusPaneUp

@@ -59,14 +59,6 @@ impl ClientShellState {
             .as_ref()
             .is_none_or(|m| m.contains(method.name()))
     }
-    pub(super) fn focused_tab_count(&self) -> usize {
-        self.endpoint.snapshot.as_deref().map_or(0, |s| {
-            s.tabs
-                .iter()
-                .filter(|t| Some(t.workspace_id.as_str()) == s.focused_workspace_id.as_deref())
-                .count()
-        })
-    }
     /// Admit and project a snapshot once, before changing UI state. Stale updates
     /// cannot alter completion history, recency, or the accepted allocation.
     fn receive_snapshot(

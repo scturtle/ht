@@ -64,48 +64,6 @@ fn request_id(actions: &[ClientShellAction]) -> &str {
 }
 
 #[test]
-fn capability_shrink_after_recovery_blocks_a_stale_close_confirmation() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.config.confirm_close = true;
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    state.set_endpoint_methods(Some(vec!["tab.close".into()]));
-    let boot_id = state.endpoint.snapshot.as_ref().unwrap().boot_id.clone();
-    let mut outcome = ClientShellInput::default();
-    state.push_endpoint_method(
-        crate::actions::Action::TabClose(crate::actions::TabTarget {
-            tab_id: "tab_1".into(),
-        }),
-        &mut outcome,
-    );
-    let request_id = request_id(&outcome.actions).to_owned();
-    state.handle_endpoint_result(
-        &boot_id,
-        &request_id,
-        Err(ClientShellEndpointError {
-            code: Some("confirmation_required".into()),
-            message: "confirm".into(),
-        }),
-    );
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::ConfirmClose(_))
-    ));
-
-    // The relay recovered onto a Core that implements fewer methods.
-    state.set_endpoint_methods(Some(vec![]));
-    let mut confirm = ClientShellInput::default();
-    state.accept_close_confirmation(&mut confirm);
-
-    assert!(confirm.actions.is_empty());
-    assert!(state.pending_requests.is_empty());
-    assert!(state
-        .visible_endpoint_notice
-        .as_ref()
-        .is_some_and(|notice| notice.title == "Action unavailable"));
-}
-
-#[test]
 fn capability_refresh_preserves_pending_request_boot_fences() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));

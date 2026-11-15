@@ -16,10 +16,8 @@ fn fixture(count: usize) -> (Session, Vec<PaneId>) {
         .collect::<Vec<_>>();
     model.focus(ids[0]).unwrap();
     let config = crate::config::Config::default();
-    let mut ui = view::ChromeConfig::from_config(&config);
-    ui.pane_borders = crate::config::PaneBordersConfig::Off;
-    ui.pane_gaps = false;
-    let infos = view::pane_infos(&model, Rect::new(0, 0, 80, 24), &ui);
+    let ui = view::ChromeConfig::from_config(&config);
+    let infos = view::pane_infos(&model, Rect::new(0, 0, 80, 24));
     let views = infos
         .iter()
         .map(|p| {
@@ -512,7 +510,7 @@ fn synchronized_image_moves_and_clips_with_latest_pane_geometry() {
         b"\x1b[1;18H\x1b_Ga=T,f=32,i=1,p=1,s=1,v=1,c=4,r=1,q=2;/wAA/w==\x1b\\",
     );
     let before = surface(&mut s).unwrap();
-    assert_eq!(before.graphics.placements[0].x, 57);
+    assert_eq!(before.graphics.placements[0].x, 58);
     data(&mut s, id, b"\x1b[?2026h\x1b[2J\x1b_Ga=d,d=A,q=2;\x1b\\");
     s.consume(Frame {
         channel: s.views[&id].channel,
@@ -525,7 +523,7 @@ fn synchronized_image_moves_and_clips_with_latest_pane_geometry() {
     assert_eq!(held.graphics.placements.len(), 1);
     let image = &held.graphics.placements[0];
     assert_eq!(image.asset, before.graphics.placements[0].asset);
-    assert_eq!((image.x, image.cols), (37, 3));
+    assert_eq!((image.x, image.cols), (38, 2));
     assert!(u32::from(image.x) + image.cols <= 40);
     assert!(held.graphics.assets.is_empty());
     s.size.cols = 20;

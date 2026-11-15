@@ -146,14 +146,12 @@ impl ClientShellState {
                 selection.finish();
             }
             self.word_selection_gesture = None;
-            if self.config.copy_on_select {
-                self.request_selection_copy(outcome, false);
-                if dragged {
-                    self.selection = None;
-                } else {
-                    self.selection_highlight_clear_deadline =
-                        Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
-                }
+            self.request_selection_copy(outcome, false);
+            if dragged {
+                self.selection = None;
+            } else {
+                self.selection_highlight_clear_deadline =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
             }
         }
         outcome.repaint = true;

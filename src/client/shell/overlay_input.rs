@@ -114,32 +114,6 @@ impl ClientShellState {
             })
     }
 
-    pub(super) fn open_new_workspace_overlay(&mut self) {
-        let source_workspace_id = self.workspace_action_id();
-        let cwd = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
-            let workspace_id = source_workspace_id.as_deref()?;
-            snapshot
-                .workspaces
-                .iter()
-                .find(|workspace| workspace.workspace_id == workspace_id)
-                .map(|workspace| workspace.new_workspace_cwd.clone())
-        });
-        let suggested_name = cwd
-            .as_deref()
-            .map(std::path::Path::new)
-            .map(crate::client::identity::derive_label_from_cwd)
-            .unwrap_or_else(|| "workspace".to_owned());
-        self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
-            title: "new workspace",
-            input: TextEditor::new(&suggested_name, true),
-            target: ClientRenameTarget::NewWorkspace {
-                source_workspace_id,
-                cwd,
-                suggested_name,
-            },
-        }));
-    }
-
     pub(super) fn open_rename_workspace_overlay(&mut self) {
         let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
@@ -158,30 +132,6 @@ impl ClientShellState {
             title: "rename workspace",
             input: TextEditor::new(&workspace.label, false),
             target: ClientRenameTarget::Workspace { workspace_id },
-        }));
-    }
-
-    pub(super) fn open_new_tab_overlay(&mut self) {
-        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
-            return;
-        };
-        let Some(workspace_id) = snapshot.focused_workspace_id.clone() else {
-            return;
-        };
-        let default_name = (snapshot
-            .tabs
-            .iter()
-            .filter(|tab| tab.workspace_id == workspace_id)
-            .count()
-            + 1)
-        .to_string();
-        self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
-            title: "new tab",
-            input: TextEditor::new(&default_name, true),
-            target: ClientRenameTarget::NewTab {
-                workspace_id,
-                default_name,
-            },
         }));
     }
 
@@ -467,18 +417,6 @@ impl ClientShellState {
             return;
         }
 
-        if matches!(self.overlay, Some(ClientShellOverlay::ConfirmClose(_))) {
-            if key.code == KeyCode::Enter {
-                self.accept_close_confirmation(outcome);
-            } else if key.code == KeyCode::Esc {
-                self.overlay = None;
-                self.mode = ClientShellMode::Navigate;
-                self.navigate_workspace_id = self.focused_navigation_target();
-                outcome.repaint = true;
-            }
-            return;
-        }
-
         let Some(ClientShellOverlay::Rename(rename)) = self.overlay.as_mut() else {
             return;
         };
@@ -520,39 +458,12 @@ impl ClientShellState {
         };
         let trimmed = rename.input.trim();
         let method = match rename.target {
-            ClientRenameTarget::NewWorkspace {
-                source_workspace_id,
-                cwd,
-                suggested_name,
-            } => Some(crate::actions::Action::WorkspaceCreate(
-                crate::actions::WorkspaceCreateParams {
-                    source_workspace_id,
-                    cwd,
-                    focus: true,
-                    label: (!trimmed.is_empty() && trimmed != suggested_name)
-                        .then(|| trimmed.to_owned()),
-                    env: Default::default(),
-                },
-            )),
             ClientRenameTarget::Workspace { workspace_id } => (!trimmed.is_empty()).then(|| {
                 crate::actions::Action::WorkspaceRename(crate::actions::WorkspaceRenameParams {
                     workspace_id,
                     label: trimmed.to_owned(),
                 })
             }),
-            ClientRenameTarget::NewTab {
-                workspace_id,
-                default_name,
-            } => Some(crate::actions::Action::TabCreate(
-                crate::actions::TabCreateParams {
-                    workspace_id: Some(workspace_id),
-                    cwd: None,
-                    focus: true,
-                    label: (!trimmed.is_empty() && trimmed != default_name)
-                        .then(|| trimmed.to_owned()),
-                    env: Default::default(),
-                },
-            )),
             ClientRenameTarget::Tab {
                 tab_id,
                 auto_name,
@@ -582,10 +493,6 @@ impl ClientShellState {
         close_group: Option<bool>,
         outcome: &mut ClientShellInput,
     ) {
-        if self.config.confirm_close {
-            self.open_close_confirmation(workspace_id, None, close_group);
-            return;
-        }
         let close_group = close_group.unwrap_or_else(|| {
             self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
                 snapshot.workspaces.iter().any(|workspace| {
@@ -604,33 +511,6 @@ impl ClientShellState {
     }
 
     pub(super) fn request_pane_close(&mut self, pane_id: String, outcome: &mut ClientShellInput) {
-        let target = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
-            let pane = snapshot.panes.iter().find(|pane| pane.pane_id == pane_id)?;
-            let tab = snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.tab_id == pane.tab_id && tab.workspace_id == pane.workspace_id)?;
-            (self.config.confirm_close
-                && !snapshot
-                    .panes
-                    .iter()
-                    .any(|other| other.tab_id == tab.tab_id && other.pane_id != pane_id)
-                && !snapshot.tabs.iter().any(|other| {
-                    other.workspace_id == tab.workspace_id && other.tab_id != tab.tab_id
-                }))
-            .then(|| (tab.workspace_id.clone(), tab.tab_id.clone()))
-        });
-        if let Some((workspace_id, tab_id)) = target {
-            if self.open_close_confirmation(workspace_id, Some(tab_id), None) {
-                if let Some(ClientShellOverlay::ConfirmClose(confirm)) = self.overlay.as_mut() {
-                    if let Some(target) = confirm.tab_target.as_mut() {
-                        target.pane_id = Some(pane_id);
-                    }
-                }
-                outcome.repaint = true;
-                return;
-            }
-        }
         self.push_endpoint_method(
             crate::actions::Action::PaneClose(crate::actions::PaneTarget { pane_id }),
             outcome,
@@ -638,164 +518,9 @@ impl ClientShellState {
     }
 
     pub(super) fn request_tab_close(&mut self, tab_id: String, outcome: &mut ClientShellInput) {
-        let workspace_id = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
-            let target = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id)?;
-            (self.config.confirm_close
-                && !snapshot
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.workspace_id == target.workspace_id && tab.tab_id != tab_id))
-            .then(|| target.workspace_id.clone())
-        });
-        if let Some(workspace_id) = workspace_id {
-            if self.open_close_confirmation(workspace_id, Some(tab_id.clone()), None) {
-                outcome.repaint = true;
-                return;
-            }
-        }
         self.push_endpoint_method(
             crate::actions::Action::TabClose(crate::actions::TabTarget { tab_id }),
             outcome,
         );
-    }
-
-    pub(super) fn accept_close_confirmation(&mut self, outcome: &mut ClientShellInput) {
-        let Some(ClientShellOverlay::ConfirmClose(confirm)) = self.overlay.take() else {
-            return;
-        };
-        outcome.repaint = true;
-        let method = if let Some(target) = confirm.tab_target {
-            if !self.navigation_target_valid(&target.workspace)
-                || !self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                    snapshot.tabs.iter().any(|tab| {
-                        tab.tab_id == target.tab_id
-                            && tab.workspace_id == target.workspace.workspace_id
-                    })
-                })
-                || target.pane_id.as_ref().is_some_and(|pane_id| {
-                    !self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                        snapshot.panes.iter().any(|pane| {
-                            pane.pane_id == *pane_id
-                                && pane.tab_id == target.tab_id
-                                && pane.workspace_id == target.workspace.workspace_id
-                        })
-                    })
-                })
-            {
-                self.receive_endpoint_unavailable(
-                    "Close target changed; try closing it again".into(),
-                );
-                return;
-            }
-            if let Some(pane_id) = target.pane_id {
-                crate::actions::Action::PaneClose(crate::actions::PaneTarget { pane_id })
-            } else {
-                crate::actions::Action::TabClose(crate::actions::TabTarget {
-                    tab_id: target.tab_id,
-                })
-            }
-        } else {
-            crate::actions::Action::WorkspaceClose(crate::actions::WorkspaceCloseParams {
-                workspace_id: confirm.workspace_id,
-                close_group: confirm.close_group,
-            })
-        };
-        self.push_endpoint_method(method, outcome);
-    }
-
-    pub(super) fn open_confirm_close_overlay(&mut self, workspace_id: String) {
-        self.open_close_confirmation(workspace_id, None, None);
-    }
-
-    fn open_close_confirmation(
-        &mut self,
-        workspace_id: String,
-        tab_id: Option<String>,
-        close_group: Option<bool>,
-    ) -> bool {
-        let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
-            return false;
-        };
-        let Some(workspace) = snapshot
-            .workspaces
-            .iter()
-            .find(|workspace| workspace.workspace_id == workspace_id)
-        else {
-            return false;
-        };
-        let group_key = workspace
-            .worktree
-            .as_ref()
-            .filter(|_| {
-                close_group.unwrap_or_else(|| {
-                    super::navigation_rows::workspace_close_is_group(snapshot, workspace)
-                })
-            })
-            .map(|worktree| worktree.key.as_str());
-        let group = group_key
-            .map(|key| {
-                snapshot
-                    .workspaces
-                    .iter()
-                    .filter(|member| {
-                        member
-                            .worktree
-                            .as_ref()
-                            .is_some_and(|worktree| worktree.key == key)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_else(|| vec![workspace]);
-        let closes_group = group.len() > 1;
-        // Keep parent-group tab closes on the existing server confirmation path.
-        if tab_id.is_some() && closes_group {
-            return false;
-        }
-        let tab_target = if let Some(tab_id) = tab_id {
-            let Some(workspace) = self.navigation_target(&workspace_id) else {
-                return false;
-            };
-            Some(ClientTabCloseConfirmation {
-                tab_id,
-                workspace,
-                pane_id: None,
-            })
-        } else {
-            None
-        };
-        let pane_count = group
-            .iter()
-            .map(|member| {
-                snapshot
-                    .panes
-                    .iter()
-                    .filter(|pane| pane.workspace_id == member.workspace_id)
-                    .count()
-            })
-            .sum::<usize>();
-        let panes = if pane_count == 1 {
-            "1 pane".to_owned()
-        } else {
-            format!("{pane_count} panes")
-        };
-        let scope = if closes_group {
-            format!("{} workspaces, {panes}", group.len())
-        } else {
-            panes
-        };
-        self.overlay = Some(ClientShellOverlay::ConfirmClose(
-            ClientConfirmCloseOverlay {
-                workspace_id,
-                close_group: closes_group,
-                tab_target,
-                title: if closes_group {
-                    "Close worktree group?".to_owned()
-                } else {
-                    "Close workspace?".to_owned()
-                },
-                detail: format!("{} — {scope}", workspace.label),
-            },
-        ));
-        true
     }
 }

@@ -217,7 +217,7 @@ fn active_agent_view_controls_focus_indices() {
 }
 
 #[test]
-fn workspace_actions_preserve_selected_target_and_client_confirmation() {
+fn workspace_actions_preserve_selected_target_without_confirmation() {
     let mut snapshot = snapshot();
     let mut second = snapshot.workspaces[0].clone();
     second.workspace_id = "ws_2".into();
@@ -260,57 +260,14 @@ fn workspace_actions_preserve_selected_target_and_client_confirmation() {
         crate::input::KeybindMatch::Action(crate::input::KeybindAction::CloseWorkspace),
         &mut close,
     );
-    assert!(close.actions.is_empty());
-    assert!(matches!(
-        state.overlay.as_ref(),
-        Some(ClientShellOverlay::ConfirmClose(ClientConfirmCloseOverlay {
-            workspace_id,
-            ..
-        })) if workspace_id == "ws_2"
-    ));
-    let confirm = state.handle_input_bytes(b"\r");
-    let [ClientShellAction::Endpoint { request, .. }] = &confirm.actions[..] else {
-        panic!("workspace confirmation should use endpoint API");
+    assert!(state.overlay.is_none());
+    let [ClientShellAction::Endpoint { request, .. }] = &close.actions[..] else {
+        panic!("workspace close should use endpoint API");
     };
     assert!(matches!(
         &request.action,
         crate::actions::Action::WorkspaceClose(params)
             if params.workspace_id == "ws_2" && !params.close_group
-    ));
-}
-
-#[test]
-fn named_workspace_overlay_targets_projected_source_workspace() {
-    let mut config = Config::default();
-    config.ui.prompt_new_workspace_name = true;
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-    state.set_snapshot(Box::new(snapshot()));
-    let mut open = ClientShellInput::default();
-    state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorkspace),
-        &mut open,
-    );
-    assert!(matches!(
-        state.overlay.as_ref(),
-        Some(ClientShellOverlay::Rename(ClientRenameOverlay {
-            input: value,
-            target: ClientRenameTarget::NewWorkspace {
-                source_workspace_id,
-                ..
-            },
-            ..
-        })) if value.as_str() == "repo" && source_workspace_id.as_deref() == Some("ws_1")
-    ));
-    let create = state.handle_input_bytes(b"\r");
-    let [ClientShellAction::Endpoint { request, .. }] = &create.actions[..] else {
-        panic!("named workspace should use endpoint API");
-    };
-    assert!(matches!(
-        &request.action,
-        crate::actions::Action::WorkspaceCreate(params)
-            if params.source_workspace_id.as_deref() == Some("ws_1")
-                && params.cwd.as_deref() == Some("/repo")
-                && params.label.is_none()
     ));
 }
 

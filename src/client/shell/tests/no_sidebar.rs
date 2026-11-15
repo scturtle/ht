@@ -86,37 +86,29 @@ fn click(state: &mut ClientShellState, rect: Rect, button: MouseButton) -> Clien
 }
 
 #[test]
-fn desktop_surface_uses_all_columns_with_top_bottom_or_hidden_tab_bar() {
+fn desktop_surface_uses_all_columns_with_top_or_bottom_tab_bar() {
     for position in [TabBarPositionConfig::Top, TabBarPositionConfig::Bottom] {
-        for hidden in [false, true] {
-            for mouse in [false, true] {
-                let mut config = Config::default();
-                config.ui.tab_bar_position = position;
-                config.ui.hide_tab_bar_when_single_tab = hidden;
-                config.ui.mouse_capture = mouse;
-                let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-                state.set_snapshot(Box::new(snapshot()));
-                state.set_pane_surface(surface());
-                let layout = state.layout(106, 30);
-                assert_eq!(layout.pane_surface.x, 0);
-                assert_eq!(layout.pane_surface.width, 106);
-                assert_eq!(layout.pane_surface.height, 30 - u16::from(!hidden));
-                let frame = state.compose(106, 30).expect("desktop frame");
-                assert_eq!(state.hits.panes[0].rect.x, 0);
-                assert_eq!(frame.width, 106);
-                assert!(state.hits.global_launcher.is_empty());
-                assert!(state.hits.mobile_switch.is_empty());
-                if !hidden && mouse {
-                    assert_eq!(state.hits.tabs.first().expect("first tab").0.x, 0);
-                    for (rect, _) in &state.hits.tabs {
-                        assert!(rect.right() <= 106);
-                    }
-                }
-                // The pane's original first cell is now at the left edge, not x=26.
-                let index = usize::from(layout.pane_surface.y) * usize::from(frame.width);
-                assert_eq!(frame.cells[index].symbol, "L");
-            }
+        let mut config = Config::default();
+        config.ui.tab_bar_position = position;
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+        state.set_snapshot(Box::new(snapshot()));
+        state.set_pane_surface(surface());
+        let layout = state.layout(106, 30);
+        assert_eq!(layout.pane_surface.x, 0);
+        assert_eq!(layout.pane_surface.width, 106);
+        assert_eq!(layout.pane_surface.height, 29);
+        let frame = state.compose(106, 30).expect("desktop frame");
+        assert_eq!(state.hits.panes[0].rect.x, 0);
+        assert_eq!(frame.width, 106);
+        assert!(state.hits.global_launcher.is_empty());
+        assert!(state.hits.mobile_switch.is_empty());
+        assert_eq!(state.hits.tabs.first().expect("first tab").0.x, 0);
+        for (rect, _) in &state.hits.tabs {
+            assert!(rect.right() <= 106);
         }
+        // The pane's original first cell is now at the left edge, not x=26.
+        let index = usize::from(layout.pane_surface.y) * usize::from(frame.width);
+        assert_eq!(frame.cells[index].symbol, "L");
     }
 }
 
@@ -157,33 +149,6 @@ fn desktop_keyboard_selector_keeps_context_targets_stable() {
         matches!(focused.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }]
         if matches!(&request.action, crate::actions::Action::WorkspaceFocus(target) if target.workspace_id == "ws_2"))
     );
-    assert_eq!(state.mode, ClientShellMode::Terminal);
-}
-
-#[test]
-fn hidden_tab_bar_still_has_keyboard_workspace_and_creation_entries() {
-    let mut config = Config::default();
-    config.ui.hide_tab_bar_when_single_tab = true;
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    state.compose(106, 30).expect("no tab bar");
-    let open = state.handle_input_bytes(b"\x02w");
-    assert!(open.actions.is_empty() && open.requests.is_empty());
-    assert_eq!(state.mode, ClientShellMode::Navigate);
-    state.compose(106, 30).expect("desktop keyboard chooser");
-    assert!(state
-        .hits
-        .mobile_targets
-        .iter()
-        .any(|(_, t)| matches!(t, ClientMobileTarget::NewWorkspace)));
-    assert!(state
-        .hits
-        .mobile_targets
-        .iter()
-        .any(|(_, t)| matches!(t, ClientMobileTarget::NewTab)));
-    let cancel = state.handle_input_bytes(b"\x1b");
-    assert!(cancel.actions.is_empty() && cancel.requests.is_empty());
     assert_eq!(state.mode, ClientShellMode::Terminal);
 }
 

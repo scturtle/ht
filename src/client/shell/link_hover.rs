@@ -43,8 +43,7 @@ impl ClientShellState {
     }
 
     fn link_hover_allowed(&self) -> bool {
-        self.config.mouse_capture
-            && self.mode == ClientShellMode::Terminal
+        self.mode == ClientShellMode::Terminal
             && self.overlay.is_none()
             && self.outer_focused != Some(false)
             && self.chrome_drag.is_none()

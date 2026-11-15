@@ -325,16 +325,6 @@ pub(super) fn write_terminal_restore_postlude(
     writer.flush()
 }
 
-pub(super) fn should_draw_host_cursor(mode: crate::config::HostCursorModeConfig) -> bool {
-    match mode {
-        crate::config::HostCursorModeConfig::Auto => {
-            crate::platform::should_draw_host_cursor_by_default()
-        }
-        crate::config::HostCursorModeConfig::Native => false,
-        crate::config::HostCursorModeConfig::Drawn => true,
-    }
-}
-
 pub(super) fn effective_mouse_capture(server_enabled: bool, local_preference: bool) -> bool {
     server_enabled || local_preference
 }

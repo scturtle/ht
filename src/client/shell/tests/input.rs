@@ -174,7 +174,7 @@ fn delayed_link_fallback_does_not_replay_against_changed_geometry() {
         Some("https://example.test"),
         Some("file:///C:/Code/note.md"),
     ] {
-        for changed in 0..4 {
+        for changed in 0..3 {
             let mut state =
                 ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
             state.set_snapshot(Box::new(snapshot()));
@@ -194,7 +194,6 @@ fn delayed_link_fallback_does_not_replay_against_changed_geometry() {
             match changed {
                 0 => state.hits.panes[0].inner_rect.x += 1,
                 1 => state.mode = ClientShellMode::Navigate,
-                2 => state.config.mouse_capture = false,
                 _ => {
                     state.overlay = Some(ClientShellOverlay::Help(ClientHelpOverlay {
                         query: TextEditor::default(),
@@ -778,73 +777,69 @@ fn styled_client_composition_preserves_pane_hyperlinks() {
         "https://example.test",
         "obsidian://open?vault=meta&file=note.md",
     ] {
-        for draw_host_cursor in [false, true] {
-            let mut state =
-                ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-            state.set_snapshot(Box::new(snapshot()));
-            let mut pane_surface = surface();
-            let linked = Buffer::with_lines(["LIVE", "PANE"]);
-            pane_surface.frame = FrameData::from_ratatui_buffer_with_hyperlinks(
-                &linked,
-                None,
-                &[((0, 0), "L".into(), uri.into())],
-            );
-            state.set_pane_surface(pane_surface);
-            let mut selection =
-                crate::selection::Selection::absolute_range("pane_1".to_owned(), (0, 0), (0, 1));
-            assert!(selection.finish());
-            state.selection = Some(selection);
-            let frame = state.compose(106, 20).expect("composed frame");
-            let hit = &state.hits.panes[0];
-            let index = usize::from(hit.inner_rect.y) * usize::from(frame.width)
-                + usize::from(hit.inner_rect.x);
-            let link = frame.cells[index].hyperlink.expect("linked cell") as usize;
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(snapshot()));
+        let mut pane_surface = surface();
+        let linked = Buffer::with_lines(["LIVE", "PANE"]);
+        pane_surface.frame = FrameData::from_ratatui_buffer_with_hyperlinks(
+            &linked,
+            None,
+            &[((0, 0), "L".into(), uri.into())],
+        );
+        state.set_pane_surface(pane_surface);
+        let mut selection =
+            crate::selection::Selection::absolute_range("pane_1".to_owned(), (0, 0), (0, 1));
+        assert!(selection.finish());
+        state.selection = Some(selection);
+        let frame = state.compose(106, 20).expect("composed frame");
+        let hit = &state.hits.panes[0];
+        let index = usize::from(hit.inner_rect.y) * usize::from(frame.width)
+            + usize::from(hit.inner_rect.x);
+        let link = frame.cells[index].hyperlink.expect("linked cell") as usize;
+        assert_eq!(frame.hyperlinks[link], uri);
+        let x = hit.inner_rect.x;
+        let y = hit.inner_rect.y;
+        let mut client = crate::client::state::ClientState::test_new();
+        let mut terminal = crate::ghostty::Terminal::new(106, 20, 0).unwrap();
+        for (phase, (capture, repaint)) in [
+            (false, false),
+            (true, false),
+            (false, false),
+            (true, true),
+            (true, false),
+            (false, true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            client.shell_mouse_capture_preference = capture;
+            // Effective mouse reporting may still be requested by a pane app.
+            client.mouse_capture_active = true;
+            client.repaint_pending = repaint;
+            let mut frame = state.compose(106, 20).expect("linked semantic frame");
+            let link = frame.cells[index].hyperlink.expect("retained link") as usize;
             assert_eq!(frame.hyperlinks[link], uri);
-            let x = hit.inner_rect.x;
-            let y = hit.inner_rect.y;
-            let mut client = crate::client::state::ClientState::test_new();
-            client.draw_host_cursor = draw_host_cursor;
-            let mut terminal = crate::ghostty::Terminal::new(106, 20, 0).unwrap();
-            for (phase, (capture, repaint)) in [
-                (false, false),
-                (true, false),
-                (false, false),
-                (true, true),
-                (true, false),
-                (false, true),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                client.shell_mouse_capture_preference = capture;
-                // Effective mouse reporting may still be requested by a pane app.
-                client.mouse_capture_active = true;
-                client.repaint_pending = repaint;
-                let mut frame = state.compose(106, 20).expect("linked semantic frame");
-                let link = frame.cells[index].hyperlink.expect("retained link") as usize;
-                assert_eq!(frame.hyperlinks[link], uri);
-                // Change the linked cell on the diff pass so it must be painted again.
-                if phase == 4 {
-                    frame.frame.cells[index].symbol = "D".into();
-                }
-                frame.frame.cursor = Some(crate::protocol::CursorState {
-                    x: x + 1,
-                    y,
-                    visible: true,
-                    shape: Default::default(),
-                });
-                let expected = frame.cells[index].symbol.clone();
-                let mut output = Vec::new();
-                assert!(client.try_present_frame_to(&mut output, frame));
-                terminal.write(&output);
-                assert_eq!(
-                    terminal.viewport_hyperlink_uri(x, u32::from(y)).unwrap(),
-                    (!capture).then_some(uri.to_owned()),
-                    "host link ownership must follow configured capture for {uri}"
-                );
-                let (_, label) = terminal.screen_cell(x, u32::from(y)).unwrap();
-                assert_eq!(label, expected.chars().map(u32::from).collect::<Vec<_>>());
+            // Change the linked cell on the diff pass so it must be painted again.
+            if phase == 4 {
+                frame.frame.cells[index].symbol = "D".into();
             }
+            frame.frame.cursor = Some(crate::protocol::CursorState {
+                x: x + 1,
+                y,
+                visible: true,
+                shape: Default::default(),
+            });
+            let expected = frame.cells[index].symbol.clone();
+            let mut output = Vec::new();
+            assert!(client.try_present_frame_to(&mut output, frame));
+            terminal.write(&output);
+            assert_eq!(
+                terminal.viewport_hyperlink_uri(x, u32::from(y)).unwrap(),
+                (!capture).then_some(uri.to_owned()),
+                "host link ownership must follow configured capture for {uri}"
+            );
+            let (_, label) = terminal.screen_cell(x, u32::from(y)).unwrap();
+            assert_eq!(label, expected.chars().map(u32::from).collect::<Vec<_>>());
         }
     }
 }

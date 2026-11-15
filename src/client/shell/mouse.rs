@@ -555,8 +555,7 @@ impl ClientShellState {
                 return;
             }
         }
-        if self.config.mouse_capture
-            && !self.replaying_url_click
+        if !self.replaying_url_click
             && self.overlay.is_none()
             && self.mode == ClientShellMode::Terminal
             && mouse.kind == MouseEventKind::Down(MouseButton::Left)
@@ -1026,12 +1025,8 @@ impl ClientShellState {
                 return;
             }
             if super::contains(self.hits.overlay_primary, point) {
-                match self.overlay.as_ref() {
-                    Some(ClientShellOverlay::Rename(_)) => self.save_rename_overlay(outcome),
-                    Some(ClientShellOverlay::ConfirmClose(_)) => {
-                        self.accept_close_confirmation(outcome);
-                    }
-                    _ => {}
+                if matches!(self.overlay, Some(ClientShellOverlay::Rename(_))) {
+                    self.save_rename_overlay(outcome);
                 }
             } else if super::contains(self.hits.overlay_clear, point) {
                 if let Some(ClientShellOverlay::Rename(rename)) = self.overlay.as_mut() {
@@ -1068,7 +1063,7 @@ impl ClientShellState {
                 .selection
                 .as_mut()
                 .is_some_and(crate::selection::Selection::finish);
-            if copied && self.config.copy_on_select {
+            if copied {
                 self.request_selection_copy(outcome, true);
                 self.selection = None;
             } else if self
@@ -1139,9 +1134,6 @@ impl ClientShellState {
                         });
                         return;
                     }
-                }
-                if !self.config.mouse_capture {
-                    return;
                 }
                 let tab_id = self
                     .hits
@@ -1245,30 +1237,25 @@ impl ClientShellState {
                     return;
                 }
                 let tab_press = self
-                    .config
-                    .mouse_capture
-                    .then(|| {
-                        self.hits
+                    .hits
+                    .tabs
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .and_then(|(_, tab_id)| {
+                        let tab = self
+                            .endpoint
+                            .snapshot
+                            .as_deref()?
                             .tabs
                             .iter()
-                            .find(|(rect, _)| super::contains(*rect, point))
-                            .and_then(|(_, tab_id)| {
-                                let tab = self
-                                    .endpoint
-                                    .snapshot
-                                    .as_deref()?
-                                    .tabs
-                                    .iter()
-                                    .find(|tab| tab.tab_id == *tab_id)?;
-                                Some(ClientTabPress {
-                                    tab_id: tab.tab_id.clone(),
-                                    workspace_id: tab.workspace_id.clone(),
-                                    start_column: mouse.column,
-                                    start_row: mouse.row,
-                                })
-                            })
-                    })
-                    .flatten();
+                            .find(|tab| tab.tab_id == *tab_id)?;
+                        Some(ClientTabPress {
+                            tab_id: tab.tab_id.clone(),
+                            workspace_id: tab.workspace_id.clone(),
+                            start_column: mouse.column,
+                            start_row: mouse.row,
+                        })
+                    });
                 if let Some(tab_press) = tab_press {
                     self.tab_press = Some(tab_press);
                     return;

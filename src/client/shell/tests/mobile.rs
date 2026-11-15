@@ -14,28 +14,6 @@ fn mobile_layout_reserves_only_client_header() {
 }
 
 #[test]
-fn mobile_shell_controls_remain_clickable_when_pane_mouse_capture_is_disabled() {
-    let mut config = ClientShellConfig::from_config(&Config::default());
-    config.mouse_capture = false;
-    let mut state = ClientShellState::new(config);
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    state.compose(44, 20).expect("mobile header");
-    assert!(!state.hits.mobile_switch.is_empty());
-    let switch = state.hits.mobile_switch;
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: switch.x,
-        row: switch.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert_eq!(state.mode, ClientShellMode::Navigate);
-    state.compose(44, 20).expect("mobile switcher");
-    assert!(!state.hits.mobile_close.is_empty());
-    assert!(!state.hits.mobile_targets.is_empty());
-}
-
-#[test]
 fn mobile_header_and_switcher_render_released_sections_and_stable_targets() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut projected = snapshot();
@@ -252,9 +230,7 @@ fn mobile_background_workspace_uses_its_own_active_tab_status() {
 
 #[test]
 fn mobile_switcher_creation_rows_reuse_client_actions() {
-    let mut config = ClientShellConfig::from_config(&Config::default());
-    config.prompt_new_workspace_name = true;
-    config.prompt_new_tab_name = true;
+    let config = ClientShellConfig::from_config(&Config::default());
     let mut state = ClientShellState::new(config);
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
@@ -275,18 +251,11 @@ fn mobile_switcher_creation_rows_reuse_client_actions() {
         .iter()
         .find_map(|(rect, target)| matches!(target, ClientMobileTarget::NewTab).then_some(*rect))
         .expect("new tab hit");
-    state.handle_raw_events(vec![click(new_tab)]);
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Rename(ClientRenameOverlay {
-            target: ClientRenameTarget::NewTab { .. },
-            ..
-        }))
-    ));
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Esc,
-        KeyModifiers::empty(),
-    ))]);
+    let created = state.handle_raw_events(vec![click(new_tab)]);
+    assert!(matches!(created.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.action, crate::actions::Action::TabCreate(params)
+            if params.label.is_none())));
     assert!(state.overlay.is_none());
     assert_eq!(state.mode, ClientShellMode::Terminal);
 
@@ -300,58 +269,13 @@ fn mobile_switcher_creation_rows_reuse_client_actions() {
             matches!(target, ClientMobileTarget::NewWorkspace).then_some(*rect)
         })
         .expect("new workspace hit");
-    state.handle_raw_events(vec![click(new_workspace)]);
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Rename(ClientRenameOverlay {
-            target: ClientRenameTarget::NewWorkspace { .. },
-            ..
-        }))
-    ));
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Esc,
-        KeyModifiers::empty(),
-    ))]);
+    let created = state.handle_raw_events(vec![click(new_workspace)]);
+    assert!(matches!(created.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.action, crate::actions::Action::WorkspaceCreate(params)
+            if params.label.is_none())));
     assert!(state.overlay.is_none());
     assert_eq!(state.mode, ClientShellMode::Terminal);
-}
-
-#[test]
-fn mobile_cancel_without_workspace_stays_in_navigate() {
-    let mut source_config = Config::default();
-    source_config.ui.prompt_new_workspace_name = true;
-    let mut empty = snapshot();
-    empty.focused_workspace_id = None;
-    empty.focused_tab_id = None;
-    empty.focused_pane_id = None;
-    empty.workspaces.clear();
-    empty.tabs.clear();
-    empty.panes.clear();
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&source_config));
-    state.set_snapshot(Box::new(empty));
-    state.set_pane_surface(surface());
-    state.mode = ClientShellMode::Navigate;
-    state.compose(44, 20).expect("empty mobile switcher");
-    let new_workspace = state
-        .hits
-        .mobile_targets
-        .iter()
-        .find_map(|(rect, target)| {
-            matches!(target, ClientMobileTarget::NewWorkspace).then_some(*rect)
-        })
-        .expect("new workspace row");
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: new_workspace.x,
-        row: new_workspace.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(matches!(state.overlay, Some(ClientShellOverlay::Rename(_))));
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Esc,
-        KeyModifiers::empty(),
-    ))]);
-    assert_eq!(state.mode, ClientShellMode::Navigate);
 }
 
 #[test]

@@ -15,128 +15,34 @@ pub(crate) fn pane_inner_rect(area: Rect, borders: Borders) -> Rect {
     }
 }
 
-/// Original zoom geometry, without runtime access or scrollbar mutation.
-pub(crate) fn zoomed_pane_info(
-    id: crate::layout::PaneId,
-    area: Rect,
-    pane_borders: crate::config::PaneBordersConfig,
-    pane_outer_borders: bool,
-    multi_pane: bool,
-) -> PaneInfo {
-    let borders = if pane_borders.shows_borders(multi_pane) && pane_outer_borders {
-        Borders::ALL
-    } else {
-        Borders::NONE
-    };
+/// A zoomed pane fills the surface; all split dividers are hidden.
+pub(crate) fn zoomed_pane_info(id: crate::layout::PaneId, area: Rect) -> PaneInfo {
     PaneInfo {
         id,
         rect: area,
-        inner_rect: pane_inner_rect(area, borders),
-        scrollbar_rect: None,
-        borders,
+        inner_rect: area,
+        borders: Borders::NONE,
         is_focused: true,
     }
 }
 
-fn ranges_overlap(a_start: u16, a_len: u16, b_start: u16, b_len: u16) -> bool {
-    a_start < b_start.saturating_add(b_len) && b_start < a_start.saturating_add(a_len)
-}
-
-fn pane_to_right<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo> {
-    let right = info.rect.x.saturating_add(info.rect.width);
-    panes.iter().find(|other| {
-        other.id != info.id
-            && other.rect.x == right
-            && ranges_overlap(
-                info.rect.y,
-                info.rect.height,
-                other.rect.y,
-                other.rect.height,
-            )
-    })
-}
-
-fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo> {
-    let bottom = info.rect.y.saturating_add(info.rect.height);
-    panes.iter().find(|other| {
-        other.id != info.id
-            && other.rect.y == bottom
-            && ranges_overlap(info.rect.x, info.rect.width, other.rect.x, other.rect.width)
-    })
-}
-
-fn shrink_for_one_cell_gap(size: u16) -> u16 {
-    if size > 1 {
-        size - 1
-    } else {
-        size
-    }
-}
-
-pub(crate) fn apply_pane_chrome(
-    panes: Vec<PaneInfo>,
-    pane_borders: crate::config::PaneBordersConfig,
-    pane_gaps: bool,
-    pane_outer_borders: bool,
-) -> Vec<PaneInfo> {
-    let multi_pane = panes.len() > 1;
-    let bordered = pane_borders.shows_borders(multi_pane);
+/// Shared inner dividers only: no outer frame, gaps, or scrollbar columns.
+pub(crate) fn apply_pane_chrome(panes: Vec<PaneInfo>) -> Vec<PaneInfo> {
     let outer_left = panes.iter().map(|info| info.rect.x).min().unwrap_or(0);
     let outer_top = panes.iter().map(|info| info.rect.y).min().unwrap_or(0);
-    let outer_right = panes
-        .iter()
-        .map(|info| info.rect.x.saturating_add(info.rect.width))
-        .max()
-        .unwrap_or(0);
-    let outer_bottom = panes
-        .iter()
-        .map(|info| info.rect.y.saturating_add(info.rect.height))
-        .max()
-        .unwrap_or(0);
     panes
-        .iter()
-        .cloned()
+        .into_iter()
         .map(|mut info| {
-            let right_neighbor = multi_pane.then(|| pane_to_right(&info, &panes)).flatten();
-            let below_neighbor = multi_pane.then(|| pane_below(&info, &panes)).flatten();
-
-            if multi_pane && pane_gaps && !pane_borders.draws_borders() {
-                if right_neighbor.is_some() {
-                    info.rect.width = shrink_for_one_cell_gap(info.rect.width);
-                }
-                if below_neighbor.is_some() {
-                    info.rect.height = shrink_for_one_cell_gap(info.rect.height);
-                }
+            let mut borders = Borders::NONE;
+            // Each divider is owned by the pane to its right or below.
+            if info.rect.x > outer_left {
+                borders.insert(Borders::LEFT);
             }
-
-            info.borders = if !bordered {
-                Borders::NONE
-            } else {
-                let mut borders = Borders::ALL;
-                if !pane_gaps {
-                    if right_neighbor.is_some() {
-                        borders.remove(Borders::RIGHT);
-                    }
-                    if below_neighbor.is_some() {
-                        borders.remove(Borders::BOTTOM);
-                    }
-                }
-                if !pane_outer_borders {
-                    if info.rect.x == outer_left {
-                        borders.remove(Borders::LEFT);
-                    }
-                    if info.rect.y == outer_top {
-                        borders.remove(Borders::TOP);
-                    }
-                    if info.rect.x.saturating_add(info.rect.width) == outer_right {
-                        borders.remove(Borders::RIGHT);
-                    }
-                    if info.rect.y.saturating_add(info.rect.height) == outer_bottom {
-                        borders.remove(Borders::BOTTOM);
-                    }
-                }
-                borders
-            };
+            if info.rect.y > outer_top {
+                borders.insert(Borders::TOP);
+            }
+            info.borders = borders;
+            info.inner_rect = pane_inner_rect(info.rect, borders);
             info
         })
         .collect()
@@ -273,5 +179,62 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
         Color::White => Some((255, 255, 255)),
         Color::Rgb(r, g, b) => Some((r, g, b)),
         Color::Indexed(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::TileLayout;
+    use ratatui::layout::Direction;
+
+    #[test]
+    fn single_and_zoomed_panes_fill_the_area_without_a_frame() {
+        let (layout, id) = TileLayout::new();
+        for area in [Rect::new(0, 0, 80, 24), Rect::new(3, 5, 1, 1)] {
+            let panes = apply_pane_chrome(layout.panes(area));
+            assert_eq!(panes.len(), 1);
+            assert_eq!(panes[0].rect, area);
+            assert_eq!(panes[0].inner_rect, area);
+            assert_eq!(panes[0].borders, Borders::NONE);
+            let zoomed = zoomed_pane_info(id, area);
+            assert_eq!(zoomed.inner_rect, area);
+            assert_eq!(zoomed.borders, Borders::NONE);
+        }
+        assert!(apply_pane_chrome(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn nested_splits_have_one_inner_divider_and_no_gaps_or_outer_frame() {
+        for first_direction in [Direction::Horizontal, Direction::Vertical] {
+            let (mut layout, _) = TileLayout::new();
+            layout.split_focused(first_direction);
+            layout.split_focused(match first_direction {
+                Direction::Horizontal => Direction::Vertical,
+                Direction::Vertical => Direction::Horizontal,
+            });
+            let area = Rect::new(3, 5, 80, 24);
+            let original = layout.panes(area);
+            let panes = apply_pane_chrome(original.clone());
+            for (pane, before) in panes.iter().zip(&original) {
+                assert_eq!(pane.rect, before.rect, "chrome must not introduce gaps");
+                assert_eq!(pane.id, before.id);
+                assert_eq!(pane.is_focused, before.is_focused);
+                let left = u16::from(pane.rect.x > area.x);
+                let top = u16::from(pane.rect.y > area.y);
+                assert_eq!(pane.borders.contains(Borders::LEFT), left != 0);
+                assert_eq!(pane.borders.contains(Borders::TOP), top != 0);
+                assert!(!pane.borders.intersects(Borders::RIGHT | Borders::BOTTOM));
+                assert_eq!(
+                    pane.inner_rect,
+                    Rect::new(
+                        pane.rect.x + left,
+                        pane.rect.y + top,
+                        pane.rect.width - left,
+                        pane.rect.height - top,
+                    )
+                );
+            }
+        }
     }
 }

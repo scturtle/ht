@@ -93,11 +93,7 @@ def main():
                    XDG_RUNTIME_DIR=str(core / "run"), XDG_STATE_HOME=str(home / "state"), XDG_CONFIG_HOME=str(home / "config"),
                    HERDR_CONFIG_PATH=str(home / "config.toml"), HERDR_SOCKET_PATH=str(home / "forbidden-old.sock"),
                    HERDR_CLIENT_SOCKET_PATH=str(home / "forbidden-client.sock"))
-        (home / "config.toml").write_text('''[ui]
-confirm_close = false
-prompt_new_tab_name = false
-prompt_new_workspace_name = false
-[keys]
+        (home / "config.toml").write_text('''[keys]
 split_vertical = "f2"
 new_tab = "f3"
 close_tab = "f4"

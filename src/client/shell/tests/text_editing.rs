@@ -13,19 +13,17 @@ fn shell(field: usize) -> ClientShellState {
     state.set_pane_surface(frame);
     state.compose(106, 30).expect("initial shell");
     match field {
-        0 => state.open_new_workspace_overlay(),
-        1 => state.open_rename_workspace_overlay(),
-        2 => state.open_new_tab_overlay(),
-        3 => state.open_rename_tab_overlay(),
-        4 => state.open_rename_pane_overlay(),
-        5 => {
+        0 => state.open_rename_workspace_overlay(),
+        1 => state.open_rename_tab_overlay(),
+        2 => state.open_rename_pane_overlay(),
+        3 => {
             state.overlay = Some(ClientShellOverlay::Help(ClientHelpOverlay {
                 query: TextEditor::default(),
                 search_focused: true,
                 scroll: 0,
             }))
         }
-        6 => {
+        4 => {
             state.record_binding(
                 KeybindMatch::Action(KeybindAction::CopyMode),
                 &mut ClientShellInput::default(),
@@ -59,8 +57,8 @@ fn press(state: &mut ClientShellState, code: KeyCode, modifiers: KeyModifiers) -
 }
 
 #[test]
-fn all_seven_fields_route_shared_text_editing() {
-    for field in 0..7 {
+fn all_five_fields_route_shared_text_editing() {
+    for field in 0..5 {
         let mut state = shell(field);
         *editor(&mut state) = TextEditor::from("ab");
         press(&mut state, KeyCode::Left, KeyModifiers::NONE);
@@ -93,7 +91,7 @@ fn text_delivery_paths_insert_at_the_cursor() {
 
 #[test]
 fn rename_clear_exceptions_remain_local() {
-    for field in 0..5 {
+    for field in 0..3 {
         for (code, modifiers) in [
             (KeyCode::Char('c'), KeyModifiers::CONTROL),
             (KeyCode::Backspace, KeyModifiers::SUPER),
@@ -109,7 +107,7 @@ fn rename_clear_exceptions_remain_local() {
 
 #[test]
 fn cursor_movement_preserves_help_filter_scroll() {
-    let mut state = shell(5);
+    let mut state = shell(3);
     *editor(&mut state) = TextEditor::from("ab");
     let Some(ClientShellOverlay::Help(help)) = state.overlay.as_mut() else {
         panic!("help");
@@ -124,7 +122,7 @@ fn cursor_movement_preserves_help_filter_scroll() {
 
 #[test]
 fn focused_help_filter_keeps_ctrl_n_p_navigation_and_literal_commands() {
-    let mut state = shell(5);
+    let mut state = shell(3);
     let scroll = |state: &ClientShellState| match state.overlay.as_ref() {
         Some(ClientShellOverlay::Help(help)) => help.scroll,
         _ => panic!("help"),
@@ -144,7 +142,7 @@ fn focused_help_filter_keeps_ctrl_n_p_navigation_and_literal_commands() {
 #[test]
 fn all_naming_targets_preserve_submission_and_empty_semantics() {
     use crate::actions::Action;
-    for field in 0..5 {
+    for field in 0..3 {
         for empty in [false, true] {
             let mut state = shell(field);
             *editor(&mut state) = TextEditor::from(if empty { "  " } else { "  ab " });
@@ -154,7 +152,7 @@ fn all_naming_targets_preserve_submission_and_empty_semantics() {
             }
             let result = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
             assert!(state.overlay.is_none());
-            if empty && matches!(field, 1 | 3) {
+            if empty && matches!(field, 0 | 1) {
                 assert!(result.actions.is_empty());
                 continue;
             }
@@ -163,13 +161,7 @@ fn all_naming_targets_preserve_submission_and_empty_semantics() {
             };
             let expected = if empty { "" } else { "X  ab" };
             match &request.action {
-                Action::WorkspaceCreate(v) => {
-                    assert_eq!(v.label.as_deref(), (!empty).then_some(expected))
-                }
                 Action::WorkspaceRename(v) => assert_eq!(v.label, expected),
-                Action::TabCreate(v) => {
-                    assert_eq!(v.label.as_deref(), (!empty).then_some(expected))
-                }
                 Action::TabRename(v) => assert_eq!(v.label, expected),
                 Action::PaneRename(v) => assert_eq!(v.label.as_deref(), Some(expected)),
                 _ => panic!("wrong method"),
@@ -179,23 +171,8 @@ fn all_naming_targets_preserve_submission_and_empty_semantics() {
 }
 
 #[test]
-fn new_tab_unchanged_suggestion_preserves_original_automatic_naming() {
-    let mut state = shell(2);
-    let visible_name = editor(&mut state).trim().to_owned();
-    assert!(!visible_name.is_empty());
-    let result = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
-    let [ClientShellAction::Endpoint { request, .. }] = &result.actions[..] else {
-        panic!("expected tab creation");
-    };
-    let crate::actions::Action::TabCreate(params) = &request.action else {
-        panic!("expected tab.create");
-    };
-    assert_eq!(params.label, None);
-}
-
-#[test]
 fn copy_search_owns_prefix_but_parked_prompt_does_not_steal_input() {
-    let mut state = shell(6);
+    let mut state = shell(4);
     *editor(&mut state) = TextEditor::from("ab");
     press(&mut state, KeyCode::Char('b'), KeyModifiers::CONTROL);
     assert_eq!(state.mode, ClientShellMode::Copy);
@@ -220,7 +197,7 @@ fn copy_search_owns_prefix_but_parked_prompt_does_not_steal_input() {
 
 #[test]
 fn every_field_renders_long_unicode_across_resize_without_mutation() {
-    for field in 0..7 {
+    for field in 0..5 {
         let mut state = shell(field);
         *editor(&mut state) = TextEditor::new(&"e\u{301}中👩‍💻".repeat(40), false);
         for position in [KeyCode::Home, KeyCode::End, KeyCode::Left] {
@@ -242,7 +219,7 @@ fn every_field_renders_long_unicode_across_resize_without_mutation() {
 fn plain_and_ime_text_fill_every_field_on_a_report_all_host() {
     // #5255: a report-all pane under a Kitty host still lets plain bytes and
     // IME commits type into Herdr's own fields.
-    for field in 0..7 {
+    for field in 0..5 {
         let mut state = shell(field);
         state.set_host_reports_key_releases(true);
         state.set_host_reports_all_keys(true);

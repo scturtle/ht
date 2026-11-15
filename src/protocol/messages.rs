@@ -840,8 +840,6 @@ pub struct ClientShellSnapshot {
     pub focused_workspace_id: Option<String>,
     pub focused_tab_id: Option<String>,
     pub focused_pane_id: Option<String>,
-    pub tab_bar_right: Vec<ClientShellTabStatusSegment>,
-    pub tab_bar_right_separator: String,
     pub agent_view_label: Option<String>,
     pub agent_order: Vec<String>,
     pub workspaces: Vec<ClientShellWorkspace>,
@@ -857,12 +855,6 @@ pub struct ClientShellProductAnnouncement {
     pub title: String,
     pub body: String,
     pub preview: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientShellTabStatusSegment {
-    pub text: String,
-    pub accent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1265,12 +1257,6 @@ pub enum ServerMessage {
     Clipboard {
         /// Base64-encoded clipboard data.
         data: String,
-    },
-
-    /// Set the foreground client's outer terminal window title.
-    WindowTitle {
-        /// Sanitized title to write with OSC 0. `None` restores Herdr's default title.
-        title: Option<String>,
     },
 
     /// Whether the client should currently capture host mouse input.

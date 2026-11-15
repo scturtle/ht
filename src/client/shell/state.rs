@@ -8,21 +8,15 @@ const ENDPOINT_ERROR_TIMEOUT_SECS: u64 = 5;
 pub(crate) struct ClientShellConfig {
     pub(super) mobile_width_threshold: u16,
     pub(super) tab_bar_position: TabBarPositionConfig,
-    pub(super) hide_tab_bar_when_single_tab: bool,
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
     pub(super) status_indicators: crate::config::StatusIndicatorStyle,
     pub(super) toast_delivery: crate::config::ToastDelivery,
     pub(super) toast_delay_seconds: u64,
     pub(super) toast_position: crate::config::ToastHerdrPosition,
-    pub(super) copy_on_select: bool,
     pub(super) clipboard_toast_enabled: bool,
     pub(super) clipboard_toast_position: crate::config::ToastClipboardPosition,
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
-    pub(super) prompt_new_tab_name: bool,
-    pub(super) prompt_new_workspace_name: bool,
-    pub(super) confirm_close: bool,
-    pub(super) mouse_capture: bool,
     pub(super) mouse_scroll_lines: usize,
     pub(super) right_click_passthrough_modifiers: Option<crossterm::event::KeyModifiers>,
     pub(super) redraw_on_focus_gained: bool,
@@ -172,7 +166,6 @@ pub(super) enum ClientShellMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientShellOverlayKind {
     Rename,
-    ConfirmClose,
     Help,
     Navigator,
     ContextMenu,
@@ -181,17 +174,8 @@ pub(super) enum ClientShellOverlayKind {
 
 #[derive(Debug)]
 pub(super) enum ClientRenameTarget {
-    NewWorkspace {
-        source_workspace_id: Option<String>,
-        cwd: Option<String>,
-        suggested_name: String,
-    },
     Workspace {
         workspace_id: String,
-    },
-    NewTab {
-        workspace_id: String,
-        default_name: String,
     },
     Tab {
         tab_id: String,
@@ -296,25 +280,8 @@ pub(super) struct ClientContextMenuItem {
 }
 
 #[derive(Debug)]
-pub(super) struct ClientTabCloseConfirmation {
-    pub(super) pane_id: Option<String>,
-    pub(super) tab_id: String,
-    pub(super) workspace: WorkspaceNavigationTarget,
-}
-
-#[derive(Debug)]
-pub(super) struct ClientConfirmCloseOverlay {
-    pub(super) workspace_id: String,
-    pub(super) close_group: bool,
-    pub(super) tab_target: Option<ClientTabCloseConfirmation>,
-    pub(super) title: String,
-    pub(super) detail: String,
-}
-
-#[derive(Debug)]
 pub(super) enum ClientShellOverlay {
     Rename(ClientRenameOverlay),
-    ConfirmClose(ClientConfirmCloseOverlay),
     Help(ClientHelpOverlay),
     Navigator(ClientNavigatorOverlay),
     ContextMenu(ClientContextMenuOverlay),
@@ -325,7 +292,6 @@ impl ClientShellOverlay {
     pub(super) fn kind(&self) -> ClientShellOverlayKind {
         match self {
             Self::Rename(_) => ClientShellOverlayKind::Rename,
-            Self::ConfirmClose(_) => ClientShellOverlayKind::ConfirmClose,
             Self::Help(_) => ClientShellOverlayKind::Help,
             Self::Navigator(_) => ClientShellOverlayKind::Navigator,
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
@@ -374,7 +340,6 @@ pub(super) enum PendingEndpointKind {
 pub(super) struct PendingEndpointRequest {
     pub(super) boot_id: String,
     pub(super) method_name: String,
-    pub(super) confirmation_workspace_id: Option<String>,
     pub(super) kind: PendingEndpointKind,
 }
 
@@ -708,7 +673,7 @@ impl ClientShellState {
     }
 
     pub(super) fn layout(&self, cols: u16, rows: u16) -> ClientShellLayout {
-        self.config.layout(cols, rows, self.focused_tab_count())
+        self.config.layout(cols, rows)
     }
 
     pub(crate) fn surface_size(&self, cols: u16, rows: u16) -> ClientSurfaceSize {
@@ -829,7 +794,6 @@ impl ClientShellState {
                             || left.label != right.label
                             || left.zoomed != right.zoomed
                     })
-                || render::tab_bar_status_width(current) != render::tab_bar_status_width(&snapshot)
         });
         if tab_layout_changed
             || self

@@ -24,10 +24,6 @@ mod config_file_tests;
 
 const WSL_MARKER_ENV_VARS: &[&str] = &["WSL_DISTRO_NAME", "WSL_INTEROP"];
 
-pub(crate) fn should_draw_host_cursor_by_default() -> bool {
-    running_inside_wsl()
-}
-
 pub(crate) fn should_query_host_terminal_palette() -> bool {
     !running_inside_wsl()
 }

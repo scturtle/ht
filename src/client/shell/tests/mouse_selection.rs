@@ -177,22 +177,6 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
     );
     assert!(state.visible_endpoint_notice.is_some());
     state.handle_raw_events(vec![RawInputEvent::Mouse(up)]);
-
-    // Pane apps can still request mouse reporting when Herdr capture is off.
-    state.config.mouse_capture = false;
-    let mut pane_surface = surface();
-    pane_surface.panes[0].mouse_reporting = true;
-    state.set_pane_surface(pane_surface);
-    state.compose(106, 20).expect("capture-off pane frame");
-    let native = state.handle_raw_events(vec![RawInputEvent::Mouse(down)]);
-    assert!(!native.actions.iter().any(|action| matches!(action,
-        ClientShellAction::Endpoint { request, .. }
-            if matches!(request.action, crate::actions::Action::PaneLinkActivate(_)))));
-    assert!(matches!(&native.requests[..],
-        [ClientMessage::ClientShellPaneInput { events, .. }]
-            if matches!(&events[..], [ClientPaneInputEvent::Mouse { modifiers, .. }]
-                if *modifiers == KeyModifiers::CONTROL.bits())));
-    assert!(state.selection.is_none());
 }
 
 #[test]
@@ -275,12 +259,6 @@ fn pane_split_drag_uses_projected_handle_and_stable_tab_path() {
     ));
     let mut replacement = snapshot();
     replacement.revision = 2;
-    replacement
-        .tab_bar_right
-        .push(crate::protocol::ClientShellTabStatusSegment {
-            text: "updated".into(),
-            accent: false,
-        });
     let mut replacement_surface = surface();
     replacement_surface.projection_revision = 2;
     replacement_surface.splits.push(PaneSurfaceSplit {
@@ -330,60 +308,9 @@ fn pane_split_drag_uses_projected_handle_and_stable_tab_path() {
 }
 
 #[test]
-fn disabled_mouse_chrome_keeps_tab_wheel_but_removes_split_drag_hits() {
-    let mut config = Config::default();
-    config.ui.mouse_capture = false;
-    let mut projected = snapshot();
-    let mut second_tab = projected.tabs[0].clone();
-    second_tab.tab_id = "tab_2".into();
-    second_tab.number = 2;
-    second_tab.label = "2".into();
-    second_tab.focused = false;
-    projected.tabs.push(second_tab);
-    let mut pane_surface = surface();
-    pane_surface.splits.push(PaneSurfaceSplit {
-        direction: PaneSurfaceSplitDirection::Horizontal,
-        pos: 40,
-        area: SurfaceRect {
-            x: 0,
-            y: 0,
-            width: 80,
-            height: 19,
-        },
-        hit_rect: SurfaceRect {
-            x: 40,
-            y: 0,
-            width: 1,
-            height: 19,
-        },
-        path: Vec::new(),
-    });
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-    state.set_snapshot(Box::new(projected));
-    state.set_pane_surface(pane_surface);
-    state.compose(106, 20).expect("mouse-disabled shell");
-    assert!(state.hits.pane_splits.is_empty());
-    let first_tab = state.hits.tabs[0].0;
-    let wheel = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::ScrollDown,
-        column: first_tab.x,
-        row: first_tab.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(matches!(
-        &wheel.actions[..],
-        [ClientShellAction::Endpoint { request, .. }]
-            if matches!(
-                &request.action,
-                crate::actions::Action::TabFocus(target) if target.tab_id == "tab_2"
-            )
-    ));
-}
-
-#[test]
 fn client_double_click_selects_word_and_copies_only_after_release() {
-    for (copy_on_select, release_before_response) in [(false, true), (true, false)] {
-        let mut state = word_drag_state(copy_on_select);
+    for release_before_response in [false, true] {
+        let mut state = word_drag_state();
         let initial = start_word_drag(&mut state);
         let release = MouseEventKind::Up(MouseButton::Left);
         if release_before_response {
@@ -411,32 +338,22 @@ fn client_double_click_selects_word_and_copies_only_after_release() {
                 .is_empty(),
             "copy only once"
         );
-        if copy_on_select {
-            assert!(
-                matches!(&actions[..], [ClientShellAction::Endpoint { request, .. }]
+        assert!(
+            matches!(&actions[..], [ClientShellAction::Endpoint { request, .. }]
                 if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
                     if params.anchor.col == 6 && params.cursor.col == 10))
-            );
-            let copied = word_row_reply(&mut state, &word_read_id(&actions), "bravo");
-            assert!(
-                matches!(&copied[..], [ClientShellAction::ClipboardWrite(bytes)] if bytes == b"bravo")
-            );
-            assert!(state.tick_copy_feedback(state.selection_highlight_clear_deadline.unwrap()));
-            assert!(state.selection.is_none());
-        } else {
-            assert!(actions.is_empty(), "manual selection must not auto-copy");
-            state.tick_copy_feedback(std::time::Instant::now() + std::time::Duration::from_secs(1));
-            assert!(
-                state.selection.is_some(),
-                "manual selection must not expire"
-            );
-        }
+        );
+        let copied = word_row_reply(&mut state, &word_read_id(&actions), "bravo");
+        assert!(
+            matches!(&copied[..], [ClientShellAction::ClipboardWrite(bytes)] if bytes == b"bravo")
+        );
+        assert!(state.tick_copy_feedback(state.selection_highlight_clear_deadline.unwrap()));
+        assert!(state.selection.is_none());
     }
 }
 
-fn word_drag_state(copy_on_select: bool) -> ClientShellState {
-    let mut config = Config::default();
-    config.ui.copy_on_select = copy_on_select;
+fn word_drag_state() -> ClientShellState {
+    let config = Config::default();
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
@@ -509,7 +426,7 @@ fn start_word_drag(state: &mut ClientShellState) -> String {
 
 #[test]
 fn double_click_drag_selects_whole_words_in_both_directions() {
-    let mut state = word_drag_state(false);
+    let mut state = word_drag_state();
     let initial = start_word_drag(&mut state);
     word_row_reply(&mut state, &initial, "alpha bravo charlie");
     for (col, expected) in [
@@ -526,18 +443,18 @@ fn double_click_drag_selects_whole_words_in_both_directions() {
         );
         assert_eq!(state.selection.as_ref().unwrap().ordered_cells(), expected);
     }
-    assert!(
-        word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 16)
-            .actions
-            .is_empty()
-    );
-    assert!(state.selection.as_ref().unwrap().is_finalized());
+    let released = word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 16);
+    assert!(matches!(released.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
+            if params.anchor.col == 6 && params.cursor.col == 18)));
+    assert!(state.selection.is_none());
 }
 
 #[test]
 fn double_click_drag_waits_for_latest_row_before_copying() {
     for release_before_anchor in [false, true] {
-        let mut state = word_drag_state(true);
+        let mut state = word_drag_state();
         let initial = start_word_drag(&mut state);
         if !release_before_anchor {
             assert!(word_row_reply(&mut state, &initial, "alpha bravo charlie").is_empty());
@@ -592,7 +509,7 @@ fn double_click_drag_waits_for_latest_row_before_copying() {
 #[test]
 fn double_click_drag_ignores_row_reply_after_typing_or_new_click() {
     for typing in [false, true] {
-        let mut state = word_drag_state(false);
+        let mut state = word_drag_state();
         let initial = start_word_drag(&mut state);
         word_row_reply(&mut state, &initial, "alpha bravo charlie");
         let drag = word_drag_mouse(&mut state, MouseEventKind::Drag(MouseButton::Left), 1, 8);
@@ -610,7 +527,7 @@ fn double_click_drag_ignores_row_reply_after_typing_or_new_click() {
 
 #[test]
 fn double_click_drag_survives_focus_lag_after_anchor_reply() {
-    let mut state = word_drag_state(true);
+    let mut state = word_drag_state();
     let initial = start_word_drag(&mut state);
     word_row_reply(&mut state, &initial, "alpha bravo charlie");
     let mut lagging = snapshot();
@@ -629,37 +546,35 @@ fn double_click_drag_survives_focus_lag_after_anchor_reply() {
 
 #[test]
 fn double_click_drag_invalidates_cached_boundaries_outside_selected_cells() {
-    for copy_on_select in [false, true] {
-        let mut state = word_drag_state(copy_on_select);
-        let initial = start_word_drag(&mut state);
-        word_row_reply(&mut state, &initial, "alpha bravo charlie");
-        let mut changed = state.pane_surface.as_ref().unwrap().clone();
-        changed.surface_revision += 1;
-        changed.panes[0].content_revision += 2;
-        changed.frame.cells[14].symbol = " ".into();
-        state.set_pane_surface(changed);
-        assert!(
-            state.selection.is_none(),
-            "unchanged selected cells do not validate cached boundaries outside the selection"
-        );
-        assert!(
-            word_drag_mouse(&mut state, MouseEventKind::Drag(MouseButton::Left), 0, 14)
-                .actions
-                .is_empty()
-        );
-        assert!(
-            word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 14)
-                .actions
-                .is_empty()
-        );
-        assert!(state.selection.is_none());
-    }
+    let mut state = word_drag_state();
+    let initial = start_word_drag(&mut state);
+    word_row_reply(&mut state, &initial, "alpha bravo charlie");
+    let mut changed = state.pane_surface.as_ref().unwrap().clone();
+    changed.surface_revision += 1;
+    changed.panes[0].content_revision += 2;
+    changed.frame.cells[14].symbol = " ".into();
+    state.set_pane_surface(changed);
+    assert!(
+        state.selection.is_none(),
+        "unchanged selected cells do not validate cached boundaries outside the selection"
+    );
+    assert!(
+        word_drag_mouse(&mut state, MouseEventKind::Drag(MouseButton::Left), 0, 14)
+            .actions
+            .is_empty()
+    );
+    assert!(
+        word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 14)
+            .actions
+            .is_empty()
+    );
+    assert!(state.selection.is_none());
 }
 
 #[test]
 fn reconnect_word_selection_tracks_content_changes() {
     for content_changed in [false, true] {
-        let mut state = word_drag_state(true);
+        let mut state = word_drag_state();
         let initial = start_word_drag(&mut state);
         word_row_reply(&mut state, &initial, "alpha bravo charlie");
         let mut next_surface = state.pane_surface.as_ref().unwrap().clone();
@@ -680,7 +595,7 @@ fn reconnect_word_selection_tracks_content_changes() {
 #[test]
 fn double_click_release_ignores_reply_after_focus_or_content_changes() {
     for focus_changed in [false, true] {
-        let mut state = word_drag_state(true);
+        let mut state = word_drag_state();
         let initial = start_word_drag(&mut state);
         word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 8);
         if focus_changed {
@@ -713,7 +628,7 @@ fn double_click_release_ignores_reply_after_focus_or_content_changes() {
 #[test]
 fn double_click_drag_resize_cancels_pending_word_lookup() {
     for anchor_ready in [false, true] {
-        let mut state = word_drag_state(true);
+        let mut state = word_drag_state();
         let initial = start_word_drag(&mut state);
         let pending = if anchor_ready {
             word_row_reply(&mut state, &initial, "alpha bravo charlie");
@@ -739,7 +654,7 @@ fn double_click_drag_resize_cancels_pending_word_lookup() {
 
 #[test]
 fn double_click_drag_autoscroll_keeps_absolute_word_anchor() {
-    let mut state = word_drag_state(false);
+    let mut state = word_drag_state();
     state.hits.panes[0].scroll = Some(crate::pane::ScrollMetrics {
         max_offset_from_bottom: 10,
         offset_from_bottom: 5,
@@ -758,8 +673,12 @@ fn double_click_drag_autoscroll_keeps_absolute_word_anchor() {
         state.selection.as_ref().unwrap().ordered_cells(),
         ((4, 11), (5, 10))
     );
-    word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 14);
-    assert!(state.selection.as_ref().unwrap().is_finalized());
+    let released = word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 14);
+    assert!(matches!(released.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.action, crate::actions::Action::PaneSelectionRead(params)
+            if params.anchor.row == 4 && params.cursor.row == 5)));
+    assert!(state.selection.is_none());
     assert!(state.selection_autoscroll.is_none());
 }
 

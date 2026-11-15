@@ -37,11 +37,6 @@ pub struct PaneInfo {
     pub rect: Rect,
     /// Inner rect (content area, excluding borders). Used for selection.
     pub inner_rect: Rect,
-    /// Visible scrollbar lane, when scrollback is present. `inner_rect` may still
-    /// exclude a stable hidden gutter when this is `None`.
-    // Legacy geometry remains part of the layout conformance oracle; Core draws its own scrollbar.
-    #[allow(dead_code)]
-    pub scrollbar_rect: Option<Rect>,
     /// Borders drawn around this pane after UI chrome is applied.
     pub borders: Borders,
     pub is_focused: bool,
@@ -512,7 +507,6 @@ fn collect_panes(node: &Node, area: Rect, focus: PaneId, result: &mut Vec<PaneIn
                 rect: area,
                 // inner_rect is set during render when we know if borders are shown
                 inner_rect: area,
-                scrollbar_rect: None,
                 borders: Borders::NONE,
                 is_focused: *id == focus,
             });
@@ -1183,7 +1177,6 @@ mod tests {
             id: pane(1),
             rect: Rect::new(10, 10, 10, 10),
             inner_rect: Rect::new(10, 10, 10, 10),
-            scrollbar_rect: None,
             borders: Borders::NONE,
             is_focused: true,
         };
@@ -1191,7 +1184,6 @@ mod tests {
             id: pane(2),
             rect: Rect::new(0, 10, 10, 2),
             inner_rect: Rect::new(0, 10, 10, 2),
-            scrollbar_rect: None,
             borders: Borders::NONE,
             is_focused: false,
         };
@@ -1199,7 +1191,6 @@ mod tests {
             id: pane(3),
             rect: Rect::new(0, 10, 10, 8),
             inner_rect: Rect::new(0, 10, 10, 8),
-            scrollbar_rect: None,
             borders: Borders::NONE,
             is_focused: false,
         };

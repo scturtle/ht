@@ -49,7 +49,6 @@ pub(super) struct ClientState {
     pub(super) pending_surface_graphics:
         HashMap<(u64, u64, u32), crate::protocol::SurfaceGraphicsAssetKey>,
     pub(super) repaint_pending: bool,
-    pub(super) draw_host_cursor: bool,
     pub(super) detached_process_children: Vec<std::process::Child>,
     pub(super) shell: shell::ClientShellState,
 }
@@ -87,7 +86,6 @@ impl ClientState {
             pending_native_cleanup: Vec::new(),
             pending_surface_graphics: HashMap::new(),
             repaint_pending: false,
-            draw_host_cursor: false,
             detached_process_children: Vec::new(),
             shell: shell::ClientShellState::new(shell::ClientShellConfig::from_config(
                 &crate::config::Config::default(),
@@ -199,23 +197,9 @@ impl ClientState {
             crate::render_prof::event("client_surface_patch.fallback.repaint");
             return Ok(false);
         }
-        let rows = if self.draw_host_cursor {
-            let Some(rows) = self
-                .blit_encoder
-                .patch_rows_with_drawn_cursor(&patch.rows, patch.cursor.as_ref())
-            else {
-                crate::render_prof::event("client_surface_patch.fallback.drawn_cursor");
-                return Ok(false);
-            };
-            rows
-        } else {
-            patch.rows
-        };
+        let rows = patch.rows;
         let encode_started = crate::render_prof::timer();
-        let Some(encoded) =
-            self.blit_encoder
-                .encode_patch(&rows, patch.cursor.clone(), self.draw_host_cursor)
-        else {
+        let Some(encoded) = self.blit_encoder.encode_patch(&rows, patch.cursor.clone()) else {
             crate::render_prof::event("client_surface_patch.fallback.encode");
             return Ok(false);
         };
@@ -349,17 +333,7 @@ impl ClientState {
         if self.shell_mouse_capture_preference {
             frame_data.hyperlinks.clear();
         }
-        let frame_data = if self.draw_host_cursor {
-            render_ansi::frame_with_drawn_cursor(frame_data)
-        } else {
-            frame_data
-        };
-        let encoded = if self.draw_host_cursor {
-            self.blit_encoder
-                .encode_with_suppressed_visible_cursor(&frame_data, self.repaint_pending)
-        } else {
-            self.blit_encoder.encode(&frame_data, self.repaint_pending)
-        };
+        let encoded = self.blit_encoder.encode(&frame_data, self.repaint_pending);
         if let Err(error) = self.write_composed_output(writer, &encoded.bytes, graphics) {
             tracing::warn!(%error, "failed to present client frame");
             self.repaint_pending = true;

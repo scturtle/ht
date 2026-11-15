@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn config_diagnostic_summary_reports_unknown_keys_compactly() {
         let diagnostics = vec![
-            "unknown config key ui.mouse_captur; ignoring key".to_string(),
+            "unknown config key ui.redraw_on_focus_gain; ignoring key".to_string(),
             "unknown config key keys.new_tabb; ignoring key".to_string(),
         ];
 
@@ -662,7 +662,7 @@ cjk_ime_cursor_shape = -1
 scrollback_limit_lines = 5000
 [ui]
 mobile_width_threshold = 32
-mouse_capture = false
+redraw_on_focus_gained = false
 [keys]
 detach = "f10"
 "#;
@@ -696,7 +696,7 @@ detach = "f10"
             assert_eq!(loaded.config.terminal.default_shell, "fish");
             assert_eq!(loaded.config.advanced.scrollback_limit_lines, 5000);
             assert_eq!(loaded.config.ui.mobile_width_threshold, 32);
-            assert!(!loaded.config.ui.mouse_capture);
+            assert!(!loaded.config.ui.redraw_on_focus_gained);
             assert!(loaded
                 .config
                 .keybinds()
@@ -739,14 +739,14 @@ delivery = "herdr"
             "command = [{ key = 'prefix+n', command = 'echo ignored' }]",
             "command = [{ key = 'prefix+1', command = 'echo ignored' }]",
         ] {
-            let content = format!("[keys]\nprefix = 'ctrl+x'\nnew_tab = 'prefix+c'\n{retired}\n[ui]\nmouse_capture = false\n");
+            let content = format!("[keys]\nprefix = 'ctrl+x'\nnew_tab = 'prefix+c'\n{retired}\n[ui]\nredraw_on_focus_gained = false\n");
             let loaded = load_live_config_from_str(&content).unwrap();
             assert_eq!(
                 loaded.diagnostics,
                 ["unknown config key keys.command; ignoring key"]
             );
             assert!(loaded.invalid_sections.is_empty());
-            assert!(!loaded.config.ui.mouse_capture);
+            assert!(!loaded.config.ui.redraw_on_focus_gained);
             assert_eq!(
                 loaded.config.prefix_keys(),
                 vec![(
@@ -766,6 +766,52 @@ delivery = "herdr"
     }
 
     #[test]
+    fn removed_presentation_and_byte_budget_options_are_unknown_keys() {
+        for (section, keys) in [
+            (
+                "ui",
+                &[
+                    "mouse_capture",
+                    "copy_on_select",
+                    "host_cursor",
+                    "confirm_close",
+                    "prompt_new_tab_name",
+                    "prompt_new_workspace_name",
+                    "pane_borders",
+                    "pane_outer_borders",
+                    "pane_scrollbars",
+                    "pane_gaps",
+                    "show_agent_labels_on_pane_borders",
+                    "hide_tab_bar_when_single_tab",
+                    "window_title",
+                    "tab_bar_right",
+                    "tab_bar_right_separator",
+                    "agent_panel_scope",
+                ][..],
+            ),
+            (
+                "advanced",
+                &["scrollback_limit_bytes", "scrollback_lines"][..],
+            ),
+        ] {
+            for key in keys {
+                let loaded =
+                    load_live_config_from_str(&format!("[{section}]\n{key} = 'ignored'\n"))
+                        .unwrap();
+                assert!(loaded.invalid_sections.is_empty(), "{section}.{key}");
+                assert_eq!(
+                    loaded.diagnostics,
+                    [format!("unknown config key {section}.{key}; ignoring key")]
+                );
+                assert_eq!(
+                    loaded.config.advanced.scrollback_limit_lines,
+                    super::super::DEFAULT_SCROLLBACK_LIMIT_LINES
+                );
+            }
+        }
+    }
+
+    #[test]
     fn load_live_config_warns_about_unknown_keys_and_applies_known_siblings() {
         let loaded = load_live_config_from_str(
             r##"
@@ -773,9 +819,6 @@ plugin = []
 
 [theme.custom]
 accentt = "#ffffff"
-
-[advanced]
-scrollback_lines = 42
 
 [keys]
 fullscreen = "prefix+z"
@@ -787,8 +830,8 @@ command = "git status"
 descrption = "status"
 
 [ui]
-mouse_capture = false
-mouse_captur = true
+redraw_on_focus_gained = false
+redraw_on_focus_gain = true
 "foo.bar" = true
 "foo.?.bar" = false
 
@@ -811,14 +854,13 @@ claude = [["terminal_title"]]
                 "unknown config key keys.new_tabb; ignoring key",
                 "unknown config key ui.\"foo.?.bar\"; ignoring key",
                 "unknown config key ui.\"foo.bar\"; ignoring key",
-                "unknown config key ui.mouse_captur; ignoring key",
+                "unknown config key ui.redraw_on_focus_gain; ignoring key",
                 "unknown config key ui.sidebar; ignoring key",
                 "unknown config key ui.toast.delivry; ignoring key",
             ]
         );
         assert!(loaded.invalid_sections.is_empty());
-        assert_eq!(loaded.config.advanced.scrollback_limit_bytes, Some(42));
-        assert!(!loaded.config.ui.mouse_capture);
+        assert!(!loaded.config.ui.redraw_on_focus_gained);
         assert_eq!(
             loaded.config.ui.toast.delivery,
             super::super::ToastDelivery::Herdr
@@ -908,7 +950,7 @@ sidebar_min_width = -5
 sidebar_max_width = []
 sidebar_start_collapsed = "retired"
 sidebar_collapsed_mode = 17
-mouse_capture = false
+redraw_on_focus_gained = false
 mobile_width_threshold = 72
 [ui.sidebar.agents]
 rows = "retired"
@@ -919,7 +961,7 @@ accent = "#123456"
         )
         .expect("retired values must be ignored, not invalidate keys/ui/theme");
         assert!(loaded.invalid_sections.is_empty());
-        assert!(!loaded.config.ui.mouse_capture);
+        assert!(!loaded.config.ui.redraw_on_focus_gained);
         assert_eq!(loaded.config.ui.mobile_width_threshold, 72);
         assert_eq!(loaded.config.keybinds().new_tab.labels(), ["prefix+t"]);
         assert_eq!(
@@ -950,25 +992,6 @@ accent = "#123456"
                 loaded.diagnostics
             );
         }
-    }
-
-    #[test]
-    fn load_live_config_accepts_legacy_agent_panel_scope_without_warning() {
-        let loaded = load_live_config_from_str(
-            r#"
-[ui]
-agent_panel_scope = "current"
-agent_panel_sort = "priority"
-"#,
-        )
-        .unwrap();
-
-        assert!(loaded.diagnostics.is_empty());
-        assert!(loaded.invalid_sections.is_empty());
-        assert_eq!(
-            loaded.config.ui.agent_panel_sort,
-            super::super::AgentPanelSortConfig::Priority
-        );
     }
 
     #[test]
@@ -1063,7 +1086,7 @@ new_workspace = "prefix+shift+n"
         let loaded = load_live_config_from_str(
             r#"
 [ui]
-mouse_capture = "yes"
+redraw_on_focus_gained = "yes"
 
 [advanced]
 scrollback_limit_lines = 5000
@@ -1084,7 +1107,7 @@ scrollback_limit_lines = 5000
             loaded.diagnostics
         );
         assert!(
-            loaded.config.ui.mouse_capture,
+            loaded.config.ui.redraw_on_focus_gained,
             "the rejected section's values are not applied"
         );
         assert_eq!(loaded.config.advanced.scrollback_limit_lines, 5000);
@@ -1095,8 +1118,8 @@ scrollback_limit_lines = 5000
         let loaded = load_live_config_from_str(
             r#"
 [ui]
-mouse_capture = "yes"
-mouse_captur = true
+redraw_on_focus_gained = "yes"
+redraw_on_focus_gain = true
 "#,
         )
         .unwrap();
@@ -1105,24 +1128,6 @@ mouse_captur = true
         assert!(loaded.diagnostics[0].contains("invalid ui config"));
         assert!(!loaded.diagnostics[0].starts_with("unknown config key"));
         assert_eq!(loaded.invalid_sections, vec!["ui"]);
-    }
-
-    #[test]
-    fn startup_config_accepts_legacy_agent_panel_scope_without_warning() {
-        let _guard = crate::config::test_config_env_lock().lock().unwrap();
-        let path = std::env::temp_dir().join(format!(
-            "herdr-config-legacy-agent-panel-scope-{}.toml",
-            std::process::id()
-        ));
-        std::fs::write(&path, "[ui]\nagent_panel_scope = \"all\"\n").unwrap();
-        std::env::set_var(CONFIG_PATH_ENV_VAR, &path);
-
-        let loaded = Config::load();
-
-        std::env::remove_var(CONFIG_PATH_ENV_VAR);
-        let _ = std::fs::remove_file(path);
-
-        assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
     }
 
     #[test]
@@ -1179,7 +1184,7 @@ command = "lazygit"
 tabs = "ctrl"
 
 [ui]
-mouse_capture = false
+redraw_on_focus_gained = false
 "#;
 
         let (updated, removed) = remove_keybinding_config_sections(content);
@@ -1187,7 +1192,7 @@ mouse_capture = false
         assert!(removed);
         assert!(updated.contains("onboarding = false"));
         assert!(updated.contains("[theme]\nname = \"catppuccin\""));
-        assert!(updated.contains("[ui]\nmouse_capture = false"));
+        assert!(updated.contains("[ui]\nredraw_on_focus_gained = false"));
         assert!(!updated.contains("[keys]"));
         assert!(!updated.contains("[[keys.command]]"));
         assert!(!updated.contains("[keys.indexed]"));
@@ -1196,7 +1201,7 @@ mouse_capture = false
 
     #[test]
     fn remove_keybinding_config_sections_reports_noop_without_keys() {
-        let content = "[ui]\nmouse_capture = true\n";
+        let content = "[ui]\nredraw_on_focus_gained = true\n";
         let (updated, removed) = remove_keybinding_config_sections(content);
         assert!(!removed);
         assert_eq!(updated, content);
@@ -1252,7 +1257,7 @@ mouse_capture = false
         ));
         std::fs::write(
             &path,
-            b"[ui]\nmouse_capture = false\n\xEF\xBB\xBF[terminal]\ndefault_shell = \"pwsh.exe\"\n",
+            b"[ui]\nredraw_on_focus_gained = false\n\xEF\xBB\xBF[terminal]\ndefault_shell = \"pwsh.exe\"\n",
         )
         .unwrap();
         std::env::set_var(CONFIG_PATH_ENV_VAR, &path);

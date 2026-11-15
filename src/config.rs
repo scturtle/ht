@@ -3,9 +3,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 mod io;
 mod keybinds;
 mod model;
-mod tab_bar;
 mod theme;
-mod window_title;
 
 pub use self::{
     io::{
@@ -17,16 +15,13 @@ pub use self::{
         BindingConfig, IndexedKeybind, KeyCombo, Keybinds, LiveKeybindConfig,
     },
     model::{
-        AdvancedConfig, AgentPanelSortConfig, Config, HostCursorModeConfig, PaneBordersConfig,
-        StatusIndicatorStyle, TabBarPositionConfig, ToastClipboardPosition, ToastDelivery,
-        ToastHerdrPosition,
+        AdvancedConfig, AgentPanelSortConfig, Config, StatusIndicatorStyle, TabBarPositionConfig,
+        ToastClipboardPosition, ToastDelivery, ToastHerdrPosition,
     },
-    tab_bar::TabBarRightEntryConfig,
     theme::{parse_color, CustomThemeColors, ThemeConfig},
 };
 
 pub(crate) use self::keybinds::parse_key_combo;
-pub(crate) use self::{tab_bar::tab_bar_right_diagnostics, window_title::window_title_diagnostics};
 
 pub const CONFIG_PATH_ENV_VAR: &str = "HERDR_CONFIG_PATH";
 
@@ -61,8 +56,6 @@ impl Config {
             .into_iter()
             .chain(keybind_diags)
             .chain(self.remote_image_paste_key().err())
-            .chain(tab_bar_right_diagnostics(&self.ui.tab_bar_right))
-            .chain(window_title_diagnostics(&self.ui.window_title))
             .collect()
     }
 

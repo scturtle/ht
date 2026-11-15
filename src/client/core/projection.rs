@@ -205,8 +205,6 @@ impl Model {
                 .focused()
                 .and_then(|id| self.records.get(&id))
                 .map(|r| r.address.clone()),
-            tab_bar_right: Vec::new(),
-            tab_bar_right_separator: String::new(),
             agent_view_label: None,
             agent_order: Vec::new(),
             workspaces,

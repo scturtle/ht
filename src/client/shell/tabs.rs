@@ -33,18 +33,16 @@ pub(crate) fn render_tab_bar(
             display_width(&label).saturating_add(4).max(MIN_TAB_WIDTH)
         })
         .collect::<Vec<_>>();
-    let content = tab_bar_content_area(snapshot, area);
-    let mouse_chrome = config.mouse_capture;
-    let new_tab_width = if mouse_chrome { NEW_TAB_WIDTH } else { 0 };
+    let content = area;
+    let new_tab_width = NEW_TAB_WIDTH;
     let desired_total = desired_widths
         .iter()
         .copied()
         .fold(0_u16, u16::saturating_add)
         .saturating_add(tabs.len().saturating_sub(1).min(u16::MAX as usize) as u16)
         .saturating_add(new_tab_width);
-    let overflow =
-        desired_total > content.width && (!mouse_chrome || content.width >= MIN_TAB_STRIP_WIDTH);
-    let available = if overflow && mouse_chrome {
+    let overflow = desired_total > content.width && content.width >= MIN_TAB_STRIP_WIDTH;
+    let available = if overflow {
         content
             .width
             .saturating_sub(NEW_TAB_WIDTH)
@@ -65,7 +63,7 @@ pub(crate) fn render_tab_bar(
     *reveal_focused_tab = false;
 
     let mut x = content.x;
-    let tab_right = if overflow && mouse_chrome {
+    let tab_right = if overflow {
         hits.tab_scroll_left = Rect::new(
             content.x,
             content.y,
@@ -137,7 +135,7 @@ pub(crate) fn render_tab_bar(
         }
     }
 
-    if overflow && mouse_chrome {
+    if overflow {
         hits.tab_scroll_right = Rect::new(tab_right, area.y, TAB_SCROLL_BUTTON_WIDTH, 1);
         let can_scroll_right = *tab_scroll < max_scroll;
         put_text(
@@ -163,7 +161,7 @@ pub(crate) fn render_tab_bar(
                 .min(NEW_TAB_WIDTH),
             1,
         );
-    } else if mouse_chrome {
+    } else {
         hits.new_tab = Rect::new(
             x.min(content.right()),
             area.y,
@@ -171,16 +169,14 @@ pub(crate) fn render_tab_bar(
             1,
         );
     }
-    if mouse_chrome {
-        put_text(
-            buffer,
-            hits.new_tab.x,
-            area.y,
-            hits.new_tab.width,
-            " + ",
-            Style::default().fg(palette.overlay1).bg(palette.panel_bg),
-        );
-    }
+    put_text(
+        buffer,
+        hits.new_tab.x,
+        area.y,
+        hits.new_tab.width,
+        " + ",
+        Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+    );
 
     if first_visible.is_some_and(|index| index > 0) {
         let ellipsis_x = if hits.tab_scroll_left.width > 0 {
@@ -224,75 +220,6 @@ pub(crate) fn render_tab_bar(
                 Style::default().fg(palette.accent),
             );
         }
-    }
-    render_tab_bar_status(buffer, area, snapshot, palette);
-}
-
-pub(crate) fn tab_bar_status_width(snapshot: &ClientShellSnapshot) -> u16 {
-    let content = snapshot.tab_bar_right.iter().fold(0u16, |width, segment| {
-        width.saturating_add(display_width(&segment.text))
-    });
-    let separators = snapshot.tab_bar_right.len().saturating_sub(1);
-    content.saturating_add(
-        display_width(&snapshot.tab_bar_right_separator)
-            .saturating_mul(separators.min(u16::MAX as usize) as u16),
-    )
-}
-
-fn tab_bar_status_area(snapshot: &ClientShellSnapshot, area: Rect) -> Option<Rect> {
-    let width = tab_bar_status_width(snapshot);
-    if width == 0 {
-        return None;
-    }
-    let reserved = width.saturating_add(1);
-    (area.width.saturating_sub(reserved) >= MIN_TAB_STRIP_WIDTH)
-        .then(|| Rect::new(area.right().saturating_sub(width), area.y, width, 1))
-}
-
-fn tab_bar_content_area(snapshot: &ClientShellSnapshot, area: Rect) -> Rect {
-    let reserved = tab_bar_status_area(snapshot, area)
-        .map(|status| status.width.saturating_add(1))
-        .unwrap_or(0);
-    Rect {
-        width: area.width.saturating_sub(reserved),
-        ..area
-    }
-}
-
-fn render_tab_bar_status(
-    buffer: &mut Buffer,
-    area: Rect,
-    snapshot: &ClientShellSnapshot,
-    palette: &Palette,
-) {
-    let Some(status) = tab_bar_status_area(snapshot, area) else {
-        return;
-    };
-    let separator_width = display_width(&snapshot.tab_bar_right_separator);
-    let mut x = status.x;
-    for (index, segment) in snapshot.tab_bar_right.iter().enumerate() {
-        if index > 0 && separator_width > 0 {
-            put_text(
-                buffer,
-                x,
-                area.y,
-                separator_width,
-                &snapshot.tab_bar_right_separator,
-                Style::default().fg(palette.overlay0).bg(palette.panel_bg),
-            );
-            x = x.saturating_add(separator_width);
-        }
-        let width = display_width(&segment.text);
-        let style = if segment.accent {
-            Style::default()
-                .fg(panel_contrast_fg(palette))
-                .bg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette.overlay1).bg(palette.panel_bg)
-        };
-        put_text(buffer, x, area.y, width, &segment.text, style);
-        x = x.saturating_add(width);
     }
 }
 

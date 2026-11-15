@@ -23,13 +23,6 @@
   "focused_workspace_id": "w1",
   "focused_tab_id": "w1:t1",
   "focused_pane_id": "w1:p1",
-  "tab_bar_right": [
-    {
-      "text": "host",
-      "accent": true
-    }
-  ],
-  "tab_bar_right_separator": " | ",
   "agent_view_label": "focus",
   "agent_order": ["w1:p1"],
   "workspaces": [

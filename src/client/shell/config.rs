@@ -60,21 +60,15 @@ impl ClientShellConfig {
         Self {
             mobile_width_threshold: config.ui.mobile_width_threshold,
             tab_bar_position: config.ui.tab_bar_position,
-            hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
             agent_panel_sort: config.ui.agent_panel_sort,
             status_indicators: config.ui.status_indicators,
             toast_delivery: config.ui.toast.delivery,
             toast_delay_seconds: config.ui.toast.delay_seconds,
             toast_position: config.ui.toast.herdr.position,
-            copy_on_select: config.ui.copy_on_select,
             clipboard_toast_enabled: config.ui.toast.clipboard.enabled,
             clipboard_toast_position: config.ui.toast.clipboard.position,
             palette: crate::ui::palette_from_config(config),
             keybinds,
-            prompt_new_tab_name: config.ui.prompt_new_tab_name,
-            prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
-            confirm_close: config.ui.confirm_close,
-            mouse_capture: config.ui.mouse_capture,
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
@@ -115,19 +109,13 @@ impl ClientShellConfig {
             let ui = &config.ui;
             self.mobile_width_threshold = ui.mobile_width_threshold;
             self.tab_bar_position = ui.tab_bar_position;
-            self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
             self.agent_panel_sort = ui.agent_panel_sort;
             self.status_indicators = ui.status_indicators;
             self.toast_delivery = ui.toast.delivery;
             self.toast_delay_seconds = ui.toast.delay_seconds;
             self.toast_position = ui.toast.herdr.position;
-            self.copy_on_select = ui.copy_on_select;
             self.clipboard_toast_enabled = ui.toast.clipboard.enabled;
             self.clipboard_toast_position = ui.toast.clipboard.position;
-            self.prompt_new_tab_name = ui.prompt_new_tab_name;
-            self.prompt_new_workspace_name = ui.prompt_new_workspace_name;
-            self.confirm_close = ui.confirm_close;
-            self.mouse_capture = ui.mouse_capture;
             self.mouse_scroll_lines = ui.mouse_scroll_lines();
             self.right_click_passthrough_modifiers = ui.right_click_passthrough_modifiers();
             self.redraw_on_focus_gained = ui.redraw_on_focus_gained;
@@ -140,7 +128,7 @@ impl ClientShellConfig {
         diagnostics
     }
 
-    pub(super) fn layout(&self, cols: u16, rows: u16, tab_count: usize) -> ClientShellLayout {
+    pub(super) fn layout(&self, cols: u16, rows: u16) -> ClientShellLayout {
         if cols <= self.mobile_width_threshold {
             let header_height = rows.min(2);
             return ClientShellLayout {
@@ -151,7 +139,7 @@ impl ClientShellConfig {
         }
 
         let main = Rect::new(0, 0, cols, rows);
-        let show_tab_bar = rows > 1 && !(self.hide_tab_bar_when_single_tab && tab_count == 1);
+        let show_tab_bar = rows > 1;
         let tab_height = u16::from(show_tab_bar);
         let (tab_bar, pane_surface) = match self.tab_bar_position {
             TabBarPositionConfig::Top => (
@@ -182,7 +170,7 @@ impl ClientShellConfig {
     }
 
     pub(crate) fn initial_surface_size(&self, cols: u16, rows: u16) -> ClientSurfaceSize {
-        let surface = self.layout(cols, rows, 0).pane_surface;
+        let surface = self.layout(cols, rows).pane_surface;
         ClientSurfaceSize {
             cols: surface.width.max(1),
             rows: surface.height.max(1),

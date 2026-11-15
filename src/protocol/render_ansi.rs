@@ -52,7 +52,6 @@ pub(crate) struct EncodedBlit {
     pub(crate) full: bool,
     next_last_visible_cursor: Option<(u16, u16)>,
     next_last_cursor_shape: u8,
-    suppress_visible_cursor: bool,
 }
 
 /// Stateful encoder that diffs semantic frames into terminal ANSI bytes.
@@ -61,7 +60,6 @@ pub(crate) struct BlitEncoder {
     last_frame: Option<FrameData>,
     last_visible_cursor: Option<(u16, u16)>,
     last_cursor_shape: u8,
-    suppress_visible_cursor: bool,
 }
 
 impl BlitEncoder {
@@ -70,23 +68,6 @@ impl BlitEncoder {
     }
 
     pub(crate) fn encode(&self, frame: &FrameData, repaint: bool) -> EncodedBlit {
-        self.encode_inner(frame, repaint, false)
-    }
-
-    pub(crate) fn encode_with_suppressed_visible_cursor(
-        &self,
-        frame: &FrameData,
-        repaint: bool,
-    ) -> EncodedBlit {
-        self.encode_inner(frame, repaint, true)
-    }
-
-    fn encode_inner(
-        &self,
-        frame: &FrameData,
-        repaint: bool,
-        suppress_visible_cursor: bool,
-    ) -> EncodedBlit {
         let previous_frame = self.last_frame.as_ref();
         let prev = if repaint { None } else { previous_frame };
         let full = repaint
@@ -107,7 +88,6 @@ impl BlitEncoder {
             &mut next_last_cursor_shape,
             repeat_ime_anchor_after_sync(),
             clear_before_full_redraw,
-            suppress_visible_cursor,
         );
         if let Some(stats) = prof_stats {
             crate::render_prof::duration_since("ansi_encode.total", prof_started);
@@ -126,14 +106,12 @@ impl BlitEncoder {
             full,
             next_last_visible_cursor,
             next_last_cursor_shape,
-            suppress_visible_cursor,
         }
     }
 
     pub(crate) fn commit(&mut self, frame: FrameData, encoded: EncodedBlit) {
         self.last_visible_cursor = encoded.next_last_visible_cursor;
         self.last_cursor_shape = encoded.next_last_cursor_shape;
-        self.suppress_visible_cursor = encoded.suppress_visible_cursor;
         self.last_frame = Some(frame);
     }
 
@@ -145,23 +123,18 @@ impl BlitEncoder {
         &self,
         rows: &[PaneSurfacePatchRow],
         cursor: Option<CursorState>,
-        suppress_visible_cursor: bool,
     ) -> Option<EncodedBlit> {
         let frame = self.last_frame.as_ref()?;
         if rows.iter().any(|row| !patch_row_fits(frame, row)) || patch_rows_overlap(rows) {
             return None;
         }
-        // Metadata revisions need no output unless the cursor's display policy changed.
-        if rows.is_empty()
-            && cursor == frame.cursor
-            && self.suppress_visible_cursor == suppress_visible_cursor
-        {
+        // Metadata revisions need no output when cells and cursor are unchanged.
+        if rows.is_empty() && cursor == frame.cursor {
             return Some(EncodedBlit {
                 bytes: Vec::new(),
                 full: false,
                 next_last_visible_cursor: self.last_visible_cursor,
                 next_last_cursor_shape: self.last_cursor_shape,
-                suppress_visible_cursor,
             });
         }
         let mut bytes = Vec::new();
@@ -175,58 +148,13 @@ impl BlitEncoder {
             &mut next_last_visible_cursor,
             &mut next_last_cursor_shape,
             repeat_ime_anchor_after_sync(),
-            suppress_visible_cursor,
         );
         Some(EncodedBlit {
             bytes,
             full: false,
             next_last_visible_cursor,
             next_last_cursor_shape,
-            suppress_visible_cursor,
         })
-    }
-
-    pub(crate) fn patch_rows_with_drawn_cursor(
-        &self,
-        rows: &[PaneSurfacePatchRow],
-        cursor: Option<&CursorState>,
-    ) -> Option<Vec<PaneSurfacePatchRow>> {
-        let frame = self.last_frame.as_ref()?;
-        let mut rows = rows.to_vec();
-        let previous = frame
-            .cursor
-            .as_ref()
-            .filter(|cursor| cursor.visible)
-            .map(|cursor| clamp_cursor_position(frame, cursor.x, cursor.y));
-        let next = cursor
-            .filter(|cursor| cursor.visible)
-            .map(|cursor| clamp_cursor_position(frame, cursor.x, cursor.y));
-
-        if let Some((x, y)) = previous.filter(|position| Some(*position) != next) {
-            if patch_cell_mut(&mut rows, x, y).is_none() {
-                let mut cell = frame.cells.get(frame_cell_index(frame, x, y)?)?.clone();
-                cell.modifier ^= REVERSED_MODIFIER;
-                rows.push(PaneSurfacePatchRow {
-                    x,
-                    y,
-                    cells: vec![cell],
-                });
-            }
-        }
-        if let Some((x, y)) = next {
-            if let Some(cell) = patch_cell_mut(&mut rows, x, y) {
-                cell.modifier ^= REVERSED_MODIFIER;
-            } else if previous != next {
-                let mut cell = frame.cells.get(frame_cell_index(frame, x, y)?)?.clone();
-                cell.modifier ^= REVERSED_MODIFIER;
-                rows.push(PaneSurfacePatchRow {
-                    x,
-                    y,
-                    cells: vec![cell],
-                });
-            }
-        }
-        Some(rows)
     }
 
     pub(crate) fn commit_patch(
@@ -249,22 +177,8 @@ impl BlitEncoder {
         frame.cursor = cursor;
         self.last_visible_cursor = encoded.next_last_visible_cursor;
         self.last_cursor_shape = encoded.next_last_cursor_shape;
-        self.suppress_visible_cursor = encoded.suppress_visible_cursor;
         true
     }
-}
-
-pub(crate) fn frame_with_drawn_cursor(mut frame: FrameData) -> FrameData {
-    if let Some(cursor) = frame.cursor.as_ref().filter(|cursor| cursor.visible) {
-        let (x, y) = clamp_cursor_position(&frame, cursor.x, cursor.y);
-        let idx = (y as usize)
-            .saturating_mul(frame.width as usize)
-            .saturating_add(x as usize);
-        if let Some(cell) = frame.cells.get_mut(idx) {
-            cell.modifier ^= REVERSED_MODIFIER;
-        }
-    }
-    frame
 }
 
 #[derive(Clone, Copy, Default)]
@@ -500,20 +414,6 @@ fn cells_equal(a: &CellData, b: &CellData) -> bool {
 // Blitting
 // ---------------------------------------------------------------------------
 
-fn frame_cell_index(frame: &FrameData, x: u16, y: u16) -> Option<usize> {
-    (x < frame.width && y < frame.height)
-        .then(|| usize::from(y) * usize::from(frame.width) + usize::from(x))
-}
-
-fn patch_cell_mut(rows: &mut [PaneSurfacePatchRow], x: u16, y: u16) -> Option<&mut CellData> {
-    rows.iter_mut().rev().find_map(|row| {
-        if row.y != y || x < row.x {
-            return None;
-        }
-        row.cells.get_mut(usize::from(x - row.x))
-    })
-}
-
 fn patch_rows_overlap(rows: &[PaneSurfacePatchRow]) -> bool {
     if rows.len() < 2 {
         return false;
@@ -554,7 +454,6 @@ fn blit_patch_to(
     last_visible_cursor: &mut Option<(u16, u16)>,
     last_cursor_shape: &mut u8,
     repeat_ime_anchor: bool,
-    suppress_visible_cursor: bool,
 ) {
     let _ = writer.write_all(b"\x1b[?2026h\x1b[?25l\x1b]8;;\x1b\\");
     let mut last_sgr = String::new();
@@ -601,10 +500,7 @@ fn blit_patch_to(
         hyperlinks: Vec::new(),
         graphics: Vec::new(),
     };
-    let mut host_cursor = resolve_host_cursor_state(&cursor_frame, last_visible_cursor);
-    if suppress_visible_cursor && host_cursor.visible {
-        host_cursor.visible = false;
-    }
+    let host_cursor = resolve_host_cursor_state(&cursor_frame, last_visible_cursor);
     write_host_cursor_state(&mut writer, host_cursor, last_cursor_shape);
     let _ = writer.write_all(b"\x1b[?2026l");
     if repeat_ime_anchor {
@@ -621,7 +517,6 @@ fn blit_frame_to_with_cursor_memory_and_clear_policy(
     last_cursor_shape: &mut u8,
     repeat_ime_anchor: bool,
     clear_before_full_redraw: bool,
-    suppress_visible_cursor: bool,
 ) {
     // On first frame or size change, do a full redraw.
     let full_redraw =
@@ -658,10 +553,7 @@ fn blit_frame_to_with_cursor_memory_and_clear_policy(
     // cell rather than the focused pane's input position. When the focused pane
     // hides its cursor, still park the host cursor intentionally so IMEs do not
     // anchor to whichever cell happened to be painted last.
-    let mut host_cursor = resolve_host_cursor_state(frame, last_visible_cursor);
-    if suppress_visible_cursor && host_cursor.visible {
-        host_cursor.visible = false;
-    }
+    let host_cursor = resolve_host_cursor_state(frame, last_visible_cursor);
     write_host_cursor_state(&mut writer, host_cursor, last_cursor_shape);
 
     // End the synchronized output block immediately after the final cursor

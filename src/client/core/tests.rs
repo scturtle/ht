@@ -411,7 +411,7 @@ fn fixture(
     );
     let chrome = view::ChromeConfig::from_config(&crate::config::Config::default());
     let mut views = HashMap::new();
-    for (i, info) in view::pane_infos(&model, Rect::new(0, 0, 120, 40), &chrome)
+    for (i, info) in view::pane_infos(&model, Rect::new(0, 0, 120, 40))
         .into_iter()
         .enumerate()
     {
@@ -521,8 +521,7 @@ fn pane_name_updates_reuse_retained_surface_and_original_rename_dialog() {
 
 #[test]
 fn reused_renderer_retains_semantic_cells_not_backend_diff_residue() {
-    let (model, mut views, mut chrome) = fixture(1);
-    chrome.pane_borders = crate::config::PaneBordersConfig::Off;
+    let (model, mut views, chrome) = fixture(1);
     let id = model.focused().unwrap();
     let size = ClientSurfaceSize {
         cols: 120,

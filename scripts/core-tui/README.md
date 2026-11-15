@@ -63,7 +63,7 @@ CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
   bash scripts/core-tui/run.sh
 ```
 
-此副本保留 `prompt_new_tab_name = false`；新 Tab 不弹命名框，可用 Ctrl+a Shift+T 重命名。
+新 Tab 直接创建，不弹命名框；可用 Ctrl+a Shift+T 重命名。
 `terminal.default_shell` 会作为 Core 创建程序时的 executable（不是 shell command 字符串）传递；
 未配置时由 Core 选择默认 shell。它不会替换已经运行的程序。
 
@@ -180,8 +180,7 @@ PNG 能力查询、cell-size 查询和 DA1，不需要安装 Emacs，也不调�
 
 `[advanced] scrollback_limit_lines` 默认 `1000`，按物理历史行计数；例如设为
 `10000` 可保留更多。配置在客户端启动时读取，并用于后续 attach/relay 重连的历史请求。
-`0` 禁用客户端历史。默认没有额外字节上限；可用 `scrollback_limit_bytes` 叠加内存预算，
-先到者生效。旧 `scrollback_lines` 仍只是字节键的兼容别名，不是新行数配置。
+`0` 禁用客户端历史。历史保留仅按行数限制，不设置额外字节上限。
 
 Ghostty 仍按整页回收：仅在回收最旧页后还能保留有效目标行数时按行数回收；有效目标也
 受最小页分配约束，因此实际行数可能更多。显式字节上限可使保留量更少。Core 已丢弃的历史不能由客户端配置恢复。

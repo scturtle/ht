@@ -233,13 +233,6 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
                 pane_id: "pane_1".into(),
             },
         }),
-        ClientShellOverlay::ConfirmClose(ClientConfirmCloseOverlay {
-            workspace_id: "ws_1".into(),
-            close_group: false,
-            tab_target: None,
-            title: "close".into(),
-            detail: "confirm".into(),
-        }),
         ClientShellOverlay::Help(ClientHelpOverlay {
             query: TextEditor::default(),
             search_focused: false,

@@ -1,23 +1,13 @@
 use super::*;
 
-fn dialog(rename: bool) -> ClientShellOverlay {
-    if rename {
-        ClientShellOverlay::Rename(ClientRenameOverlay {
-            title: "rename pane",
-            input: TextEditor::from("中文 e\u{301} / a long pane label"),
-            target: ClientRenameTarget::Pane {
-                pane_id: "pane_1".into(),
-            },
-        })
-    } else {
-        ClientShellOverlay::ConfirmClose(ClientConfirmCloseOverlay {
-            workspace_id: "ws_1".into(),
-            close_group: false,
-            tab_target: None,
-            title: "Close workspace?".into(),
-            detail: "中文 workspace · 1 pane".into(),
-        })
-    }
+fn dialog() -> ClientShellOverlay {
+    ClientShellOverlay::Rename(ClientRenameOverlay {
+        title: "rename pane",
+        input: TextEditor::from("中文 e\u{301} / a long pane label"),
+        target: ClientRenameTarget::Pane {
+            pane_id: "pane_1".into(),
+        },
+    })
 }
 
 struct PaintedDialog {
@@ -27,7 +17,7 @@ struct PaintedDialog {
     cursor: Option<crate::protocol::CursorState>,
 }
 
-fn painted_dialog(area: Rect, rename: bool, palette: &Palette) -> PaintedDialog {
+fn painted_dialog(area: Rect, palette: &Palette) -> PaintedDialog {
     let state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut buffer = Buffer::empty(area);
     for cell in &mut buffer.content {
@@ -40,7 +30,7 @@ fn painted_dialog(area: Rect, rename: bool, palette: &Palette) -> PaintedDialog 
     }
     let rendered = render::render_client_overlay(
         &mut buffer,
-        &dialog(rename),
+        &dialog(),
         &state.endpoint,
         &state.config.keybinds,
         palette,
@@ -58,23 +48,21 @@ fn painted_dialog(area: Rect, rename: bool, palette: &Palette) -> PaintedDialog 
 fn dialog_frames_keep_the_existing_cells_styles_cursor_and_hit_geometry() {
     let mut hashes = Vec::new();
     for palette in [Palette::test_palette(), Palette::terminal()] {
-        for rename in [true, false] {
-            for area in [
-                Rect::new(0, 0, 106, 24),
-                Rect::new(0, 0, 44, 20),
-                Rect::new(0, 0, 38, 8),
-                Rect::new(3, 5, 106, 24),
-            ] {
-                let frame = painted_dialog(area, rename, &palette);
-                let dump = format!(
-                    "{:?}|{:?}|{:?}|{:?}",
-                    frame.buffer, frame.area, frame.buttons, frame.cursor
-                );
-                let hash = dump.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
-                    (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-                });
-                hashes.push(hash);
-            }
+        for area in [
+            Rect::new(0, 0, 106, 24),
+            Rect::new(0, 0, 44, 20),
+            Rect::new(0, 0, 38, 8),
+            Rect::new(3, 5, 106, 24),
+        ] {
+            let frame = painted_dialog(area, &palette);
+            let dump = format!(
+                "{:?}|{:?}|{:?}|{:?}",
+                frame.buffer, frame.area, frame.buttons, frame.cursor
+            );
+            let hash = dump.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+            });
+            hashes.push(hash);
         }
     }
     // Frozen from the original renderer before introducing shared components.
@@ -85,18 +73,10 @@ fn dialog_frames_keep_the_existing_cells_styles_cursor_and_hit_geometry() {
             4262189316841218858,
             11207147721042957011,
             14835894153605353102,
-            16765686734684489513,
-            16497384065344462962,
-            17879701443184892061,
-            10846760539583969711,
             10304178282581641725,
             15178525018226368883,
             2797883840851316503,
             10652650006660465643,
-            7081160382213901878,
-            14527098852265108599,
-            14696534503459803194,
-            13388634360177505542,
         ]
     );
 }
@@ -323,7 +303,7 @@ fn help_mouse_scroll_and_header_back_keep_input_local() {
 #[test]
 fn short_rename_dialog_does_not_put_the_editor_cursor_on_a_button_or_border() {
     for height in [6, 7] {
-        let frame = painted_dialog(Rect::new(0, 0, 44, height), true, &Palette::test_palette());
+        let frame = painted_dialog(Rect::new(0, 0, 44, height), &Palette::test_palette());
         assert!(
             frame.cursor.is_none(),
             "short viewport has no separate input row"

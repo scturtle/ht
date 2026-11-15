@@ -2,9 +2,7 @@ use super::*;
 
 #[test]
 fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
-    let mut config = Config::default();
-    config.ui.prompt_new_workspace_name = false;
-    config.ui.prompt_new_tab_name = true;
+    let config = Config::default();
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
@@ -18,30 +16,16 @@ fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
             row: new_tab.y,
             modifiers: KeyModifiers::empty(),
         })]);
-    assert!(open_new_tab.actions.is_empty());
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::Rename(ClientRenameOverlay {
-            target: ClientRenameTarget::NewTab { .. },
-            ..
-        }))
-    ));
+    assert!(state.overlay.is_none());
+    assert!(matches!(open_new_tab.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.action, crate::actions::Action::TabCreate(params)
+            if params.workspace_id.as_deref() == Some("ws_1") && params.label.is_none())));
 }
 
 #[test]
-fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
+fn tab_bar_renders_ellipses_and_clamps_to_useful_scroll() {
     let mut projected = snapshot();
-    projected.tab_bar_right = vec![
-        crate::protocol::ClientShellTabStatusSegment {
-            text: "ZOOM".into(),
-            accent: true,
-        },
-        crate::protocol::ClientShellTabStatusSegment {
-            text: "host".into(),
-            accent: false,
-        },
-    ];
-    projected.tab_bar_right_separator = " · ".into();
     for number in 2..=8 {
         projected.tabs.push(ClientShellTab {
             tab_id: format!("tab_{number}"),
@@ -59,37 +43,27 @@ fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
     let mut state = ClientShellState::new(config);
     state.set_snapshot(Box::new(projected));
     state.set_pane_surface(surface());
-    let frame = state.compose(80, 20).expect("status and overflow tabs");
+    let frame = state.compose(60, 20).expect("overflow tabs");
     let top = frame.cells[..frame.width as usize]
         .iter()
         .map(|cell| cell.symbol.as_str())
         .collect::<String>();
-    assert!(top.contains("ZOOM · host"));
     assert!(top.contains('…'));
 
     state.tab_scroll = usize::MAX;
     state.reveal_focused_tab = false;
-    state.compose(80, 20).expect("clamped tab scroll");
+    state.compose(60, 20).expect("clamped tab scroll");
     assert!(state.tab_scroll < 7);
     let manual_scroll = state.tab_scroll;
     let mut replacement = (**state.endpoint.snapshot.as_ref().expect("snapshot")).clone();
     replacement.revision = 2;
-    replacement.tab_bar_right[1].text = "tick".into();
     let mut replacement_surface = surface();
     replacement_surface.projection_revision = 2;
     state.set_snapshot(Box::new(replacement));
     state.set_pane_surface(replacement_surface);
     assert!(!state.reveal_focused_tab);
-    state.compose(80, 20).expect("same-width status update");
+    state.compose(60, 20).expect("same-size metadata update");
     assert_eq!(state.tab_scroll, manual_scroll);
-
-    state.compose(45, 20).expect("narrow tabs win over status");
-    let narrow = state.compose(45, 20).expect("narrow tab frame");
-    let top = narrow.cells[..narrow.width as usize]
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect::<String>();
-    assert!(!top.contains("ZOOM · host"));
 }
 
 #[test]
@@ -170,8 +144,7 @@ detach = "prefix+x"
 
 #[test]
 fn prefix_core_action_uses_typed_request_with_stable_ids() {
-    let mut config = Config::default();
-    config.ui.prompt_new_tab_name = false;
+    let config = Config::default();
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     state.set_snapshot(Box::new(snapshot()));
 
