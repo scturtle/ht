@@ -84,19 +84,8 @@ fn relay_receives_the_selected_socket_without_private_xdg_overrides() {
     }
 }
 
-fn endpoint() -> (CoreEndpoint, mpsc::Receiver<Command>) {
-    let (sender, receiver) = mpsc::sync_channel(64);
-    (
-        CoreEndpoint {
-            sender,
-            wake: Arc::default(),
-            pending: None,
-            queued: Arc::new(AtomicUsize::new(0)),
-            stopped: Arc::new(AtomicBool::new(false)),
-            error: Arc::new(Mutex::new(None)),
-        },
-        receiver,
-    )
+fn endpoint() -> (EndpointHandle, mpsc::Receiver<WorkerCommand>) {
+    EndpointHandle::channel(Default::default())
 }
 
 #[test]
@@ -149,12 +138,12 @@ fn tiny_input_bursts_are_batched_and_keep_order() {
     }
     let mut count = 0;
     let mut batches = 0;
-    while let Ok(Command::Batch(batch)) = receiver.try_recv() {
+    while let Ok(WorkerCommand::Input(batch)) = receiver.try_recv() {
         let batch = std::mem::take(&mut *batch.lock().unwrap());
         endpoint.queued.fetch_sub(batch.bytes, Ordering::AcqRel);
         for message in batch.messages {
             assert!(
-                matches!(message.message,ClientMessage::ClientShellFocus{focused} if focused==(count%2==0))
+                matches!(message,ClientMessage::ClientShellFocus{focused} if focused==(count%2==0))
             );
             count += 1;
         }
@@ -176,7 +165,7 @@ fn recovery_drain_does_not_leave_new_input_in_an_orphaned_batch() {
     endpoint
         .send(&ClientMessage::ClientShellFocus { focused: false })
         .unwrap();
-    let Command::Batch(batch) = receiver
+    let WorkerCommand::Input(batch) = receiver
         .try_recv()
         .expect("new input must enqueue a live batch after recovery")
     else {
@@ -185,7 +174,7 @@ fn recovery_drain_does_not_leave_new_input_in_an_orphaned_batch() {
     let batch = std::mem::take(&mut *batch.lock().unwrap());
     assert_eq!(batch.messages.len(), 1);
     assert!(matches!(
-        batch.messages[0].message,
+        batch.messages[0],
         ClientMessage::ClientShellFocus { focused: false }
     ));
     assert_eq!(endpoint.queued.load(Ordering::Acquire), batch.bytes);
@@ -201,12 +190,12 @@ fn input_memory_and_flush_barriers_are_bounded() {
     endpoint
         .send(&ClientMessage::ClientShellFocus { focused: false })
         .unwrap();
-    let Command::Batch(first) = receiver.recv().unwrap() else {
+    let WorkerCommand::Input(first) = receiver.recv().unwrap() else {
         panic!("first batch")
     };
     assert_eq!(first.lock().unwrap().messages.len(), 1);
-    assert!(matches!(receiver.recv().unwrap(), Command::Flush(_)));
-    let Command::Batch(last) = receiver.recv().unwrap() else {
+    assert!(matches!(receiver.recv().unwrap(), WorkerCommand::Flush(_)));
+    let WorkerCommand::Input(last) = receiver.recv().unwrap() else {
         panic!("last batch")
     };
     assert_eq!(last.lock().unwrap().messages.len(), 1);

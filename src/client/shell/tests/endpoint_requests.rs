@@ -63,20 +63,6 @@ fn request_id(actions: &[ClientShellAction]) -> &str {
     &request.id
 }
 
-struct TestTransport {
-    fail: bool,
-}
-
-impl crate::client::connection::CoreTransport for TestTransport {
-    fn send(&mut self, _: &ClientMessage) -> std::io::Result<()> {
-        if self.fail {
-            Err(std::io::ErrorKind::BrokenPipe.into())
-        } else {
-            Ok(())
-        }
-    }
-}
-
 #[test]
 fn capability_shrink_after_recovery_blocks_a_stale_close_confirmation() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
@@ -337,17 +323,18 @@ fn local_selection_does_not_need_an_endpoint_activation_event() {
 }
 
 #[test]
-fn dispatcher_cancels_requests_when_the_core_transport_fails() {
-    use crate::client::connection::CoreConnection;
+fn dispatcher_cancels_requests_when_the_endpoint_worker_fails() {
+    use crate::client::connection::EndpointConnection;
     use crate::client::endpoint_commands::EndpointCommands;
 
     {
-        let fail_send = true;
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(snapshot()));
         state.set_pane_surface(surface());
         let actions = workspace_focus_actions(&mut state, "ws_1");
-        let mut endpoints = CoreConnection::new(TestTransport { fail: fail_send }, 1);
+        let (handle, probe) = crate::client::core::test_support::endpoint();
+        probe.fail(std::io::ErrorKind::BrokenPipe.into());
+        let mut endpoints = EndpointConnection::new(handle, 1);
         let mut commands = EndpointCommands::default();
         let (replay, repaint) = crate::client::shell_runtime::dispatch_client_shell_actions(
             actions,
@@ -370,7 +357,7 @@ fn dispatcher_cancels_requests_when_the_core_transport_fails() {
 
 #[test]
 fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
-    use crate::client::connection::CoreConnection;
+    use crate::client::connection::EndpointConnection;
     use crate::client::endpoint_commands::EndpointCommands;
 
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
@@ -389,13 +376,16 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
             commands.enqueue(generation, boot_id, request);
         }
     }
-    let mut endpoints = CoreConnection::new(TestTransport { fail: false }, 2);
+    let (handle, probe) = crate::client::core::test_support::endpoint();
+    let mut endpoints = EndpointConnection::new(handle, 2);
     let cancelled = commands.send_next(&mut endpoints);
     assert_eq!(cancelled, vec![stale_id.clone()]);
     state.cancel_endpoint_request(&stale_id);
     assert!(!commands.accepts_response(1, "boot-1", &stale_id));
     assert!(commands.accepts_response(2, "boot-1", &current_id));
     assert!(state.pending_requests.contains_key(&current_id));
+    assert_eq!(probe.drain().len(), 1, "only the current request is queued");
+    drop(probe);
 }
 
 #[test]

@@ -39,7 +39,8 @@ pub fn read_frame(input: &mut impl Read) -> io::Result<Frame> {
     })
 }
 
-pub struct Core {
+/// Owns the `hc connect` stdio relay, framing, RPCs, and asynchronous I/O.
+pub struct CoreRelay {
     child: Child,
     input: FrameWriter,
     failed: bool,
@@ -145,7 +146,7 @@ fn negotiate(input: &mut impl Write, output: &mut impl Read, existing: bool) -> 
     Ok(result)
 }
 
-impl Core {
+impl CoreRelay {
     /// Explicit launch: may start a Core that is not running yet.
     pub fn connect(binary: &Path, home: &Path, socket: &Path, isolate: bool) -> io::Result<Self> {
         Self::open(
@@ -428,7 +429,7 @@ impl Core {
     }
 }
 
-impl Drop for Core {
+impl Drop for CoreRelay {
     fn drop(&mut self) {
         // Ends only this stdio relay. The server, holders and programs stay alive.
         self.disconnect();
@@ -518,7 +519,7 @@ mod tests {
         bytes[5..9].copy_from_slice(&((MAX_PAYLOAD + 1) as u32).to_le_bytes());
         assert!(read_frame(&mut bytes.as_slice()).is_err());
     }
-    pub(in crate::client::core) fn test_core(incoming: Receiver<io::Result<Frame>>) -> Core {
+    pub(in crate::client::core) fn test_core(incoming: Receiver<io::Result<Frame>>) -> CoreRelay {
         let child = crate::noninteractive_process::command(std::env::current_exe().unwrap())
             .arg("--list")
             .stdin(Stdio::null())
@@ -526,7 +527,7 @@ mod tests {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        Core {
+        CoreRelay {
             child,
             input: FrameWriter::new(io::sink()).unwrap(),
             failed: false,

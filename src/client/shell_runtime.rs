@@ -17,7 +17,7 @@ pub(super) fn install_client_shell_methods(state: &mut ClientState, methods: Vec
 pub(super) fn dispatch_client_shell_actions(
     actions: Vec<shell::ClientShellAction>,
     commands: &mut endpoint_commands::EndpointCommands,
-    endpoints: &mut connection::CoreConnection,
+    endpoints: &mut connection::EndpointConnection,
     shell: &mut shell::ClientShellState,
     children: &mut Vec<std::process::Child>,
 ) -> Result<(Vec<crossterm::event::MouseEvent>, bool), ClientError> {
@@ -90,7 +90,7 @@ pub(super) fn sync_client_shell_keyboard_report_all(
 pub(super) fn install_client_shell_snapshot(
     state: &mut ClientState,
     snapshot: Box<crate::protocol::ClientShellSnapshot>,
-    endpoints: &mut connection::CoreConnection,
+    endpoints: &mut connection::EndpointConnection,
 ) -> Result<(), ClientError> {
     let Some(generation) = endpoints.generation() else {
         return Ok(());
@@ -128,7 +128,7 @@ pub(super) fn finish_client_shell_input(
     state: &mut ClientState,
     outcome: shell::ClientShellInput,
     frame: Option<super::frame_output::ComposedFrame>,
-    endpoints: &mut connection::CoreConnection,
+    endpoints: &mut connection::EndpointConnection,
     commands: &mut endpoint_commands::EndpointCommands,
 ) -> Result<bool, ClientError> {
     if outcome.detach {
@@ -217,15 +217,9 @@ mod tests {
 
     #[test]
     fn failed_ui_send_leaves_failure_for_the_lifecycle_loop_without_retrying() {
-        struct FailedSend(Arc<AtomicU32>);
-        impl connection::CoreTransport for FailedSend {
-            fn send(&mut self, _: &ClientMessage) -> io::Result<()> {
-                self.0.fetch_add(1, Ordering::Relaxed);
-                Err(io::Error::new(io::ErrorKind::BrokenPipe, "queue closed"))
-            }
-        }
-        let sends = Arc::new(AtomicU32::new(0));
-        let mut connection = connection::CoreConnection::new(FailedSend(sends.clone()), 7);
+        let (handle, probe) = super::super::core::test_support::endpoint();
+        probe.fail(io::Error::new(io::ErrorKind::BrokenPipe, "queue closed"));
+        let mut connection = connection::EndpointConnection::new(handle, 7);
         let mut state = ClientState::test_new();
         let outcome = state.shell.handle_raw_events(vec![
             crate::raw_input::RawInputEvent::HostDefaultColor {
@@ -251,7 +245,11 @@ mod tests {
             ),
             "a send failure must follow the normal lifecycle transition"
         );
-        assert_eq!(sends.load(Ordering::Relaxed), 1);
+        assert!(!connection.is_connected());
+        assert!(
+            probe.drain().is_empty(),
+            "failed input must not be queued or replayed"
+        );
         let failure = connection.take_failure().unwrap();
         assert_eq!(failure.generation, 7);
         assert_eq!(failure.kind, io::ErrorKind::BrokenPipe);
@@ -261,18 +259,8 @@ mod tests {
 
     #[test]
     fn host_color_reaches_server_before_first_snapshot() {
-        #[derive(Clone)]
-        struct Capture(std::sync::Arc<std::sync::Mutex<Vec<ClientMessage>>>);
-
-        impl connection::CoreTransport for Capture {
-            fn send(&mut self, message: &ClientMessage) -> std::io::Result<()> {
-                self.0.lock().unwrap().push(message.clone());
-                Ok(())
-            }
-        }
-
-        let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let mut endpoints = connection::CoreConnection::new(Capture(sent.clone()), 1);
+        let (handle, probe) = super::super::core::test_support::endpoint();
+        let mut endpoints = connection::EndpointConnection::new(handle, 1);
         let mut state = ClientState::test_new();
         assert!(!state.shell.endpoint_is_online());
         let outcome = state.shell.handle_raw_events(vec![
@@ -296,7 +284,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            *sent.lock().unwrap(),
+            probe.drain(),
             vec![ClientMessage::ClientShellHostTheme {
                 update: crate::protocol::ClientHostThemeUpdate::DefaultColor {
                     kind: crate::protocol::ClientHostDefaultColorKind::Background,
@@ -324,9 +312,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            sent.lock().unwrap().len(),
-            2,
-            "theme is forwarded without waiting for a paint"
+            probe.drain().len(),
+            1,
+            "the next theme update is forwarded without waiting for a paint"
         );
+        drop(probe);
     }
 }

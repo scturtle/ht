@@ -209,7 +209,10 @@ pub fn run_core_client() -> io::Result<()> {
 /// A transport failure whose generation a live connection already replaced must not
 /// end the loop; every other failure is still fatal. Checked before the Timer work
 /// below runs so an ignored failure never skips it.
-fn failure_is_superseded(endpoints: &connection::CoreConnection, failure_generation: u64) -> bool {
+fn failure_is_superseded(
+    endpoints: &connection::EndpointConnection,
+    failure_generation: u64,
+) -> bool {
     endpoints
         .generation()
         .is_some_and(|generation| generation != failure_generation)
@@ -343,8 +346,8 @@ async fn run_client_loop(
         );
     });
 
-    let transport = core::start(initial, &event_tx).map_err(ClientError::ConnectionFailed)?;
-    let mut connection = connection::CoreConnection::new(transport, 1);
+    let endpoint = core::start(initial, &event_tx).map_err(ClientError::ConnectionFailed)?;
+    let mut connection = connection::EndpointConnection::new(endpoint, 1);
     connection.send(&ClientMessage::ClientShellFocus { focused: true });
 
     // Main event loop.

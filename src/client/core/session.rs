@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use super::{
     model::{invalid, Model},
-    transport::{Core, Frame, CLOSE, RESIZE},
+    transport::{CoreRelay, Frame, CLOSE, RESIZE},
     view::{self, Renderer, View},
 };
 use crate::layout::PaneId;
@@ -60,7 +60,7 @@ pub(super) fn client_preferences(
 }
 
 pub(in crate::client) struct Session {
-    pub core: Core,
+    pub core: CoreRelay,
     /// Launch identity/homes; a reconnect repeats the same Core home.
     options: Option<super::Options>,
     pub(super) model: Model,
@@ -171,16 +171,16 @@ impl Session {
 
     /// Reach a Core for this session's homes. Never touches client-local state,
     /// so a failed attempt leaves this session exactly as it was.
-    fn open_core(options: &super::Options, existing: bool) -> io::Result<(Core, Value)> {
+    fn open_core(options: &super::Options, existing: bool) -> io::Result<(CoreRelay, Value)> {
         let mut core = if existing {
-            Core::connect_existing(
+            CoreRelay::connect_existing(
                 &options.binary,
                 &options.home,
                 &options.socket,
                 options.isolate,
             )?
         } else {
-            Core::connect(
+            CoreRelay::connect(
                 &options.binary,
                 &options.home,
                 &options.socket,

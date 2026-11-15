@@ -3,7 +3,7 @@ use super::{
     model::{invalid, Model},
     organization::{Organization, DOCUMENT},
     session::Session,
-    transport::Core,
+    transport::CoreRelay,
 };
 use crate::protocol::ClientSurfaceSize;
 use serde_json::{json, Value};
@@ -12,9 +12,9 @@ use std::{collections::HashMap, io, path::Path};
 trait DocumentRpc {
     fn request(&mut self, method: &str, params: Value) -> io::Result<Value>;
 }
-impl DocumentRpc for Core {
+impl DocumentRpc for CoreRelay {
     fn request(&mut self, method: &str, params: Value) -> io::Result<Value> {
-        Core::request(self, method, params)
+        CoreRelay::request(self, method, params)
     }
 }
 
@@ -95,7 +95,7 @@ fn projection_boot() -> io::Result<String> {
 }
 
 pub(super) fn bootstrap(
-    core: &mut Core,
+    core: &mut CoreRelay,
     subscription: &Value,
     size: ClientSurfaceSize,
     home: &Path,

@@ -342,21 +342,16 @@ fn ioctl_cell_size_accepts_fractional_terminal_geometry() {
     assert_eq!(ioctl_cell_size(80, 24, 0, 485), None);
 }
 
-struct SilentTransport;
-
-impl connection::CoreTransport for SilentTransport {
-    fn send(&mut self, _: &crate::protocol::ClientMessage) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 #[test]
 fn only_a_failure_from_the_live_generation_ends_the_client_loop() {
-    let live = connection::CoreConnection::new(SilentTransport, 7);
+    let (handle, probe) = core::test_support::endpoint();
+    let live = connection::EndpointConnection::new(handle, 7);
     assert!(!failure_is_superseded(&live, 7));
     assert!(failure_is_superseded(&live, 6));
 
-    let mut revoked = connection::CoreConnection::new(SilentTransport, 7);
+    drop(probe);
+    let (handle, _probe) = core::test_support::endpoint();
+    let mut revoked = connection::EndpointConnection::new(handle, 7);
     revoked.fail(io::Error::new(io::ErrorKind::BrokenPipe, "lost"));
     assert!(
         !failure_is_superseded(&revoked, 7),

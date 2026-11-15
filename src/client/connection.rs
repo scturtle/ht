@@ -1,4 +1,5 @@
-//! The one Core connection of this client. Other ht clients are independent peers.
+//! The UI's endpoint lifecycle. Core relay I/O and recovery live in `client::core`.
+use super::core::EndpointHandle;
 use crate::protocol::ClientMessage;
 use std::{io, time::Instant};
 
@@ -11,16 +12,6 @@ pub(crate) enum ClientEndpointStatus {
     Reconnecting,
 }
 
-pub(crate) trait CoreTransport: Send {
-    fn send(&mut self, message: &ClientMessage) -> io::Result<()>;
-    fn disconnect(&mut self) {}
-    fn flush(&mut self, _deadline: Instant) -> io::Result<()> {
-        Ok(())
-    }
-    fn take_error(&mut self) -> Option<io::Error> {
-        None
-    }
-}
 pub(crate) struct ConnectionFailure {
     pub(crate) generation: u64,
     pub(crate) kind: io::ErrorKind,
@@ -31,39 +22,39 @@ pub(crate) enum SendOutcome {
     Sent,
     NotSent,
 }
-/// This client's sole Core transport and its connection-generation fence.
-pub(crate) struct CoreConnection {
-    transport: Option<Box<dyn CoreTransport>>,
+/// Owns the UI endpoint, revokes it on failure, and fences events by generation.
+pub(crate) struct EndpointConnection {
+    endpoint: Option<EndpointHandle>,
     generation: u64,
     failure: Option<ConnectionFailure>,
 }
-impl CoreConnection {
-    pub(crate) fn new(transport: impl CoreTransport + 'static, generation: u64) -> Self {
+impl EndpointConnection {
+    pub(super) fn new(endpoint: EndpointHandle, generation: u64) -> Self {
         Self {
-            transport: Some(Box::new(transport)),
+            endpoint: Some(endpoint),
             generation,
             failure: None,
         }
     }
     pub(crate) fn generation(&self) -> Option<u64> {
-        self.transport.as_ref().map(|_| self.generation)
+        self.endpoint.as_ref().map(|_| self.generation)
     }
     pub(crate) fn is_connected(&self) -> bool {
-        self.transport.is_some()
+        self.endpoint.is_some()
     }
     pub(crate) fn accepts(&self, generation: u64) -> bool {
         self.generation() == Some(generation)
     }
-    /// Failed sends revoke the transport and leave one failure for the lifecycle
+    /// Failed sends revoke the endpoint and leave one failure for the lifecycle
     /// loop. Callers must not bypass that transition or retry uncertain delivery.
     pub(crate) fn send(&mut self, message: &ClientMessage) -> SendOutcome {
         let result = self
-            .transport
+            .endpoint
             .as_mut()
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotConnected, "Core connection unavailable")
             })
-            .and_then(|transport| transport.send(message));
+            .and_then(|endpoint| endpoint.send(message));
         match result {
             Ok(()) => SendOutcome::Sent,
             Err(error) => {
@@ -73,11 +64,11 @@ impl CoreConnection {
         }
     }
     pub(crate) fn fail(&mut self, error: io::Error) {
-        let Some(mut transport) = self.transport.take() else {
+        let Some(mut endpoint) = self.endpoint.take() else {
             return;
         };
-        let error = transport.take_error().unwrap_or(error);
-        transport.disconnect();
+        let error = endpoint.take_error().unwrap_or(error);
+        endpoint.disconnect();
         self.failure = Some(ConnectionFailure {
             generation: self.generation,
             kind: error.kind(),
@@ -86,21 +77,21 @@ impl CoreConnection {
     }
     pub(crate) fn take_failure(&mut self) -> Option<ConnectionFailure> {
         let error = self
-            .transport
+            .endpoint
             .as_mut()
-            .and_then(|transport| transport.take_error());
+            .and_then(|endpoint| endpoint.take_error());
         if let Some(error) = error {
             self.fail(error);
         }
         self.failure.take()
     }
 }
-impl Drop for CoreConnection {
+impl Drop for EndpointConnection {
     fn drop(&mut self) {
-        if let Some(transport) = self.transport.as_mut() {
-            let _ = transport.send(&ClientMessage::Detach);
-            let _ = transport.flush(Instant::now() + std::time::Duration::from_millis(250));
-            transport.disconnect();
+        if let Some(endpoint) = self.endpoint.as_mut() {
+            let _ = endpoint.send(&ClientMessage::Detach);
+            let _ = endpoint.flush(Instant::now() + std::time::Duration::from_millis(250));
+            endpoint.disconnect();
         }
     }
 }
@@ -108,38 +99,35 @@ impl Drop for CoreConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    struct Capture(Arc<Mutex<Vec<&'static str>>>);
-    impl CoreTransport for Capture {
-        fn send(&mut self, _: &ClientMessage) -> io::Result<()> {
-            self.0.lock().unwrap().push("send");
-            Ok(())
-        }
-        fn flush(&mut self, _: Instant) -> io::Result<()> {
-            self.0.lock().unwrap().push("flush");
-            Ok(())
-        }
-        fn disconnect(&mut self) {
-            self.0.lock().unwrap().push("disconnect");
-        }
-    }
+    use crate::client::core::test_support::endpoint;
+
     #[test]
     fn stale_connection_generations_remain_fenced() {
-        let connection = CoreConnection::new(Capture(Default::default()), 7);
+        let (handle, probe) = endpoint();
+        let connection = EndpointConnection::new(handle, 7);
         assert_eq!(connection.generation(), Some(7));
         assert!(connection.accepts(7));
         assert!(!connection.accepts(6));
+        // Closing the worker queue also makes teardown non-blocking.
+        drop(probe);
     }
+
     #[test]
     fn detach_flushes_before_only_its_own_relay_is_disconnected() {
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        drop(CoreConnection::new(Capture(calls.clone()), 1));
-        assert_eq!(*calls.lock().unwrap(), ["send", "flush", "disconnect"]);
+        let (handle, probe) = endpoint();
+        let connection = EndpointConnection::new(handle, 1);
+        let worker = std::thread::spawn(move || {
+            probe.acknowledge_detach();
+            probe
+        });
+        drop(connection);
+        assert!(worker.join().unwrap().is_stopped());
     }
+
     #[test]
     fn a_failed_connection_is_revoked_once_and_cannot_receive_input() {
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let mut connection = CoreConnection::new(Capture(calls.clone()), 1);
+        let (handle, probe) = endpoint();
+        let mut connection = EndpointConnection::new(handle, 1);
         connection.fail(io::Error::new(io::ErrorKind::BrokenPipe, "lost"));
         assert!(!connection.accepts(1));
         assert_eq!(connection.generation(), None);
@@ -152,26 +140,18 @@ mod tests {
         ));
         assert!(connection.take_failure().is_none());
         drop(connection);
-        assert_eq!(*calls.lock().unwrap(), ["disconnect"]);
+        assert!(probe.is_stopped());
+        assert!(
+            probe.drain().is_empty(),
+            "revoked endpoints receive no input"
+        );
     }
 
     #[test]
     fn failed_send_preserves_the_writer_error_for_one_lifecycle_transition() {
-        struct FailedWriter(Arc<Mutex<Vec<&'static str>>>);
-        impl CoreTransport for FailedWriter {
-            fn send(&mut self, _: &ClientMessage) -> io::Result<()> {
-                self.0.lock().unwrap().push("send");
-                Err(io::Error::new(io::ErrorKind::BrokenPipe, "queue closed"))
-            }
-            fn take_error(&mut self) -> Option<io::Error> {
-                Some(io::Error::new(io::ErrorKind::TimedOut, "writer deadline"))
-            }
-            fn disconnect(&mut self) {
-                self.0.lock().unwrap().push("disconnect");
-            }
-        }
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let mut connection = CoreConnection::new(FailedWriter(calls.clone()), 7);
+        let (handle, probe) = endpoint();
+        let mut connection = EndpointConnection::new(handle, 7);
+        probe.fail(io::Error::new(io::ErrorKind::TimedOut, "writer deadline"));
         assert_eq!(
             connection.send(&ClientMessage::Detach),
             SendOutcome::NotSent
@@ -189,27 +169,14 @@ mod tests {
         assert_eq!(failure.message, "writer deadline");
         assert!(connection.take_failure().is_none());
         drop(connection);
-        assert_eq!(*calls.lock().unwrap(), ["send", "disconnect"]);
+        assert!(probe.drain().is_empty());
     }
 
     #[test]
-    fn asynchronous_transport_failure_is_revoked_and_consumed_once() {
-        struct AsyncFailure(Option<io::Error>);
-        impl CoreTransport for AsyncFailure {
-            fn send(&mut self, _: &ClientMessage) -> io::Result<()> {
-                Ok(())
-            }
-            fn take_error(&mut self) -> Option<io::Error> {
-                self.0.take()
-            }
-        }
-        let mut connection = CoreConnection::new(
-            AsyncFailure(Some(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "worker stopped",
-            ))),
-            9,
-        );
+    fn asynchronous_worker_failure_is_revoked_and_consumed_once() {
+        let (handle, probe) = endpoint();
+        let mut connection = EndpointConnection::new(handle, 9);
+        probe.fail(io::Error::new(io::ErrorKind::BrokenPipe, "worker stopped"));
         let failure = connection.take_failure().unwrap();
         assert_eq!(failure.generation, 9);
         assert_eq!(failure.kind, io::ErrorKind::BrokenPipe);

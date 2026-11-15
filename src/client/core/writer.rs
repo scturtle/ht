@@ -474,7 +474,7 @@ mod tests {
             .send(1, 0, &vec![0; 4 << 20], Duration::from_millis(50))
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-        // Kill only this test child, as Core::drop does for its stdio relay.
+        // Kill only this test child, as CoreRelay::drop does for its stdio relay.
         drop(child);
         assert_eq!(
             writer
