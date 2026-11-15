@@ -92,6 +92,11 @@ core-reconnect-smoke: build core-source-build core-ui-oracle
 core-graphics-smoke: build core-source-build core-ui-oracle
     CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/graphics-ui-smoke.py
 
+# Real icat must read PTY pixels and display an image (requires kitten).
+[unix]
+core-icat-smoke: build core-source-build
+    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/icat-ui-smoke.py
+
 # One timely image-probe answer per program, even with multiple real clients.
 [unix]
 core-image-answers-smoke: build core-source-build

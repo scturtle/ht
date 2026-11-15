@@ -161,6 +161,39 @@ Removal condition: the pinned Core offers equivalent single-winner automatic
 reply and late-probe retirement semantics, and these tests pass without it.
 This does not alter Emacs's own query timeout or promise arbitrary WAN latency.
 
+### 0007 — Linux PTY pixel geometry
+
+Base: Core `f0828f1e40fac656a5bac077e20c605d38760164`, after the listed patches.
+Touches holder RESIZE payloads, the Linux/Unix PTY implementation, viewer size
+election, runtime geometry caching and `tests/pty_pixels.rs`.
+
+The size leader's optional `display.cell` now travels to the holder with its
+grid. The holder writes total pixel width/height into `TIOCSWINSZ`, so programs
+such as `kitten icat 0.50.0` can read them with `TIOCGWINSZ`. Previously both
+pixel fields were always zero, and icat exited before uploading any image.
+
+Same-grid leadership changes and leader FACTS update pixels too. Passive and
+automatic input do not claim leadership. Unknown/zero cell sizes clear the PTY
+pixel fields; totals saturate at the kernel's 16-bit limit rather than wrapping.
+A per-live-terminal scalar cache avoids serializing holder frames on every key;
+it is invalidated on holder adoption and removed at terminal finish. The public
+client RESIZE frame stays four bytes. This patch targets this Linux-only fork.
+
+The holder JSON field is additive/defaulted: old cores omit it and old holders
+ignore it. **An old running holder cannot acquire this behavior merely by
+rebuilding Core or reconnecting a client.** Verify in a fresh private session,
+or plan an explicit Core/holder upgrade; do not kill holders with live programs.
+
+Verification: `pty_ioctl_pixels_follow_only_the_size_leader` reads the real PTY
+ioctl across attach, same-grid focus/typing, leader/passive FACTS, resize,
+observer, detach, unknown geometry and overflow. `just core-icat-smoke` runs
+the real kitten without a window-size override and checks both PTY pixels and
+host image upload/placement; requires kitten (`CORE_TUI_KITTEN` overrides its
+path). The existing graphics and image-answer gates remain separate.
+
+Removal condition: pinned Core propagates the elected cell pixels into the
+holder PTY with equivalent compatibility and arbitration tests.
+
 ### Retired on 2026-11-10 (B+ cutover)
 
 Two patches are still dropped from the bundle; their files are kept for reference
@@ -179,7 +212,7 @@ under `.local/core-only/retired-patches/` and are never applied again.
   VT over plain attach is viable without it.
 
 The current `build.py prepare` applies `0001`, `0002`, `0003`, then the independent
-`0006` image-answer patch with zero fuzz, and the prepared `hello` advertises
+`0006` image-answer and `0007` PTY-pixel patches with zero fuzz, and the prepared `hello` advertises
 `ordered_attach` + `keyboard_stacks_v1` with no attach_painted/attach_cells.
 
 ## Geometry policy: `latest`

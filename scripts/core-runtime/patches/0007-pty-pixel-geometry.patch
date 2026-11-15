@@ -1,0 +1,210 @@
+--- a/crates/herdr-core/src/holder_proto.rs
++++ b/crates/herdr-core/src/holder_proto.rs
+@@ -45,10 +45,14 @@
+     pub rows: u16,
+ }
+ 
+-#[derive(Serialize, Deserialize)]
++#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+ pub struct Size {
+     pub cols: u16,
+     pub rows: u16,
++    /// Cell pixels from the current size leader; absent means unknown.
++    /// Old holders ignore this additive field; old cores omit it.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub cell: Option<[u32; 2]>,
+ }
+ 
+ #[derive(Serialize, Deserialize)]
+--- a/crates/herdr-core/src/holder.rs
++++ b/crates/herdr-core/src/holder.rs
+@@ -249,7 +249,7 @@
+                     if let Some(t) = st.terms.get_mut(&id) {
+                         t.cols = size.cols;
+                         t.rows = size.rows;
+-                        t.pty.resize(size.cols, size.rows);
++                        t.pty.resize(size.cols, size.rows, size.cell);
+                     }
+                 }
+                 proto::SIGNAL => {
+--- a/crates/herdr-core/src/platform/unix.rs
++++ b/crates/herdr-core/src/platform/unix.rs
+@@ -737,8 +737,12 @@
+         self.reader()
+     }
+ 
+-    pub fn resize(&self, cols: u16, rows: u16) {
+-        let size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
++    pub fn resize(&self, cols: u16, rows: u16, cell: Option<[u32; 2]>) {
++        // winsize has only 16 bits per pixel dimension. Never wrap large grids.
++        let pixels = |cells: u16, px: u32| u32::from(cells).saturating_mul(px).min(u32::from(u16::MAX)) as u16;
++        let [cw, ch] = cell.filter(|[w, h]| *w > 0 && *h > 0).unwrap_or([0, 0]);
++        let size =
++            libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: pixels(cols, cw), ws_ypixel: pixels(rows, ch) };
+         unsafe { libc::ioctl(self.master.as_raw_fd(), libc::TIOCSWINSZ as _, &size) };
+     }
+ 
+--- a/crates/herdr-core/src/runtime.rs
++++ b/crates/herdr-core/src/runtime.rs
+@@ -50,6 +50,8 @@
+     pub reg: Registry,
+     pub docs: std::collections::BTreeMap<String, crate::api::DocGetResult>,
+     pub screens: HashMap<u32, Screen>,
++    /// Last geometry sent to each live holder; typing must not repeat ioctls.
++    pub pty_sizes: HashMap<u32, proto::Size>,
+     pub relays: HashMap<u32, Relay>,
+     /// One deadline per terminal; image streams replace it instead of spawning timers.
+     pub image_deadlines: HashMap<u32, (u64, tokio::time::Instant)>,
+@@ -444,6 +446,7 @@
+         let mut exited = Vec::new();
+         let mut adopted = Vec::new();
+         for h in &welcome.terminals {
++            st.pty_sizes.remove(&h.id);
+             let id = h.id;
+             if !st.reg.terminals.get(&id).is_some_and(ours) {
+                 // Spawned for a core that never recorded it: nobody can address it.
+@@ -540,8 +543,10 @@
+     /// Resize down and back so full-screen programs repaint.
+     fn nudge(&self, terminals: Vec<(u32, u16, u16)>) {
+         let send = |id, cols, rows| {
+-            if let Some(link) = self.lock().link(id) {
+-                link.send(&proto::json_frame(proto::RESIZE, id, &proto::Size { cols, rows }));
++            let st = self.lock();
++            if let Some(link) = st.link(id) {
++                let cell = st.pty_sizes.get(&id).and_then(|size| size.cell);
++                link.send(&proto::json_frame(proto::RESIZE, id, &proto::Size { cols, rows, cell }));
+             }
+         };
+         for &(id, cols, rows) in &terminals {
+@@ -770,6 +775,7 @@
+             v.conn.with(|out| out.finish(v.channel, end.to_string().as_bytes()));
+         }
+         st.relays.remove(&id);
++        st.pty_sizes.remove(&id);
+         if let Some(snapshot) = st.screens.remove(&id).and_then(|s| s.snapshot())
+             && let Err(e) = write_atomic(&self.snapshot_path(id), &snapshot)
+         {
+--- a/crates/herdr-core/src/viewers.rs
++++ b/crates/herdr-core/src/viewers.rs
+@@ -377,14 +377,14 @@
+         v.display.bg = display.bg.or(v.display.bg.take());
+         v.display.cursor = display.cursor.or(v.display.cursor.take());
+         v.display.cell = display.cell.or(v.display.cell);
+-        let display = st.viewers[&id]
++        let is_leader = st.viewers[&id]
+             .iter()
+             .filter(|v| v.size_candidate())
+             .max_by_key(|v| v.active_at)
+-            .filter(|v| Arc::ptr_eq(&v.conn, conn) && v.channel == channel)
+-            .map(|v| v.display.clone());
+-        if let Some(display) = display {
+-            self.apply_display(&mut st, id, Some(&display));
++            .is_some_and(|v| Arc::ptr_eq(&v.conn, conn) && v.channel == channel);
++        if is_leader {
++            // Facts do not claim leadership. Recompute using the existing winner.
++            self.apply_size(&mut st, id);
+         }
+     }
+ 
+@@ -433,16 +433,25 @@
+             return;
+         }
+         self.apply_display(st, id, display.as_ref());
++        if cols == 0 || rows == 0 {
++            return;
++        }
++        let size = proto::Size { cols, rows, cell: display.and_then(|d| d.cell).filter(|[w, h]| *w > 0 && *h > 0) };
++        // Same-grid focus changes and FACTS can change pixels. This scalar cache
++        // keeps the per-key activity path from sending redundant holder frames.
++        if st.pty_sizes.get(&id) != Some(&size) {
++            if let Some(link) = st.link(id) {
++                link.send(&proto::json_frame(proto::RESIZE, id, &size));
++                st.pty_sizes.insert(id, size);
++            }
++        }
+         let rec = st.reg.terminals.get_mut(&id).expect("live terminal");
+-        if (rec.cols, rec.rows) == (cols, rows) || cols == 0 || rows == 0 {
++        if (rec.cols, rec.rows) == (cols, rows) {
+             return;
+         }
+         st.screens.get_mut(&id).expect("live screen").resize(cols, rows);
+         rec.cols = cols;
+         rec.rows = rows;
+-        if let Some(link) = st.link(id) {
+-            link.send(&proto::json_frame(proto::RESIZE, id, &proto::Size { cols, rows }));
+-        }
+         let size = [cols.to_le_bytes(), rows.to_le_bytes()].concat();
+         for v in st.viewers.get_mut(&id).into_iter().flatten().filter(|v| v.resize_notifications) {
+             v.repaint_pending = true;
+--- /dev/null
++++ b/crates/herdr-core/tests/pty_pixels.rs
+@@ -0,0 +1,69 @@
++#![cfg(target_os = "linux")]
++mod common;
++
++use common::framed::Viewer;
++use common::*;
++use herdr_core::wire;
++use serde_json::json;
++
++#[test]
++fn pty_ioctl_pixels_follow_only_the_size_leader() {
++    let s = Session::new();
++    let log = s.root.join("winsize.json");
++    let program = executable(
++        &s,
++        &format!(
++            r#"#!/usr/bin/env python3
++import fcntl,json,os,struct,termios,time
++from pathlib import Path
++out=Path({log:?})
++tmp=out.with_suffix('.pending')
++os.write(1,b'PIXELS_READY')
++while True:
++    size=struct.unpack('HHHH',fcntl.ioctl(0,termios.TIOCGWINSZ,b'\0'*8))
++    tmp.write_text(json.dumps(size));tmp.replace(out)
++    time.sleep(.01)
++"#,
++            log = log.to_str().unwrap()
++        ),
++    );
++    let t = run(&s, &[&program]);
++    let expect = |rows, cols, width, height| {
++        wait_until("PTY ioctl geometry", || {
++            std::fs::read(&log).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
++                == Some(json!([rows, cols, width, height]))
++        });
++    };
++    let facts = |viewer: &mut Viewer, cell| {
++        viewer.conn.send(viewer.channel, wire::FACTS, &serde_json::to_vec(&json!({"cell": cell})).unwrap());
++        viewer.conn.call("terminal.get", json!({"terminal": t}));
++    };
++    let mut a = Viewer::attach(&s, &t, 80, 24, json!({"display":{"cell":[8,16]}}));
++    a.shows("PIXELS_READY");
++    expect(24, 80, 640, 384);
++    // Same grid, different client/cell pixels must still update the PTY.
++    let mut b = Viewer::attach(&s, &t, 80, 24, json!({"display":{"cell":[10,20]}}));
++    b.shows("PIXELS_READY");
++    expect(24, 80, 800, 480);
++    facts(&mut a, [9, 18]);
++    b.conn.send(b.channel, wire::AUTOMATIC_INPUT, b"\x1b[0n");
++    expect(24, 80, 800, 480);
++    facts(&mut b, [12, 24]);
++    expect(24, 80, 960, 576);
++    a.conn.send(a.channel, wire::FOCUS, &[1]);
++    expect(24, 80, 720, 432);
++    b.typed(b"x");
++    expect(24, 80, 960, 576);
++    b.conn.send(b.channel, wire::RESIZE, &[100, 0, 30, 0]);
++    expect(30, 100, 1200, 720);
++    facts(&mut b, [u32::MAX, u32::MAX]);
++    expect(30, 100, 65535, 65535);
++    facts(&mut b, [0, 24]);
++    expect(30, 100, 0, 0);
++    // An observer's display facts never replace a typing client's geometry.
++    let mut observer = Viewer::attach(&s, &t, 50, 10, json!({"observe":true,"display":{"cell":[2,3]}}));
++    facts(&mut observer, [3, 4]);
++    expect(30, 100, 0, 0);
++    drop(b);
++    expect(24, 80, 720, 432);
++}

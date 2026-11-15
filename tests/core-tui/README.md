@@ -49,6 +49,13 @@ the image, and the same image is never re-transmitted. Its host PTY reports cell
 pixels (8x16), because a host that reports none has no measurable placement and
 images are correctly skipped.
 
+`icat-ui-smoke.py` adds the real application's prerequisite: `TIOCGWINSZ`
+must report the pane's pixel dimensions, and ordinary `kitten icat` (without
+`--use-window-size`) must exit successfully and emit an upload and placement.
+Run `just core-icat-smoke`; requires kitten (`CORE_TUI_KITTEN` overrides its path).
+For a specific image, run `python3 tests/core-tui/icat-ui-smoke.py --image /path/to/image.png`.
+Like the graphics gate it uses only a private Core and a pixel-aware host PTY.
+
 `multiclient-ui-smoke.py` is the gate for the `latest` geometry policy: clients
 that disagree on a pane's size converge on the last interacting client's grid,
 the other side follows without misparsing and can reclaim by focusing the pane.
