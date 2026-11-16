@@ -26,10 +26,9 @@ mod raw_input;
 mod render_prof;
 mod selection;
 mod session;
+mod terminal;
 mod terminal_effects;
-mod terminal_modes;
 mod terminal_notify;
-mod terminal_theme;
 mod ui;
 
 const DEFAULT_CONFIG: &str = r##"# herdr configuration

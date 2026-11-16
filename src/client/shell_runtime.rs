@@ -80,7 +80,7 @@ pub(super) fn sync_client_shell_keyboard_report_all(
     let desired =
         state.pane_keyboard_report_all || state.shell.host_keyboard_report_all_requested();
     if desired != state.keyboard_report_all_active {
-        crate::terminal_modes::set_host_kitty_keyboard_report_all(&mut io::stdout(), desired)
+        host_terminal::set_host_kitty_keyboard_report_all(&mut io::stdout(), desired)
             .map_err(ClientError::ConnectionFailed)?;
         state.keyboard_report_all_active = desired;
         state.shell.set_host_reports_all_keys(desired);
@@ -223,12 +223,12 @@ mod tests {
         let mut state = ClientState::test_new();
         let outcome = state.shell.handle_raw_events(vec![
             crate::raw_input::RawInputEvent::HostDefaultColor {
-                kind: crate::terminal_theme::DefaultColorKind::Background,
-                color: crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 },
+                kind: crate::terminal::DefaultColorKind::Background,
+                color: crate::terminal::RgbColor { r: 1, g: 2, b: 3 },
             },
             crate::raw_input::RawInputEvent::HostDefaultColor {
-                kind: crate::terminal_theme::DefaultColorKind::Foreground,
-                color: crate::terminal_theme::RgbColor { r: 4, g: 5, b: 6 },
+                kind: crate::terminal::DefaultColorKind::Foreground,
+                color: crate::terminal::RgbColor { r: 4, g: 5, b: 6 },
             },
         ]);
         assert!(outcome.requests.len() >= 2);
@@ -265,8 +265,8 @@ mod tests {
         assert!(!state.shell.endpoint_is_online());
         let outcome = state.shell.handle_raw_events(vec![
             crate::raw_input::RawInputEvent::HostDefaultColor {
-                kind: crate::terminal_theme::DefaultColorKind::Background,
-                color: crate::terminal_theme::RgbColor {
+                kind: crate::terminal::DefaultColorKind::Background,
+                color: crate::terminal::RgbColor {
                     r: 0x11,
                     g: 0x22,
                     b: 0x33,
@@ -299,8 +299,8 @@ mod tests {
 
         let outcome = state.shell.handle_raw_events(vec![
             crate::raw_input::RawInputEvent::HostDefaultColor {
-                kind: crate::terminal_theme::DefaultColorKind::Foreground,
-                color: crate::terminal_theme::RgbColor { r: 4, g: 5, b: 6 },
+                kind: crate::terminal::DefaultColorKind::Foreground,
+                color: crate::terminal::RgbColor { r: 4, g: 5, b: 6 },
             },
         ]);
         finish_client_shell_input(

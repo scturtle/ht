@@ -82,7 +82,7 @@ pub(in crate::client) struct Session {
     _lock: Option<File>,
     events: Vec<u8>,
     seq: u64,
-    theme: crate::terminal_theme::TerminalTheme,
+    theme: crate::terminal::TerminalTheme,
     display: Value,
 }
 
@@ -514,7 +514,7 @@ impl Session {
     }
 
     pub fn theme(&mut self, update: ClientHostThemeUpdate) -> io::Result<()> {
-        use crate::terminal_theme::HostAppearance;
+        use crate::terminal::HostAppearance;
         match update {
             ClientHostThemeUpdate::DefaultColor { kind, color } => {
                 let (key, target) = match kind {

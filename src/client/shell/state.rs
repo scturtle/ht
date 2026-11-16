@@ -559,7 +559,7 @@ pub(crate) struct ClientShellState {
     pub(super) endpoint_notice_seen: HashSet<ClientEndpointNoticeKey>,
     pub(super) visible_endpoint_notice: Option<ClientVisibleEndpointNotice>,
     pub(super) outer_focused: Option<bool>,
-    pub(super) host_background: Option<crate::terminal_theme::RgbColor>,
+    pub(super) host_background: Option<crate::terminal::RgbColor>,
     pub(super) local_config_diagnostic: Option<String>,
     pub(super) config_diagnostic: Option<String>,
     pub(super) endpoint_error: Option<String>,

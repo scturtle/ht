@@ -181,6 +181,69 @@ class UiHotPathArchitectureTests(unittest.TestCase):
             + "\n".join(violations),
         )
 
+    def test_shared_terminal_module_is_pure_and_runtime_independent(self) -> None:
+        paths = [PROJECT_ROOT / "src/terminal.rs"]
+        self.assertTrue(paths[0].is_file())
+        rules = (
+            (
+                re.compile(r"\b(?:crate|super)::(?:client|pane|platform|ghostty)\b"),
+                "shared terminal data/codecs must not depend on runtime owners",
+            ),
+            (
+                re.compile(r"\b(?:std|tokio)::(?:io|fs|env|process|thread|sync|net|time)\b"),
+                "shared terminal data/codecs must not perform I/O or own runtime state",
+            ),
+        )
+        violations = find_violations(paths, rules)
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_osc_scanners_do_not_own_pane_terminal_mutation(self) -> None:
+        violations = find_violations(
+            [PROJECT_ROOT / "src/pane/osc.rs"],
+            ((re.compile(r"\bcrate::ghostty::Terminal\b"),
+              "apply terminal state in pane/terminal, not the OSC scanners"),),
+        )
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_pane_terminal_facade_keeps_runtime_implementation_in_children(self) -> None:
+        facade = PROJECT_ROOT / "src/pane/terminal.rs"
+        code = production_code(facade.read_text(encoding="utf-8"))
+        for module in ("stream", "input", "viewport", "read"):
+            self.assertRegex(code, rf"\bmod\s+{module}\s*;")
+        violations = find_violations(
+            [facade],
+            (
+                (
+                    re.compile(r"\.(?:core|key_encoder)\s*\.\s*lock\s*\("),
+                    "keep terminal locking in the focused implementation modules",
+                ),
+                (
+                    re.compile(
+                        r"\.(?:observe|scroll_viewport_\w+|screen_text_rows(?:_range)?|"
+                        r"read_(?:ansi|text)_(?:screen|viewport))\s*\("
+                    ),
+                    "keep stream parsing and screen reads out of the facade",
+                ),
+            ),
+        )
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_retained_text_algorithms_do_not_access_terminal_runtime(self) -> None:
+        violations = find_violations(
+            [PROJECT_ROOT / "src/pane/terminal/text.rs"],
+            (
+                (
+                    re.compile(r"\b(?:GhosttyPaneCore|GhosttyPaneTerminal|PaneTerminal)\b"),
+                    "retained-text algorithms must operate on captured rows, not runtime state",
+                ),
+                (
+                    re.compile(r"\.lock\s*\(|\bcrate::ghostty::Terminal\b"),
+                    "capture rows in read.rs before invoking pure text algorithms",
+                ),
+            ),
+        )
+        self.assertEqual(violations, [], "\n".join(violations))
+
     def test_scanner_ignores_non_production_references(self) -> None:
         source = '''
 // runtime.input_state()

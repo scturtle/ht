@@ -11,13 +11,13 @@ accent = "#123456"
     .unwrap();
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     let palette = state.config.palette.clone();
-    let color = crate::terminal_theme::RgbColor {
+    let color = crate::terminal::RgbColor {
         r: 255,
         g: 255,
         b: 255,
     };
     let background = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
-        kind: crate::terminal_theme::DefaultColorKind::Background,
+        kind: crate::terminal::DefaultColorKind::Background,
         color,
     }]);
     assert!(background.repaint);
@@ -29,8 +29,8 @@ accent = "#123456"
         }]
     ));
     for appearance in [
-        crate::terminal_theme::HostAppearance::Dark,
-        crate::terminal_theme::HostAppearance::Light,
+        crate::terminal::HostAppearance::Dark,
+        crate::terminal::HostAppearance::Light,
     ] {
         let update =
             state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(appearance)]);
@@ -39,7 +39,7 @@ accent = "#123456"
         assert_eq!(state.config.palette, palette);
     }
     let repeated = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
-        kind: crate::terminal_theme::DefaultColorKind::Background,
+        kind: crate::terminal::DefaultColorKind::Background,
         color,
     }]);
     assert!(!repeated.repaint);

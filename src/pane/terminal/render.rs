@@ -5,12 +5,45 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::{layout::Rect, Frame};
 use unicode_width::UnicodeWidthStr;
 
-use super::{
-    cursor_state_from_render_state, effective_cursor_state, ghostty_cell_symbol, GhosttyPaneCore,
-    GhosttyPaneTerminal,
-};
+use super::read::ghostty_cell_symbol;
+use super::viewport::{cursor_state_from_render_state, effective_cursor_state};
+use super::{GhosttyPaneCore, GhosttyPaneTerminal};
 
 impl GhosttyPaneTerminal {
+    pub fn visible_hyperlinks(&self, area: Rect) -> Vec<((u16, u16), String, String)> {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|mut core| ghostty_visible_hyperlinks(&mut core, area).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn kitty_image_placements_with_data_filter<F>(
+        &self,
+        needs_data: F,
+    ) -> Vec<crate::ghostty::KittyImagePlacement>
+    where
+        F: FnMut(crate::ghostty::KittyImageDescriptor) -> bool,
+    {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| {
+                core.terminal
+                    .kitty_image_placements_with_data_filter(needs_data)
+                    .ok()
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn kitty_image_fingerprints(&self, image_ids: &[u32]) -> Vec<Option<u64>> {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| core.terminal.kitty_image_fingerprints(image_ids).ok())
+            .unwrap_or_else(|| vec![None; image_ids.len()])
+    }
+
     pub fn render(&self, frame: &mut Frame, area: Rect, show_cursor: bool) {
         self.render_cells::<true>(frame, area, show_cursor);
     }
@@ -386,7 +419,7 @@ pub(super) fn ghostty_cell_style(
 
 pub(super) fn ghostty_default_fg(
     color: crate::ghostty::RgbColor,
-    host_theme: crate::terminal_theme::TerminalTheme,
+    host_theme: crate::terminal::TerminalTheme,
     initial_default_foreground: Option<crate::ghostty::RgbColor>,
 ) -> Option<Color> {
     if let Some(host_foreground) = host_theme.foreground {
@@ -404,7 +437,7 @@ pub(super) fn ghostty_default_fg(
 
 pub(super) fn ghostty_default_bg(
     color: crate::ghostty::RgbColor,
-    host_theme: crate::terminal_theme::TerminalTheme,
+    host_theme: crate::terminal::TerminalTheme,
     initial_default_background: Option<crate::ghostty::RgbColor>,
 ) -> Option<Color> {
     if let Some(host_background) = host_theme.background {
@@ -420,8 +453,8 @@ pub(super) fn ghostty_default_bg(
     }
 }
 
-fn terminal_theme_color(color: crate::ghostty::RgbColor) -> crate::terminal_theme::RgbColor {
-    crate::terminal_theme::RgbColor {
+fn terminal_theme_color(color: crate::ghostty::RgbColor) -> crate::terminal::RgbColor {
+    crate::terminal::RgbColor {
         r: color.r,
         g: color.g,
         b: color.b,

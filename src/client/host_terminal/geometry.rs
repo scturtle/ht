@@ -1,14 +1,16 @@
+//! Host grid/pixel sampling and resize watching, including transient-size recovery.
+
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use tracing::debug;
 
-use super::ClientLoopEvent;
+use crate::client::events::ClientLoopEvent;
 
 const DEFAULT_CELL_SIZE: (u32, u32) = (8, 16);
 
-pub(super) fn ioctl_terminal_geometry() -> Option<(u16, u16, u32, u32)> {
+pub(in crate::client) fn ioctl_terminal_geometry() -> Option<(u16, u16, u32, u32)> {
     let size = crossterm::terminal::window_size().ok()?;
     if size.columns == 0 || size.rows == 0 || size.width == 0 || size.height == 0 {
         return None;
@@ -52,7 +54,7 @@ pub(super) fn current_terminal_geometry_with(
 }
 
 /// Pixel geometry is exact only when one ioctl supplies the complete snapshot.
-pub(super) fn current_terminal_geometry(
+pub(in crate::client) fn current_terminal_geometry(
     reported_cell_size: u64,
     last_cell_size: Option<(u32, u32)>,
 ) -> io::Result<TerminalGeometry> {
@@ -69,7 +71,7 @@ pub(super) fn current_terminal_geometry(
 /// The baseline cell size must match what the handshake sent to the server:
 /// reading a fresh one here would race the host cell size reply and could
 /// swallow the first change.
-pub(super) fn resize_poll_loop(
+pub(in crate::client) fn resize_poll_loop(
     resize_tx: tokio::sync::mpsc::Sender<ClientLoopEvent>,
     initial_size: TerminalGeometry,
     reported_cell_size: &AtomicU64,
@@ -137,7 +139,7 @@ pub(super) fn resize_poll_loop_with(
     }
 }
 
-pub(super) fn store_reported_cell_size(
+pub(in crate::client) fn store_reported_cell_size(
     reported_cell_size: &AtomicU64,
     width_px: u32,
     height_px: u32,
@@ -148,7 +150,7 @@ pub(super) fn store_reported_cell_size(
     }
 }
 
-pub(super) fn reported_cell_size_from_events(
+pub(in crate::client) fn reported_cell_size_from_events(
     events: &[crate::raw_input::RawInputEvent],
 ) -> Option<(u32, u32)> {
     events.iter().rev().find_map(|event| match event {

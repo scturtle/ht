@@ -56,7 +56,7 @@ fn pasted_help_and_copy_queries_normalize_single_line_text() {
 
 #[test]
 fn client_selection_uses_host_background_and_repaints_when_it_changes() {
-    use crate::terminal_theme::{DefaultColorKind, HostAppearance, RgbColor};
+    use crate::terminal::{DefaultColorKind, HostAppearance, RgbColor};
     use ratatui::style::Color;
 
     for explicit_appearance in [false, true] {

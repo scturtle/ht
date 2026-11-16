@@ -27,10 +27,10 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
         RawInputEvent::HostDefaultColor { kind, color } => {
             Some(ClientHostThemeUpdate::DefaultColor {
                 kind: match kind {
-                    crate::terminal_theme::DefaultColorKind::Foreground => {
+                    crate::terminal::DefaultColorKind::Foreground => {
                         ClientHostDefaultColorKind::Foreground
                     }
-                    crate::terminal_theme::DefaultColorKind::Background => {
+                    crate::terminal::DefaultColorKind::Background => {
                         ClientHostDefaultColorKind::Background
                     }
                 },
@@ -45,8 +45,8 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
         )),
         RawInputEvent::HostColorSchemeChanged(appearance) => {
             Some(ClientHostThemeUpdate::Appearance(match appearance {
-                crate::terminal_theme::HostAppearance::Dark => ClientHostAppearance::Dark,
-                crate::terminal_theme::HostAppearance::Light => ClientHostAppearance::Light,
+                crate::terminal::HostAppearance::Dark => ClientHostAppearance::Dark,
+                crate::terminal::HostAppearance::Light => ClientHostAppearance::Light,
             }))
         }
         _ => None,
@@ -280,7 +280,7 @@ impl ClientShellState {
                     outcome.query_host_theme = true;
                 }
                 RawInputEvent::HostDefaultColor {
-                    kind: crate::terminal_theme::DefaultColorKind::Background,
+                    kind: crate::terminal::DefaultColorKind::Background,
                     color,
                 } => {
                     if self.host_background != Some(color) {

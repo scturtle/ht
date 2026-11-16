@@ -3,6 +3,8 @@
 
 use bytes::Bytes;
 
+use crate::terminal::osc_rgb_response;
+
 use super::{GhosttyPaneCore, GhosttyPaneTerminal};
 use crate::pane::{
     osc::{DefaultColorEvent, DefaultColorQuery, DefaultColorTrackedEvent},
@@ -223,14 +225,7 @@ fn palette_color_query_response(index: u8, core: &mut GhosttyPaneCore) -> Option
     ))
 }
 
-fn osc_rgb_response(command: &str, r: u8, g: u8, b: u8) -> Bytes {
-    let r = u16::from(r) * 257;
-    let g = u16::from(g) * 257;
-    let b = u16::from(b) * 257;
-    Bytes::from(format!("\x1b]{command};rgb:{r:04x}/{g:04x}/{b:04x}\x1b\\"))
-}
-
-fn host_theme_color_to_ghostty(color: crate::terminal_theme::RgbColor) -> crate::ghostty::RgbColor {
+fn host_theme_color_to_ghostty(color: crate::terminal::RgbColor) -> crate::ghostty::RgbColor {
     crate::ghostty::RgbColor {
         r: color.r,
         g: color.g,

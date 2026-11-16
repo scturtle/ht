@@ -414,10 +414,10 @@ impl ClientInputEvent {
                 crate::raw_input::RawInputEvent::HostDefaultColor {
                     kind: match kind {
                         ClientHostDefaultColorKind::Foreground => {
-                            crate::terminal_theme::DefaultColorKind::Foreground
+                            crate::terminal::DefaultColorKind::Foreground
                         }
                         ClientHostDefaultColorKind::Background => {
-                            crate::terminal_theme::DefaultColorKind::Background
+                            crate::terminal::DefaultColorKind::Background
                         }
                     },
                     color: (*color).into(),
@@ -539,8 +539,8 @@ pub struct ClientHostColor {
     pub b: u8,
 }
 
-impl From<crate::terminal_theme::RgbColor> for ClientHostColor {
-    fn from(color: crate::terminal_theme::RgbColor) -> Self {
+impl From<crate::terminal::RgbColor> for ClientHostColor {
+    fn from(color: crate::terminal::RgbColor) -> Self {
         Self {
             r: color.r,
             g: color.g,
@@ -549,7 +549,7 @@ impl From<crate::terminal_theme::RgbColor> for ClientHostColor {
     }
 }
 
-impl From<ClientHostColor> for crate::terminal_theme::RgbColor {
+impl From<ClientHostColor> for crate::terminal::RgbColor {
     fn from(color: ClientHostColor) -> Self {
         Self {
             r: color.r,

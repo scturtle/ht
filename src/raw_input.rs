@@ -19,9 +19,11 @@ pub(crate) fn parse_framed_input(data: &[u8]) -> Vec<RawInputEvent> {
 }
 
 use crate::input::{parse_terminal_key_sequence, TerminalKey, TextCommit};
-use crate::terminal_theme::{
-    parse_default_color_response, parse_palette_color_response, DefaultColorKind, HostAppearance,
-    RgbColor,
+use crate::terminal::{
+    parse_color_scheme_report as parse_host_color_scheme_report, parse_default_color_response,
+    parse_palette_color_response, DefaultColorKind, HostAppearance, RgbColor,
+    COLOR_SCHEME_DARK_REPORT as GHOSTTY_COLOR_SCHEME_DARK_REPORT,
+    COLOR_SCHEME_LIGHT_REPORT as GHOSTTY_COLOR_SCHEME_LIGHT_REPORT,
 };
 
 const ESC: u8 = 0x1b;
@@ -34,8 +36,6 @@ const DISAMBIGUATED_MOUSE_TAIL_FLUSH_TIMEOUT_MS: i32 = 500;
 /// Bytes already inside a sequence cannot be a key, so wait long enough for a
 /// split read over a slow link before giving up on them.
 pub(crate) const INCOMPLETE_SEQUENCE_FLUSH_TIMEOUT_MS: i32 = 500;
-pub(crate) const GHOSTTY_COLOR_SCHEME_DARK_REPORT: &[u8] = b"\x1b[?997;1n";
-pub(crate) const GHOSTTY_COLOR_SCHEME_LIGHT_REPORT: &[u8] = b"\x1b[?997;2n";
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
 
@@ -764,14 +764,6 @@ enum ControlString {
     Incomplete {
         family: ControlStringFamily,
     },
-}
-
-fn parse_host_color_scheme_report(buffer: &[u8]) -> Option<HostAppearance> {
-    match buffer {
-        GHOSTTY_COLOR_SCHEME_DARK_REPORT => Some(HostAppearance::Dark),
-        GHOSTTY_COLOR_SCHEME_LIGHT_REPORT => Some(HostAppearance::Light),
-        _ => None,
-    }
 }
 
 /// Parses an XTWINOPS cell size report (`CSI 6 ; height ; width t`) into

@@ -286,7 +286,7 @@ fn send_unix_input_chunks(
     for data in chunks {
         let palette_response = std::str::from_utf8(&data)
             .ok()
-            .and_then(crate::terminal_theme::parse_palette_color_response)
+            .and_then(crate::terminal::parse_palette_color_response)
             .is_some();
         if palette_response {
             pending_palette.push(data);
@@ -298,7 +298,7 @@ fn send_unix_input_chunks(
         }
         let default_color_response = std::str::from_utf8(&data)
             .ok()
-            .and_then(crate::terminal_theme::parse_default_color_response)
+            .and_then(crate::terminal::parse_default_color_response)
             .is_some();
         if !default_color_response && !flush_unix_palette_input(event_tx, pending_palette) {
             return false;
@@ -394,10 +394,10 @@ fn windows_client_input_event_from_raw(
         crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
             Some(crate::protocol::ClientInputEvent::HostDefaultColor {
                 kind: match kind {
-                    crate::terminal_theme::DefaultColorKind::Foreground => {
+                    crate::terminal::DefaultColorKind::Foreground => {
                         crate::protocol::ClientHostDefaultColorKind::Foreground
                     }
-                    crate::terminal_theme::DefaultColorKind::Background => {
+                    crate::terminal::DefaultColorKind::Background => {
                         crate::protocol::ClientHostDefaultColorKind::Background
                     }
                 },

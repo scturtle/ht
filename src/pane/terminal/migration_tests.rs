@@ -1,6 +1,7 @@
 //! Bounded semantic migration gates. No opaque IDs, timing, or render scheduling
 //! decisions enter this oracle. Keep the same runner for old/candidate captures.
 use super::tests::{InputState, TerminalDirtyPatchOutcome};
+use super::viewport::current_cursor_state;
 use super::*;
 use crate::protocol::CellData;
 

@@ -301,7 +301,7 @@ impl ClientShellState {
                         hit.inner_rect,
                         hit.scroll,
                         &self.config.palette,
-                        crate::terminal_theme::TerminalTheme {
+                        crate::terminal::TerminalTheme {
                             background: self.host_background,
                             ..Default::default()
                         },

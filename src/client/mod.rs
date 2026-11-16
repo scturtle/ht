@@ -13,6 +13,7 @@ mod events;
 mod frame_output;
 #[cfg(test)]
 mod frame_output_tests;
+mod host_terminal;
 mod identity;
 mod image_files;
 mod input;
@@ -21,8 +22,6 @@ mod notifications;
 mod shell;
 mod shell_runtime;
 mod state;
-mod terminal_geometry;
-mod terminal_setup;
 mod timer;
 
 use clipboard_forwarding::forward_clipboard;
@@ -32,14 +31,11 @@ use shell_runtime::*;
 use state::ClientState;
 use state::RetiredDirectGraphicsMatch;
 
-use crate::terminal_theme::{query_host_terminal_appearance, query_host_terminal_theme};
-#[cfg(test)]
-use terminal_geometry::{cell_size_fallback, current_terminal_geometry_with, pack_cell_size};
-use terminal_geometry::{current_terminal_geometry, ioctl_terminal_geometry, resize_poll_loop};
-use terminal_geometry::{reported_cell_size_from_events, store_reported_cell_size};
-use terminal_setup::{
-    effective_mouse_capture, effective_sgr_pixel_mouse, set_mouse_capture, setup_terminal,
-    TerminalGuard,
+use host_terminal::{
+    current_terminal_geometry, effective_mouse_capture, effective_sgr_pixel_mouse,
+    ioctl_terminal_geometry, query_host_terminal_appearance, query_host_terminal_theme,
+    reported_cell_size_from_events, resize_poll_loop, set_mouse_capture, setup_terminal,
+    store_reported_cell_size, TerminalGuard,
 };
 
 fn refresh_host_mouse_capture(enabled: bool, sgr_pixels: bool) {
@@ -92,7 +88,7 @@ pub fn run_core_client() -> io::Result<()> {
     crate::logging::init_file_logging("herdr-client.log");
 
     let loaded_config = crate::config::Config::load();
-    crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
+    host_terminal::clear_host_mouse_reporting(&mut io::stdout())?;
     let shell_config = shell::ClientShellConfig::from_config(&loaded_config.config)
         .with_startup_config_diagnostic(crate::config::config_diagnostic_summary(
             &loaded_config.diagnostics,
@@ -112,7 +108,7 @@ pub fn run_core_client() -> io::Result<()> {
     let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) =
         current_terminal_geometry(0, None)?;
 
-    let mut terminal_guard = setup_terminal(true).map_err(|err| {
+    let mut terminal_guard = setup_terminal().map_err(|err| {
         eprintln!("ht: failed to set up terminal: {err}");
         err
     })?;

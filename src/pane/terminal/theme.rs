@@ -5,13 +5,14 @@ use bytes::Bytes;
 use tracing::debug;
 
 use super::GhosttyPaneTerminal;
-use crate::pane::osc::{write_host_terminal_theme_selective, DefaultColorQuery};
+use crate::pane::osc::DefaultColorQuery;
+use crate::terminal::color_scheme_report;
 
 #[derive(Default)]
 pub(super) struct ThemeState {
     pub(super) initial_foreground: Option<crate::ghostty::RgbColor>,
     pub(super) initial_background: Option<crate::ghostty::RgbColor>,
-    pub(super) host: crate::terminal_theme::TerminalTheme,
+    pub(super) host: crate::terminal::TerminalTheme,
     pub(super) transient_owner_pgid: Option<u32>,
     pub(super) child_foreground_changed: bool,
     pub(super) child_background_changed: bool,
@@ -45,7 +46,7 @@ impl ThemeState {
 }
 
 impl GhosttyPaneTerminal {
-    pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
+    pub fn apply_host_terminal_theme(&self, theme: crate::terminal::TerminalTheme) {
         if let Ok(mut core) = self.core.lock() {
             let foreground_unowned = !core.theme.child_foreground_changed;
             let background_unowned = !core.theme.child_background_changed;
@@ -79,12 +80,12 @@ impl GhosttyPaneTerminal {
 
     pub fn apply_host_terminal_appearance(
         &self,
-        appearance: Option<crate::terminal_theme::HostAppearance>,
+        appearance: Option<crate::terminal::HostAppearance>,
     ) -> Option<Bytes> {
         let mut core = self.core.lock().ok()?;
         let color_scheme = appearance.map(|appearance| match appearance {
-            crate::terminal_theme::HostAppearance::Dark => crate::ghostty::ColorScheme::Dark,
-            crate::terminal_theme::HostAppearance::Light => crate::ghostty::ColorScheme::Light,
+            crate::terminal::HostAppearance::Dark => crate::ghostty::ColorScheme::Dark,
+            crate::terminal::HostAppearance::Light => crate::ghostty::ColorScheme::Light,
         });
         let previous = core.terminal.set_color_scheme(color_scheme);
 
@@ -100,6 +101,41 @@ impl GhosttyPaneTerminal {
         {
             return None;
         }
-        appearance.map(|appearance| Bytes::from_static(appearance.color_scheme_report()))
+        appearance.map(|appearance| Bytes::from_static(color_scheme_report(appearance)))
     }
+}
+
+fn write_host_terminal_theme_selective(
+    terminal: &mut crate::ghostty::Terminal,
+    theme: crate::terminal::TerminalTheme,
+    foreground: bool,
+    background: bool,
+) {
+    if foreground {
+        write_host_default_color(
+            terminal,
+            crate::terminal::DefaultColorKind::Foreground,
+            theme.foreground,
+        );
+    }
+    if background {
+        write_host_default_color(
+            terminal,
+            crate::terminal::DefaultColorKind::Background,
+            theme.background,
+        );
+    }
+}
+
+fn write_host_default_color(
+    terminal: &mut crate::ghostty::Terminal,
+    kind: crate::terminal::DefaultColorKind,
+    color: Option<crate::terminal::RgbColor>,
+) {
+    let sequence = if let Some(color) = color {
+        crate::terminal::osc_set_default_color_sequence(kind, color)
+    } else {
+        crate::terminal::osc_reset_default_color_sequence(kind).to_string()
+    };
+    terminal.write(sequence.as_bytes());
 }

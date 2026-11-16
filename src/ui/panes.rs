@@ -55,7 +55,7 @@ pub(crate) fn render_selection_highlight<P: PartialEq>(
     inner: Rect,
     scroll_metrics: Option<crate::pane::ScrollMetrics>,
     p: &Palette,
-    host_theme: crate::terminal_theme::TerminalTheme,
+    host_theme: crate::terminal::TerminalTheme,
 ) {
     let Some(selection) =
         selection.filter(|selection| selection.is_visible() && &selection.pane_id == pane_id)
@@ -74,15 +74,12 @@ pub(crate) fn render_selection_highlight<P: PartialEq>(
 
 type Rgb = (u8, u8, u8);
 
-fn automatic_selection_style(
-    p: &Palette,
-    host_theme: crate::terminal_theme::TerminalTheme,
-) -> Style {
+fn automatic_selection_style(p: &Palette, host_theme: crate::terminal::TerminalTheme) -> Style {
     let bg = automatic_selection_bg(p, host_theme);
     Style::reset().fg(selection_fg_for_bg(bg, p)).bg(bg)
 }
 
-fn automatic_selection_bg(p: &Palette, host_theme: crate::terminal_theme::TerminalTheme) -> Color {
+fn automatic_selection_bg(p: &Palette, host_theme: crate::terminal::TerminalTheme) -> Color {
     let fallback = selection_palette_background(p);
     let Some(background) = host_theme
         .background
