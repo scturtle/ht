@@ -8,66 +8,62 @@ A personal, Linux-only fork of [Herdr](https://github.com/herdrdev/herdr), using
 - The last interacting client controls a pane's size; other clients follow it.
 - Detaching leaves programs running. Copy, search and local diagnostics are built in.
 
-There is no legacy server, federation, release channel or upstream merge path.
-`ht` is the UI client; `hc` is the Core CLI, not an agent-facing `ht` API.
+## Build
 
-## Build and run
+A working installation needs **two binaries**, built independently:
 
-Requires the pinned Rust toolchain, a C toolchain, Python 3, `just` and libclang.
-The client uses Zig 0.17; Core uses Zig 0.16.0. Select them with `ZIG` and
-`HERDR_CORE_SOURCE_ZIG`, respectively.
+| Component | Sources | Zig | Output |
+|---|---|---|---|
+| Client (`ht`) | this workspace + libghostty-vt `vt-1.0.0` | 0.17.x | `target/release/ht` |
+| Core (`hc`) | herdr-core | 0.16.0 | `.local/hc/bin/herdr-core` |
+
+### 1. Prepare dependencies
+
+Install Rust 1.100.0 with clippy and rustfmt through
+[rustup](https://rustup.rs/) (`rust-toolchain.toml` pins the channel), a libclang
+shared library for bindgen (`LIBCLANG_PATH` if it is not auto-detected), and
+`just`, which drives every build recipe, plus `cargo-nextest` for `just test`,
+with `cargo install` into `~/.local/bin` kept on `PATH`.
+
+### 2. Prepare the two Zig toolchains
+
+The client uses Zig 0.17.x and Core uses Zig 0.16.0, because they vendor
+different Ghostty sources; the newer Zig cannot build Core, whose embedded
+Ghostty rejects any other minor version. Install both side by side as
+`.local/toolchain/zig/<version>/`, then point `ZIG` at the client one. Core's
+build ignores `ZIG` and always uses `.local/toolchain/zig/0.16.0/zig`, failing
+with a clear message when that file is missing.
+
+### 3. Build the client and Core
 
 ```sh
-just build                 # fetch verified libghostty-vt sources and build ht
-just core-source-build     # build the pinned, locally patched Core
-
-HERDR_CORE_BIN="$PWD/.local/core-runtime/target/release/herdr-core" \
-  ./target/release/ht
+just build        # client: fetch verified libghostty-vt sources, then build ht
+just build-core   # Core: fetch, patch, build and atomically publish herdr-core
 ```
 
-With the binaries on `PATH`, launch with `ht`. For a separate session:
+### 4. Install (optional)
+
+`just install` builds both components and symlinks `ht` and `herdr-core` into
+`~/.local/bin`.
+
+### Working directories
+
+Keep `toolchain/` (tools plus `zig/<version>/`), `core-tui/` (trial runtime home
+and personal config). Everything else rebuilds on demand: `cache/` and
+`libghostty-vt/` for the client, `hc/` for Core (`downloads/`, `work/` and the
+published `hc/bin/herdr-core`). Client Cargo outputs stay in `target/`.
+
+## Run
 
 ```sh
-env -u HC_SOCKET ht --core-home /path/to/private-home --core-session work
+HERDR_CORE_BIN="$PWD/.local/hc/bin/herdr-core" ./target/release/ht
 ```
 
-A different home alone does not isolate a session. Building does not restart or
-upgrade a running Core. See [Core runtime notes](scripts/core-runtime/README.md)
-for source pins, local patches and upgrade boundaries.
-
-## Navigation
-
-There is no persistent sidebar. Open the workspace chooser with **Ctrl+b, then w**
-(default `prefix+w`). Use arrows and Enter to select, Esc to cancel.
-**Ctrl+b, then g** opens the session navigator, with arrows or j/k to select.
-The chooser has no menu section; the navigator has no search or filters.
-Help remains available via **prefix+?**; pane diagnostics are in the pane context menu.
+With the binaries on `PATH` (via `just install`), launch with `ht`.
 
 ## Configuration
 
-Edit `~/.config/herdr/config.toml` (or `HERDR_CONFIG_PATH`); there is no settings page.
-Use `ht --default-config` for the supported options. UI colors follow the host terminal,
-with one optional override layer:
-
-```toml
-[theme.custom]
-accent = "#12ab34"
-panel_bg = "reset"
-```
-
-There are no built-in themes, light/dark overrides, auto-switching or audio alerts.
-**prefix+Shift+r** reloads live client options; startup-only options require reattaching.
-
-## Development
-
-```sh
-just test                  # unit and contract tests; requires cargo-nextest
-just check                 # formatting, clippy and tests
-just core-multiclient-smoke # real TUI against a private Core
-```
-
-Read [AGENTS.md](AGENTS.md) before changing code. Local planning notes belong in
-`.local/prd/`.
+Edit `~/.config/herdr/config.toml` (or `HERDR_CONFIG_PATH`).
 
 ## License
 

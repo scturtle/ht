@@ -81,14 +81,15 @@ would make a digest pin useless.
 
 Local patches live under `vendor/patches/libghostty-vt/` and must be indexed in
 `vendor/libghostty-vt.patches.md` with the reason, base commit, touched files,
-verification and removal condition. `just vendor-patches-test` enforces that every
+verification and removal condition. `just vendor-test` enforces that every
 patch file is indexed and still applies to the pinned tree. Never leave an
 untracked patch or an indexed patch that no longer applies.
 
-Building requires Zig 0.17.0. The pinned Core source bundle under
-`scripts/core-runtime/` still vendors a pre-1.0 libghostty snapshot and needs Zig
-0.16.0; `scripts/core-runtime/build.py` pins that toolchain separately through
-`HERDR_CORE_SOURCE_ZIG` so one `ZIG` export cannot serve both builds.
+Building requires Zig 0.17.x. The pinned Core source bundle under
+`scripts/core-runtime/` still vendors a pre-1.0 libghostty snapshot and needs
+exactly Zig 0.16.0; `scripts/core-runtime/build.py` ignores the caller's `ZIG`
+and always builds with `.local/toolchain/zig/0.16.0/zig`, so one `ZIG` export
+cannot serve both builds.
 
 ## Testing
 
@@ -108,7 +109,7 @@ just core-diagnostics-smoke    just core-scheduling-smoke
 just core-network-smoke
 ```
 
-Build the pinned Core runtime with `just core-source-build`; `source.json` lists
+Build the pinned Core runtime with `just build-core`; `source.json` lists
 the applied patches, documented in `scripts/core-runtime/README.md`.
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). New adapter
@@ -133,6 +134,7 @@ env -u HERDR_SOCKET_PATH -u HERDR_CLIENT_SOCKET_PATH cargo run -- <command>
 
 ## Local notes
 
-- Local PRDs and planning notes go under `.local/prd/` (ignored by git).
+- Local PRDs and planning notes go under `backlog/` (ignored by git);
+  `backlog/prd-archive/` keeps retired planning material.
 - The CLI surface is intentionally tiny: `--core`, `--version`, `--default-config`,
   `--help`, and `config …`. There is no agent-facing API or CLI bridge.
