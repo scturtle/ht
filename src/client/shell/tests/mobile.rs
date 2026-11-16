@@ -303,7 +303,7 @@ fn mobile_previous_workspace_action_wraps_across_expanded_entries() {
     state.compose(44, 20).expect("mobile layout");
     let mut outcome = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::PreviousWorkspace),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::PreviousWorkspace),
         &mut outcome,
     );
     assert!(outcome.actions.iter().any(|action| matches!(

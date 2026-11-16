@@ -38,13 +38,38 @@ pub(crate) enum TerminalDirtyPatchOutcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseProtocolMode {
+    None,
+    Press,
+    PressRelease,
+    ButtonMotion,
+    AnyMotion,
+}
+
+impl MouseProtocolMode {
+    pub fn reporting_enabled(self) -> bool {
+        self != Self::None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseProtocolEncoding {
+    Default,
+    Utf8,
+    Sgr,
+    SgrPixels,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputState {
     pub alternate_screen: bool,
     pub application_cursor: bool,
     pub bracketed_paste: bool,
     pub focus_reporting: bool,
-    pub mouse_protocol_mode: crate::input::MouseProtocolMode,
-    pub mouse_protocol_encoding: crate::input::MouseProtocolEncoding,
+    pub mouse_protocol_mode: MouseProtocolMode,
+    pub mouse_protocol_encoding: MouseProtocolEncoding,
     pub mouse_alternate_scroll: bool,
     #[serde(default)]
     pub modify_other_keys: bool,
@@ -442,11 +467,11 @@ impl GhosttyPaneTerminal {
         core.terminal
             .write(b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l");
         let mouse_mode_ansi: Option<&[u8]> = match input_state.mouse_protocol_mode {
-            crate::input::MouseProtocolMode::None => None,
-            crate::input::MouseProtocolMode::Press => Some(b"\x1b[?9h"),
-            crate::input::MouseProtocolMode::PressRelease => Some(b"\x1b[?1000h"),
-            crate::input::MouseProtocolMode::ButtonMotion => Some(b"\x1b[?1002h"),
-            crate::input::MouseProtocolMode::AnyMotion => Some(b"\x1b[?1003h"),
+            MouseProtocolMode::None => None,
+            MouseProtocolMode::Press => Some(b"\x1b[?9h"),
+            MouseProtocolMode::PressRelease => Some(b"\x1b[?1000h"),
+            MouseProtocolMode::ButtonMotion => Some(b"\x1b[?1002h"),
+            MouseProtocolMode::AnyMotion => Some(b"\x1b[?1003h"),
         };
         if let Some(ansi) = mouse_mode_ansi {
             core.terminal.write(ansi);
@@ -454,10 +479,10 @@ impl GhosttyPaneTerminal {
 
         core.terminal.write(b"\x1b[?1005l\x1b[?1006l\x1b[?1016l");
         let mouse_encoding_ansi: Option<&[u8]> = match input_state.mouse_protocol_encoding {
-            crate::input::MouseProtocolEncoding::Default => None,
-            crate::input::MouseProtocolEncoding::Utf8 => Some(b"\x1b[?1005h"),
-            crate::input::MouseProtocolEncoding::Sgr => Some(b"\x1b[?1006h"),
-            crate::input::MouseProtocolEncoding::SgrPixels => Some(b"\x1b[?1016h"),
+            MouseProtocolEncoding::Default => None,
+            MouseProtocolEncoding::Utf8 => Some(b"\x1b[?1005h"),
+            MouseProtocolEncoding::Sgr => Some(b"\x1b[?1006h"),
+            MouseProtocolEncoding::SgrPixels => Some(b"\x1b[?1016h"),
         };
         if let Some(ansi) = mouse_encoding_ansi {
             core.terminal.write(ansi);
@@ -548,24 +573,24 @@ impl GhosttyPaneTerminal {
             .mode_get(crate::ghostty::MODE_MOUSE_ALTERNATE_SCROLL)
             .ok()?;
         let mouse_protocol_mode = if core.terminal.mode_get(MODE_MOUSE_ANY_MOTION).ok()? {
-            crate::input::MouseProtocolMode::AnyMotion
+            MouseProtocolMode::AnyMotion
         } else if core.terminal.mode_get(MODE_MOUSE_BUTTON_MOTION).ok()? {
-            crate::input::MouseProtocolMode::ButtonMotion
+            MouseProtocolMode::ButtonMotion
         } else if core.terminal.mode_get(MODE_MOUSE_PRESS_RELEASE).ok()? {
-            crate::input::MouseProtocolMode::PressRelease
+            MouseProtocolMode::PressRelease
         } else if core.terminal.mode_get(MODE_MOUSE_X10).ok()? {
-            crate::input::MouseProtocolMode::Press
+            MouseProtocolMode::Press
         } else {
-            crate::input::MouseProtocolMode::None
+            MouseProtocolMode::None
         };
         let mouse_protocol_encoding = if mouse_sgr_pixels {
-            crate::input::MouseProtocolEncoding::SgrPixels
+            MouseProtocolEncoding::SgrPixels
         } else if mouse_sgr {
-            crate::input::MouseProtocolEncoding::Sgr
+            MouseProtocolEncoding::Sgr
         } else if mouse_utf8 {
-            crate::input::MouseProtocolEncoding::Utf8
+            MouseProtocolEncoding::Utf8
         } else {
-            crate::input::MouseProtocolEncoding::Default
+            MouseProtocolEncoding::Default
         };
         Some(InputState {
             alternate_screen,
@@ -733,8 +758,8 @@ fn plain_page_keys_host_scroll_for_shell_like_decckm_with_bracketed_paste() {
         application_cursor: true,
         bracketed_paste: true,
         focus_reporting: false,
-        mouse_protocol_mode: crate::input::MouseProtocolMode::None,
-        mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Default,
+        mouse_protocol_mode: MouseProtocolMode::None,
+        mouse_protocol_encoding: MouseProtocolEncoding::Default,
         mouse_alternate_scroll: false,
         modify_other_keys: false,
         color_scheme_reporting: false,
@@ -2280,8 +2305,8 @@ fn ghostty_seed_handoff_input_state_restores_input_modes() {
         application_cursor: true,
         bracketed_paste: true,
         focus_reporting: true,
-        mouse_protocol_mode: crate::input::MouseProtocolMode::ButtonMotion,
-        mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Sgr,
+        mouse_protocol_mode: MouseProtocolMode::ButtonMotion,
+        mouse_protocol_encoding: MouseProtocolEncoding::Sgr,
         mouse_alternate_scroll: true,
         modify_other_keys: true,
         color_scheme_reporting: true,
@@ -2294,8 +2319,8 @@ fn ghostty_seed_handoff_input_state_restores_input_modes() {
             application_cursor: true,
             bracketed_paste: true,
             focus_reporting: true,
-            mouse_protocol_mode: crate::input::MouseProtocolMode::ButtonMotion,
-            mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Sgr,
+            mouse_protocol_mode: MouseProtocolMode::ButtonMotion,
+            mouse_protocol_encoding: MouseProtocolEncoding::Sgr,
             mouse_alternate_scroll: true,
             modify_other_keys: true,
             color_scheme_reporting: true,

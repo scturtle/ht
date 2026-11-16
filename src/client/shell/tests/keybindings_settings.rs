@@ -367,7 +367,7 @@ fn help_overlay_preserves_builtin_search_and_scroll_behavior() {
     state.set_pane_surface(surface());
     let mut open = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::Help),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::Help),
         &mut open,
     );
     let initial = state.compose(106, 30).expect("help overlay");

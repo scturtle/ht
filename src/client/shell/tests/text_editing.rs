@@ -1,5 +1,6 @@
+use super::super::keybindings::{KeybindAction, KeybindMatch};
 use super::*;
-use crate::input::{KeybindAction, KeybindMatch, TerminalKey, TextCommit};
+use crate::input::{TerminalKey, TextCommit};
 
 fn shell(field: usize) -> ClientShellState {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));

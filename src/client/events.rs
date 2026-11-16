@@ -3,7 +3,7 @@ use super::*;
 /// Internal events for the client event loop.
 pub(super) enum ClientLoopEvent {
     StdinInput(Vec<u8>),
-    PixelMouse(Vec<u8>, crate::input::mouse::HostGeometry),
+    PixelMouse(Vec<u8>, crate::client::host_terminal::HostGeometry),
     DirectGraphicsResponse(direct_graphics::Response),
     Resize(u16, u16, u32, u32, bool),
     TerminalUnavailable(io::Error),

@@ -218,7 +218,7 @@ impl TextEditor {
                         content_changed = self.insert(&self.killed.clone());
                     }
                     KeyCode::Char(_) if modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
-                        if let Some(ch) = crate::input::keybind_help_text_char(key) {
+                        if let Some(ch) = key.text_char() {
                             content_changed = self.insert(&ch.to_string());
                         }
                     }

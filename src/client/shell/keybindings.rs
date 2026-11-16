@@ -1,22 +1,24 @@
+//! Pure shell action matching for direct, prefix and indexed bindings.
+
 use crossterm::event::KeyCode;
 
 use crate::config::Keybinds;
 
-use super::TerminalKey;
+use crate::input::TerminalKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum KeybindDispatch {
+pub(super) enum KeybindDispatch {
     Direct,
     Prefix,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum KeybindMatch {
+pub(super) enum KeybindMatch {
     Action(KeybindAction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum KeybindAction {
+pub(in crate::client) enum KeybindAction {
     NewWorkspace,
     RenameWorkspace,
     CloseWorkspace,
@@ -66,14 +68,14 @@ pub(crate) enum KeybindAction {
     OpenNavigator,
 }
 
-pub(crate) fn resolve_direct_binding(
+pub(super) fn resolve_direct_binding(
     keybinds: &Keybinds,
     key: &TerminalKey,
 ) -> Option<KeybindMatch> {
     resolve_exact_binding(keybinds, key, KeybindDispatch::Direct)
 }
 
-pub(crate) fn resolve_prefix_binding(
+pub(super) fn resolve_prefix_binding(
     keybinds: &Keybinds,
     key: &TerminalKey,
 ) -> Option<KeybindMatch> {
@@ -84,7 +86,7 @@ pub(crate) fn resolve_prefix_binding(
     })
 }
 
-pub(crate) fn resolve_non_indexed_action(
+pub(super) fn resolve_non_indexed_action(
     keybinds: &Keybinds,
     key: &TerminalKey,
     dispatch: KeybindDispatch,
@@ -151,7 +153,7 @@ pub(crate) fn resolve_non_indexed_action(
     None
 }
 
-pub(crate) fn resolve_indexed_action(
+pub(super) fn resolve_indexed_action(
     keybinds: &Keybinds,
     key: &TerminalKey,
     dispatch: KeybindDispatch,

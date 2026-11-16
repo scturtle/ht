@@ -30,7 +30,7 @@ fn core_config_reload_and_context_menu_only_offer_implemented_actions() {
     state.set_endpoint_methods(Some(vec![]));
     let mut outcome = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::ReloadConfig),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::ReloadConfig),
         &mut outcome,
     );
     assert!(

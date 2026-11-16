@@ -3,19 +3,19 @@ use super::*;
 impl ClientShellState {
     pub(super) fn record_binding(
         &mut self,
-        binding: crate::input::KeybindMatch,
+        binding: keybindings::KeybindMatch,
         outcome: &mut ClientShellInput,
     ) {
         match binding {
-            crate::input::KeybindMatch::Action(crate::input::KeybindAction::Detach) => {
+            keybindings::KeybindMatch::Action(keybindings::KeybindAction::Detach) => {
                 outcome.detach = true;
             }
-            crate::input::KeybindMatch::Action(action) => {
+            keybindings::KeybindMatch::Action(action) => {
                 if self.workspace_preview_action_blocked()
                     && matches!(
                         action,
-                        crate::input::KeybindAction::RenameWorkspace
-                            | crate::input::KeybindAction::CloseWorkspace
+                        keybindings::KeybindAction::RenameWorkspace
+                            | keybindings::KeybindAction::CloseWorkspace
                     )
                 {
                     self.receive_endpoint_unavailable(
@@ -25,12 +25,12 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::OpenNavigator {
+                if action == keybindings::KeybindAction::OpenNavigator {
                     self.open_navigator_overlay();
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::Help {
+                if action == keybindings::KeybindAction::Help {
                     self.overlay = Some(ClientShellOverlay::Help(ClientHelpOverlay {
                         query: TextEditor::default(),
                         search_focused: false,
@@ -39,18 +39,18 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::OpenNotificationTarget {
+                if action == keybindings::KeybindAction::OpenNotificationTarget {
                     self.focus_visible_notification(outcome);
                     return;
                 }
-                if action == crate::input::KeybindAction::ReloadConfig {
+                if action == keybindings::KeybindAction::ReloadConfig {
                     self.reload_client_config();
                     self.invalidate_pane_surface();
                     outcome.repaint = true;
                     outcome.resize = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::NewWorkspace {
+                if action == keybindings::KeybindAction::NewWorkspace {
                     self.push_endpoint_method(
                         crate::actions::Action::WorkspaceCreate(
                             crate::actions::WorkspaceCreateParams {
@@ -66,19 +66,19 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::RenameWorkspace {
+                if action == keybindings::KeybindAction::RenameWorkspace {
                     self.open_rename_workspace_overlay();
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::CloseWorkspace {
+                if action == keybindings::KeybindAction::CloseWorkspace {
                     if let Some(workspace_id) = self.workspace_action_id() {
                         self.request_workspace_close(workspace_id, None, outcome);
                     }
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::ClosePane {
+                if action == keybindings::KeybindAction::ClosePane {
                     if let Some(pane_id) = self
                         .endpoint
                         .snapshot
@@ -89,7 +89,7 @@ impl ClientShellState {
                     }
                     return;
                 }
-                if action == crate::input::KeybindAction::CloseTab {
+                if action == keybindings::KeybindAction::CloseTab {
                     if let Some(tab_id) = self
                         .endpoint
                         .snapshot
@@ -100,17 +100,17 @@ impl ClientShellState {
                     }
                     return;
                 }
-                if action == crate::input::KeybindAction::RenameTab {
+                if action == keybindings::KeybindAction::RenameTab {
                     self.open_rename_tab_overlay();
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::RenamePane {
+                if action == keybindings::KeybindAction::RenamePane {
                     self.open_rename_pane_overlay();
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::WorkspacePicker {
+                if action == keybindings::KeybindAction::WorkspacePicker {
                     self.pending_workspace_highlight = None;
                     self.mobile_switcher_scroll = 0;
                     self.reveal_mobile_workspace = false;
@@ -119,12 +119,12 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::EnterResizeMode {
+                if action == keybindings::KeybindAction::EnterResizeMode {
                     self.mode = ClientShellMode::Resize;
                     outcome.repaint = true;
                     return;
                 }
-                if action == crate::input::KeybindAction::CopyMode {
+                if action == keybindings::KeybindAction::CopyMode {
                     if self.enter_copy_mode(outcome) {
                         outcome.repaint = true;
                     }
@@ -589,14 +589,14 @@ impl ClientShellState {
 
     pub(super) fn endpoint_method_for_action(
         &mut self,
-        action: crate::input::KeybindAction,
+        action: keybindings::KeybindAction,
     ) -> Option<crate::actions::Action> {
         use crate::actions::{
             Action, PaneDirection, PaneFocusDirectionParams, PaneResizeParams, PaneSplitParams,
             PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
             TabCreateParams, TabMoveParams, TabTarget, WorkspaceTarget,
         };
-        use crate::input::KeybindAction;
+        use keybindings::KeybindAction;
 
         let snapshot = self.endpoint.snapshot.as_deref()?;
         let focused_workspace = snapshot.focused_workspace_id.clone()?;

@@ -30,7 +30,7 @@ pub(in crate::client) fn setup_terminal() -> io::Result<TerminalGuard> {
         TerminalGuard::new(),
         &mut io::stdout(),
         query_host_capabilities,
-        || crate::input::host_modify_other_keys_mode().map(|mode| mode.set_sequence()),
+        || super::modes::host_modify_other_keys_mode().map(|mode| mode.set_sequence()),
     )
 }
 

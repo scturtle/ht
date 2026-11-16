@@ -140,7 +140,7 @@ pub(crate) enum ClientShellAction {
     ClipboardWrite(Vec<u8>),
     OpenSafeWebUrl(String),
     ReplayMouse(Vec<crossterm::event::MouseEvent>),
-    Keybind(crate::input::KeybindAction),
+    Keybind(keybindings::KeybindAction),
 }
 
 #[derive(Default)]
@@ -549,7 +549,7 @@ pub(crate) struct ClientShellState {
     pub(super) pane_scroll_targets: HashMap<String, usize>,
     pub(super) copy_feedback: Option<String>,
     pub(super) copy_feedback_deadline: Option<std::time::Instant>,
-    pub(super) host_mouse_pixels: Option<crate::input::mouse::HostPixels>,
+    pub(super) host_mouse_pixels: Option<crate::client::host_terminal::HostPixels>,
     pub(super) input_leases: ClientInputLeases,
     pub(super) next_request_id: u64,
     pub(super) pending_requests: HashMap<String, PendingEndpointRequest>,

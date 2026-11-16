@@ -487,7 +487,7 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     let matches = vec![
@@ -575,7 +575,7 @@ fn pixel_host_reports_use_cells_without_target_pixel_mode_and_release_outside() 
     state.compose(106, 20).expect("composed frame");
     let pane = state.hits.panes[0].clone();
     let geometry =
-        crate::input::mouse::HostGeometry::new(106, 20, 1060, 400).expect("host geometry");
+        crate::client::host_terminal::HostGeometry::new(106, 20, 1060, 400).expect("host geometry");
     let x = u32::from(pane.inner_rect.x) * 10 + 21;
     let y = u32::from(pane.inner_rect.y) * 20 + 21;
 
@@ -705,7 +705,7 @@ fn help_overlay_uses_live_keymap_and_owns_filter_state() {
     state.set_pane_surface(surface());
     let mut open = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::Help),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::Help),
         &mut open,
     );
     let initial = state.compose(106, 30).expect("help overlay");
@@ -756,7 +756,7 @@ fn rename_pane_empty_value_is_preserved_as_a_clear_request() {
     state.set_snapshot(Box::new(snapshot));
     let mut open = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::RenamePane),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::RenamePane),
         &mut open,
     );
     assert!(state.handle_input_bytes(&[0x15]).actions.is_empty());

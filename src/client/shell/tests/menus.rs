@@ -469,15 +469,15 @@ fn global_menu_items_keep_their_fixed_order_and_actions() {
         [
             (
                 "keybinds",
-                Action::Binding(crate::input::KeybindAction::Help)
+                Action::Binding(keybindings::KeybindAction::Help)
             ),
             (
                 "reload config",
-                Action::Binding(crate::input::KeybindAction::ReloadConfig)
+                Action::Binding(keybindings::KeybindAction::ReloadConfig)
             ),
             (
                 "detach",
-                Action::Binding(crate::input::KeybindAction::Detach)
+                Action::Binding(keybindings::KeybindAction::Detach)
             ),
         ]
     );

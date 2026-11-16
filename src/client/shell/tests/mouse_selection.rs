@@ -858,7 +858,7 @@ fn pane_pixel_mouse_preserves_pane_relative_pixel_coordinates() {
     state.compose(106, 20).expect("composed frame");
     let pane = state.hits.panes[0].clone();
     let geometry =
-        crate::input::mouse::HostGeometry::new(106, 20, 1060, 400).expect("host geometry");
+        crate::client::host_terminal::HostGeometry::new(106, 20, 1060, 400).expect("host geometry");
     let x = u32::from(pane.inner_rect.x) * 10 + 21;
     let y = u32::from(pane.inner_rect.y) * 20 + 21;
     let report = format!("\x1b[<0;{x};{y}M");

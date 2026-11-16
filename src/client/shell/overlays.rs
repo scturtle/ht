@@ -455,8 +455,8 @@ fn help_lines(
 ) -> Vec<(usize, ratatui::text::Line<'static>)> {
     use ratatui::text::{Line, Span};
 
-    let groups = crate::input::filter_keybind_help_groups(
-        crate::input::keybind_help_groups(&keybinds.keybinds, &keybinds.prefix),
+    let groups = keybind_help::filter_keybind_help_groups(
+        keybind_help::keybind_help_groups(&keybinds.keybinds, &keybinds.prefix),
         query,
     );
     let key_width = groups

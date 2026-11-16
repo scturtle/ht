@@ -12,7 +12,7 @@ mod tests;
 
 pub(super) use geometry::{
     current_terminal_geometry, ioctl_terminal_geometry, reported_cell_size_from_events,
-    resize_poll_loop, store_reported_cell_size,
+    resize_poll_loop, store_reported_cell_size, HostGeometry, HostPixels,
 };
 pub(super) use modes::{
     clear_host_mouse_reporting, effective_mouse_capture, effective_sgr_pixel_mouse,

@@ -50,7 +50,7 @@ fn request_close(state: &mut ClientShellState, menu: bool) -> ClientShellInput {
     } else {
         let mut outcome = ClientShellInput::default();
         state.record_binding(
-            crate::input::KeybindMatch::Action(crate::input::KeybindAction::ClosePane),
+            keybindings::KeybindMatch::Action(keybindings::KeybindAction::ClosePane),
             &mut outcome,
         );
         outcome

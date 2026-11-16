@@ -91,7 +91,7 @@ fn unix_stdin_reader_loop(
     if !initial_host_input.is_empty() {
         let sgr_pixels = host_sgr_pixels_active.load(Ordering::Acquire);
         if sgr_pixels {
-            last_geometry = crate::input::mouse::HostGeometry::current();
+            last_geometry = crate::client::host_terminal::HostGeometry::current();
         }
         let chunks = framer.push(&initial_host_input);
         if !send_unix_input_chunks(
@@ -170,7 +170,7 @@ fn unix_stdin_reader_loop(
                 if sgr_pixels {
                     last_geometry = retain_geometry(
                         last_geometry,
-                        crate::input::mouse::HostGeometry::current(),
+                        crate::client::host_terminal::HostGeometry::current(),
                     );
                 }
                 let filtered = filter_direct_input(
@@ -281,7 +281,7 @@ fn send_unix_input_chunks(
     event_tx: &mpsc::Sender<ClientLoopEvent>,
     pending_palette: &mut Vec<Vec<u8>>,
     sgr_pixels: bool,
-    geometry: Option<crate::input::mouse::HostGeometry>,
+    geometry: Option<crate::client::host_terminal::HostGeometry>,
 ) -> bool {
     for data in chunks {
         let palette_response = std::str::from_utf8(&data)
@@ -314,16 +314,16 @@ fn send_unix_input_chunks(
 }
 
 fn retain_geometry(
-    last: Option<crate::input::mouse::HostGeometry>,
-    observed: Option<crate::input::mouse::HostGeometry>,
-) -> Option<crate::input::mouse::HostGeometry> {
+    last: Option<crate::client::host_terminal::HostGeometry>,
+    observed: Option<crate::client::host_terminal::HostGeometry>,
+) -> Option<crate::client::host_terminal::HostGeometry> {
     observed.or(last)
 }
 
 fn classify_unix_input(
     data: Vec<u8>,
     sgr_pixels: bool,
-    geometry: Option<crate::input::mouse::HostGeometry>,
+    geometry: Option<crate::client::host_terminal::HostGeometry>,
 ) -> Option<ClientLoopEvent> {
     if sgr_pixels && crate::raw_input::parse_sgr_mouse_report(&data).is_some() {
         return geometry.map(|geometry| ClientLoopEvent::PixelMouse(data, geometry));
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn pixel_mouse_classification_is_narrow_and_uses_read_geometry() {
-        let geometry = crate::input::mouse::HostGeometry::new(80, 24, 800, 480).unwrap();
+        let geometry = crate::client::host_terminal::HostGeometry::new(80, 24, 800, 480).unwrap();
         let report = b"\x1b[<35;321;241M".to_vec();
         let Some(ClientLoopEvent::PixelMouse(data, captured)) =
             classify_unix_input(report.clone(), true, Some(geometry))
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn transient_geometry_failure_keeps_last_real_value() {
-        let geometry = crate::input::mouse::HostGeometry::new(80, 24, 800, 480).unwrap();
+        let geometry = crate::client::host_terminal::HostGeometry::new(80, 24, 800, 480).unwrap();
         assert_eq!(retain_geometry(Some(geometry), None), Some(geometry));
     }
 

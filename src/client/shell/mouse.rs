@@ -1168,7 +1168,7 @@ impl ClientShellState {
                     || super::contains(self.hits.new_tab, point) =>
             {
                 self.record_binding(
-                    crate::input::KeybindMatch::Action(crate::input::KeybindAction::PreviousTab),
+                    keybindings::KeybindMatch::Action(keybindings::KeybindAction::PreviousTab),
                     outcome,
                 );
             }
@@ -1183,7 +1183,7 @@ impl ClientShellState {
                     || super::contains(self.hits.new_tab, point) =>
             {
                 self.record_binding(
-                    crate::input::KeybindMatch::Action(crate::input::KeybindAction::NextTab),
+                    keybindings::KeybindMatch::Action(keybindings::KeybindAction::NextTab),
                     outcome,
                 );
             }
@@ -1204,7 +1204,7 @@ impl ClientShellState {
                 }
                 if super::contains(self.hits.new_tab, point) {
                     self.record_binding(
-                        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewTab),
+                        keybindings::KeybindMatch::Action(keybindings::KeybindAction::NewTab),
                         outcome,
                     );
                     return;

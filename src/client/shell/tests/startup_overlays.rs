@@ -191,7 +191,7 @@ fn local_reload_keeps_key_diagnostics_and_ignores_retired_commands() {
         state.local_config_diagnostic.is_some(),
         "local key diagnostics must stay visible"
     );
-    assert!(crate::input::resolve_direct_binding(
+    assert!(keybindings::resolve_direct_binding(
         &state.config.keybinds.keybinds,
         &crate::input::TerminalKey::new(KeyCode::F(8), KeyModifiers::empty()),
     )

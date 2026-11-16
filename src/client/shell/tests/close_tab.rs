@@ -36,7 +36,7 @@ fn request_close(state: &mut ClientShellState, menu: bool) -> ClientShellInput {
     } else {
         let mut outcome = ClientShellInput::default();
         state.record_binding(
-            crate::input::KeybindMatch::Action(crate::input::KeybindAction::CloseTab),
+            keybindings::KeybindMatch::Action(keybindings::KeybindAction::CloseTab),
             &mut outcome,
         );
         outcome

@@ -197,6 +197,33 @@ class UiHotPathArchitectureTests(unittest.TestCase):
         violations = find_violations(paths, rules)
         self.assertEqual(violations, [], "\n".join(violations))
 
+    def test_shared_input_is_independent_of_host_runtime_and_shell_presentation(self) -> None:
+        paths = sorted((PROJECT_ROOT / "src/input").glob("*.rs"))
+        self.assertTrue(paths)
+        rules = (
+            (
+                re.compile(r"\b(?:crate|super)::(?:client|pane|platform|ui)\b"),
+                "shared input must not depend on runtime or presentation owners",
+            ),
+            (
+                re.compile(r"\b(?:std|tokio)::(?:io|fs|env|process|thread|sync|net|time)\b"),
+                "shared input models and parsers must not access the host runtime",
+            ),
+            (
+                re.compile(r"\bcrossterm::(?:terminal|execute|queue)\b"),
+                "query and mutate the host terminal in client/host_terminal",
+            ),
+            (
+                re.compile(
+                    r"\b(?:KeybindAction|KeybindDispatch|KeybindMatch|KeybindHelpGroup|"
+                    r"HostGeometry|HostPixels|MouseProtocolMode|MouseProtocolEncoding)\b"
+                ),
+                "keep owner-specific presentation and test types with their consumers",
+            ),
+        )
+        violations = find_violations(paths, rules)
+        self.assertEqual(violations, [], "\n".join(violations))
+
     def test_osc_scanners_do_not_own_pane_terminal_mutation(self) -> None:
         violations = find_violations(
             [PROJECT_ROOT / "src/pane/osc.rs"],

@@ -316,7 +316,7 @@ impl ClientShellState {
         }
 
         if matches!(self.overlay, Some(ClientShellOverlay::Help(_))) {
-            let text_character = crate::input::keybind_help_text_char(key);
+            let text_character = key.text_char();
             let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
             let search_focused = matches!(
                 self.overlay,

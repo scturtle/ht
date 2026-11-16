@@ -140,7 +140,7 @@ impl ClientShellState {
     pub(crate) fn handle_pixel_mouse(
         &mut self,
         data: &[u8],
-        geometry: crate::input::mouse::HostGeometry,
+        geometry: crate::client::host_terminal::HostGeometry,
     ) -> ClientShellInput {
         let Some(report) = crate::raw_input::parse_sgr_mouse_report(data) else {
             return ClientShellInput::default();
@@ -148,7 +148,7 @@ impl ClientShellState {
         let Some((column, row)) = geometry.cell(report.x, report.y) else {
             return ClientShellInput::default();
         };
-        self.host_mouse_pixels = Some(crate::input::mouse::HostPixels {
+        self.host_mouse_pixels = Some(crate::client::host_terminal::HostPixels {
             x: report.x,
             y: report.y,
             geometry,
@@ -489,7 +489,7 @@ impl ClientShellState {
         match self.mode {
             ClientShellMode::Terminal => {
                 if let Some(binding) =
-                    crate::input::resolve_direct_binding(&self.config.keybinds.keybinds, key)
+                    keybindings::resolve_direct_binding(&self.config.keybinds.keybinds, key)
                 {
                     self.record_binding(binding, outcome);
                     return None;
@@ -520,7 +520,7 @@ impl ClientShellState {
                     return None;
                 }
                 if let Some(binding) =
-                    crate::input::resolve_prefix_binding(&self.config.keybinds.keybinds, key)
+                    keybindings::resolve_prefix_binding(&self.config.keybinds.keybinds, key)
                 {
                     self.mode = return_mode;
                     outcome.repaint = true;
@@ -571,7 +571,7 @@ impl ClientShellState {
         key: &crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::input::{KeybindAction, KeybindDispatch, KeybindMatch};
+        use keybindings::{KeybindAction, KeybindDispatch, KeybindMatch};
 
         self.pending_workspace_highlight = None;
         if key.code == KeyCode::Esc || self.config.keybinds.matches_prefix(key) {
@@ -712,7 +712,7 @@ impl ClientShellState {
             return;
         }
 
-        let binding = crate::input::resolve_non_indexed_action(
+        let binding = keybindings::resolve_non_indexed_action(
             &self.config.keybinds.keybinds,
             key,
             KeybindDispatch::Prefix,
@@ -728,7 +728,7 @@ impl ClientShellState {
         })
         .map(KeybindMatch::Action)
         .or_else(|| {
-            crate::input::resolve_indexed_action(
+            keybindings::resolve_indexed_action(
                 &self.config.keybinds.keybinds,
                 key,
                 KeybindDispatch::Prefix,
@@ -750,11 +750,11 @@ impl ClientShellState {
 
     fn record_navigate_binding(
         &mut self,
-        binding: crate::input::KeybindMatch,
+        binding: keybindings::KeybindMatch,
         preserve_navigate: bool,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::input::{KeybindAction, KeybindMatch};
+        use keybindings::{KeybindAction, KeybindMatch};
 
         if !self.indexed_navigation_target_exists(&binding) {
             return;
@@ -780,9 +780,9 @@ impl ClientShellState {
 
     pub(super) fn indexed_navigation_target_exists(
         &self,
-        binding: &crate::input::KeybindMatch,
+        binding: &keybindings::KeybindMatch,
     ) -> bool {
-        use crate::input::{KeybindAction, KeybindMatch};
+        use keybindings::{KeybindAction, KeybindMatch};
 
         match binding {
             KeybindMatch::Action(KeybindAction::SwitchWorkspace(index)) => {
@@ -868,16 +868,16 @@ impl ClientShellState {
         }
 
         let action = match key.code {
-            KeyCode::Char('h') | KeyCode::Left => Some(crate::input::KeybindAction::ResizePaneLeft),
-            KeyCode::Char('j') | KeyCode::Down => Some(crate::input::KeybindAction::ResizePaneDown),
-            KeyCode::Char('k') | KeyCode::Up => Some(crate::input::KeybindAction::ResizePaneUp),
+            KeyCode::Char('h') | KeyCode::Left => Some(keybindings::KeybindAction::ResizePaneLeft),
+            KeyCode::Char('j') | KeyCode::Down => Some(keybindings::KeybindAction::ResizePaneDown),
+            KeyCode::Char('k') | KeyCode::Up => Some(keybindings::KeybindAction::ResizePaneUp),
             KeyCode::Char('l') | KeyCode::Right => {
-                Some(crate::input::KeybindAction::ResizePaneRight)
+                Some(keybindings::KeybindAction::ResizePaneRight)
             }
             _ => None,
         };
         if let Some(action) = action {
-            self.record_binding(crate::input::KeybindMatch::Action(action), outcome);
+            self.record_binding(keybindings::KeybindMatch::Action(action), outcome);
         }
     }
 

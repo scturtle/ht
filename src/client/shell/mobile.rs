@@ -978,7 +978,7 @@ impl ClientShellState {
             Some(ClientMobileTarget::NewWorkspace) => {
                 self.mobile_switcher_suspended = true;
                 self.record_binding(
-                    crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorkspace),
+                    keybindings::KeybindMatch::Action(keybindings::KeybindAction::NewWorkspace),
                     outcome,
                 );
                 None
@@ -997,7 +997,7 @@ impl ClientShellState {
             Some(ClientMobileTarget::NewTab) => {
                 self.mobile_switcher_suspended = true;
                 self.record_binding(
-                    crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewTab),
+                    keybindings::KeybindMatch::Action(keybindings::KeybindAction::NewTab),
                     outcome,
                 );
                 None

@@ -70,7 +70,7 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
 
     let mut cycle = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CyclePaneNext),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CyclePaneNext),
         &mut cycle,
     );
     let [ClientShellAction::Endpoint { request, .. }] = &cycle.actions[..] else {
@@ -89,7 +89,7 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
     state.set_snapshot(Box::new(replacement));
     let mut last = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::LastPane),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::LastPane),
         &mut last,
     );
     let [ClientShellAction::Endpoint { request, .. }] = &last.actions[..] else {
@@ -102,7 +102,7 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
 
     let mut agent = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::FocusAgent(1)),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::FocusAgent(1)),
         &mut agent,
     );
     let [ClientShellAction::Endpoint { request, .. }] = &agent.actions[..] else {
@@ -189,7 +189,7 @@ fn active_agent_view_controls_focus_indices() {
     );
     let mut focus = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::FocusAgent(0)),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::FocusAgent(0)),
         &mut focus,
     );
     assert!(matches!(
@@ -203,7 +203,7 @@ fn active_agent_view_controls_focus_indices() {
 
     let mut next = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NextAgent),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::NextAgent),
         &mut next,
     );
     assert!(matches!(
@@ -257,7 +257,7 @@ fn workspace_actions_preserve_selected_target_without_confirmation() {
     state.navigate_workspace_id = state.navigation_target("ws_2");
     let mut close = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CloseWorkspace),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CloseWorkspace),
         &mut close,
     );
     assert!(state.overlay.is_none());
@@ -419,7 +419,7 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
     );
     let mut keybind = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::OpenNotificationTarget),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::OpenNotificationTarget),
         &mut keybind,
     );
     assert!(keybind.actions.iter().any(|action| matches!(

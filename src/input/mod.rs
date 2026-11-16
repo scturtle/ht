@@ -1,23 +1,11 @@
-mod keybind_help;
-mod keybindings;
+//! Shared input events, sequence decoding and key lifecycle tracking.
+//! Host terminal I/O and shell bindings live with their client owners.
+
 mod lease;
 mod model;
 pub(crate) mod mouse;
 mod parse;
 
-pub(crate) use keybind_help::{
-    filter_keybind_help_groups, keybind_help_groups, keybind_help_text_char,
-};
-pub(crate) use keybindings::{
-    resolve_direct_binding, resolve_indexed_action, resolve_non_indexed_action,
-    resolve_prefix_binding, KeybindAction, KeybindDispatch, KeybindMatch,
-};
 pub(crate) use lease::{InputLease, InputLeaseKey, InputLeaseTable, RepeatPlan};
-pub use model::ime_compatible_keyboard_enhancement_flags;
-pub use model::WindowsKeyRecord;
-pub use model::{
-    host_modify_other_keys_mode, KeyIdentity, KeyboardProtocol, TerminalKey, TextCommit,
-};
-#[cfg(test)]
-pub use model::{MouseProtocolEncoding, MouseProtocolMode};
+pub use model::{KeyIdentity, KeyboardProtocol, TerminalKey, TextCommit, WindowsKeyRecord};
 pub use parse::parse_terminal_key_sequence;

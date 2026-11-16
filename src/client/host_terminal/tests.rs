@@ -9,8 +9,10 @@ mod geometry {
 
     use super::super::geometry::{
         cell_size_fallback, current_terminal_geometry_with, pack_cell_size, resize_poll_loop_with,
+        HostGeometry, HostPixels,
     };
     use crate::client::events::ClientLoopEvent;
+    use crate::input::mouse::Position;
 
     #[test]
     fn resize_poll_loop_reports_signals_and_geometry_changes() {
@@ -187,10 +189,69 @@ mod geometry {
         assert_eq!(cell_size_fallback(pack_cell_size(10, 0), None), (8, 16));
         assert_eq!(cell_size_fallback(pack_cell_size(0, 21), None), (8, 16));
     }
+
+    #[test]
+    fn integer_cell_pitch_ignores_trailing_pixel_remainder() {
+        let geometry = HostGeometry::new(127, 31, 1_276, 626).unwrap();
+        assert_eq!(geometry.cell(220, 1), Some((21, 0)));
+        assert_eq!(geometry.cell(221, 61), Some((22, 3)));
+        let right_pane = ratatui::layout::Rect::new(22, 3, 105, 20);
+        assert_eq!(
+            HostPixels {
+                x: 221,
+                y: 61,
+                geometry,
+            }
+            .pane_position(right_pane, 1_050, 400),
+            Some(Position::Pixels { x: 1, y: 1 })
+        );
+        assert_eq!(geometry.cell(1_270, 620), Some((126, 30)));
+        assert_eq!(
+            HostPixels {
+                x: 1_270,
+                y: 460,
+                geometry,
+            }
+            .pane_position(right_pane, 1_050, 400),
+            Some(Position::Pixels { x: 1_050, y: 400 })
+        );
+
+        let full_grid = ratatui::layout::Rect::new(0, 0, 127, 31);
+        for x in 1_271..=1_276 {
+            assert_eq!(geometry.cell(x, 1), Some((126, 0)));
+            assert_eq!(
+                HostPixels { x, y: 1, geometry }.pane_position(full_grid, 1_270, 620),
+                None
+            );
+        }
+        for y in 621..=626 {
+            assert_eq!(geometry.cell(1, y), Some((0, 30)));
+            assert_eq!(
+                HostPixels { x: 1, y, geometry }.pane_position(full_grid, 1_270, 620),
+                None
+            );
+        }
+        assert_eq!(geometry.cell(1_277, 1), None);
+        assert_eq!(geometry.cell(1, 627), None);
+    }
+
+    #[test]
+    fn geometry_rejects_outside_pixels_and_maps_cells() {
+        let geometry = HostGeometry::new(80, 24, 800, 480).unwrap();
+        assert_eq!(geometry.cell(1, 1), Some((0, 0)));
+        assert_eq!(geometry.cell(800, 480), Some((79, 23)));
+        assert_eq!(geometry.cell(801, 1), None);
+        assert_eq!(geometry.cell(0, 1), None);
+    }
 }
 
 mod modes {
-    use super::super::modes::set_host_kitty_keyboard_report_all;
+    use crossterm::event::KeyboardEnhancementFlags;
+
+    use super::super::modes::{
+        host_modify_other_keys_mode_for_env, ime_compatible_keyboard_enhancement_flags,
+        set_host_kitty_keyboard_report_all, ModifyOtherKeysMode,
+    };
 
     #[test]
     fn host_keyboard_report_all_replaces_the_current_herdr_stack_entry() {
@@ -200,6 +261,45 @@ mod modes {
         set_host_kitty_keyboard_report_all(&mut output, false).unwrap();
 
         assert_eq!(output, b"\x1b[<1u\x1b[>31u\x1b[<1u\x1b[>7u");
+    }
+
+    #[test]
+    fn keyboard_enhancement_flags_stay_ime_compatible() {
+        let flags = ime_compatible_keyboard_enhancement_flags();
+
+        assert!(flags.contains(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES));
+        assert!(flags.contains(KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
+        assert!(flags.contains(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
+        assert!(!flags.contains(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES));
+    }
+
+    #[test]
+    fn modify_other_keys_policy_uses_tmux_then_host_markers() {
+        use ModifyOtherKeysMode::{Mode1, Mode2};
+
+        for (tmux, term_program, wezterm, alacritty, expected) in [
+            (false, None, false, false, None),
+            (false, Some("unknown"), false, false, None),
+            (false, Some("WezTerm"), false, false, Some(Mode1)),
+            (false, Some("wezterm"), false, false, Some(Mode1)),
+            (false, None, true, false, Some(Mode1)),
+            (false, None, false, true, Some(Mode1)),
+            (true, None, false, false, Some(Mode2)),
+            (true, Some("WezTerm"), false, false, Some(Mode2)),
+            (true, None, true, true, Some(Mode2)),
+        ] {
+            assert_eq!(
+                host_modify_other_keys_mode_for_env(tmux, term_program, wezterm, alacritty),
+                expected,
+                "tmux={tmux}, term_program={term_program:?}, wezterm={wezterm}, alacritty={alacritty}",
+            );
+        }
+    }
+
+    #[test]
+    fn modify_other_keys_mode_sequences_are_stable() {
+        assert_eq!(ModifyOtherKeysMode::Mode1.set_sequence(), b"\x1b[>4;1m");
+        assert_eq!(ModifyOtherKeysMode::Mode2.set_sequence(), b"\x1b[>4;2m");
     }
 }
 

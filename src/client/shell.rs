@@ -16,6 +16,8 @@ pub(super) use endpoints::*;
 mod global_menu;
 mod graphics;
 mod input;
+mod keybind_help;
+mod keybindings;
 mod link_hover;
 pub(super) use link_hover::safe_web_url;
 mod local_scroll;

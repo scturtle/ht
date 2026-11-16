@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ClientGlobalMenuAction {
-    Binding(crate::input::KeybindAction),
+    Binding(keybindings::KeybindAction),
 }
 
 pub(super) fn global_menu_items() -> &'static [(&'static str, ClientGlobalMenuAction)] {
@@ -14,15 +14,15 @@ pub(super) fn global_menu_items() -> &'static [(&'static str, ClientGlobalMenuAc
 static GLOBAL_MENU_ITEMS: [(&str, ClientGlobalMenuAction); 3] = [
     (
         "keybinds",
-        ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Help),
+        ClientGlobalMenuAction::Binding(keybindings::KeybindAction::Help),
     ),
     (
         "reload config",
-        ClientGlobalMenuAction::Binding(crate::input::KeybindAction::ReloadConfig),
+        ClientGlobalMenuAction::Binding(keybindings::KeybindAction::ReloadConfig),
     ),
     (
         "detach",
-        ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach),
+        ClientGlobalMenuAction::Binding(keybindings::KeybindAction::Detach),
     ),
 ];
 
@@ -66,7 +66,7 @@ impl ClientShellState {
         self.overlay = None;
         match action {
             ClientGlobalMenuAction::Binding(binding) => {
-                self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
+                self.record_binding(keybindings::KeybindMatch::Action(binding), outcome)
             }
         }
         outcome.repaint = true;

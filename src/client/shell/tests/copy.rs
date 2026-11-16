@@ -306,7 +306,7 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
 
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     assert_eq!(state.mode, ClientShellMode::Copy);
@@ -550,7 +550,7 @@ fn keyboard_copy_mode_content_motion_is_endpoint_backed_and_stale_safe() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     let origin = state.copy_mode.as_ref().expect("copy mode").cursor;
@@ -603,7 +603,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     let origin = state.copy_mode.as_ref().expect("copy mode").cursor;
@@ -1399,7 +1399,7 @@ fn navigator_owns_mouse_selection_and_stable_target_focus() {
     state.set_pane_surface(surface());
     let mut open = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::OpenNavigator),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::OpenNavigator),
         &mut open,
     );
     let navigator = state.compose(106, 30).expect("navigator overlay");
@@ -1470,7 +1470,7 @@ fn copy_mode_survives_mouse_motion_and_parks_across_focus_changes() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
 
@@ -1591,7 +1591,7 @@ fn rapid_copy_motions_are_chained_from_the_previous_result() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     let origin = state.copy_mode.as_ref().expect("copy mode").cursor;
@@ -1642,7 +1642,7 @@ fn queued_copy_keys_preserve_prefix_order() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     let origin = state.copy_mode.as_ref().expect("copy mode").cursor;
@@ -1721,7 +1721,7 @@ fn copy_waits_for_endpoint_motion_before_copying_selection() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     state.handle_input_bytes(b"v");
@@ -1772,7 +1772,7 @@ fn new_content_revision_invalidates_copy_search_coordinates() {
     state.compose(106, 20).expect("composed frame");
     let mut enter = ClientShellInput::default();
     state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
         &mut enter,
     );
     let copy_mode = state.copy_mode.as_mut().expect("copy mode");
@@ -1842,7 +1842,7 @@ fn copy_mode_repeat_during_projection_gap_stays_active() {
         state.compose(106, 20).expect("composed frame");
         let mut enter = ClientShellInput::default();
         state.record_binding(
-            crate::input::KeybindMatch::Action(crate::input::KeybindAction::CopyMode),
+            keybindings::KeybindMatch::Action(keybindings::KeybindAction::CopyMode),
             &mut enter,
         );
         if selection_before_gap == Some(true) {

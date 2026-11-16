@@ -1,4 +1,3 @@
-use crossterm::event::KeyboardEnhancementFlags;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 
@@ -244,6 +243,30 @@ impl TerminalKey {
         }
     }
 
+    /// The character this key types, excluding command-modified shortcuts.
+    pub(crate) fn text_char(&self) -> Option<char> {
+        if !self.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
+            return None;
+        }
+        // Text the host says the key produced is authoritative: kitty hosts may
+        // report Shift+/ as `/` with text `?` and no shifted alternate.
+        if let Some(text) = self.generated_text.as_deref() {
+            let mut chars = text.chars();
+            if let (Some(character), None) = (chars.next(), chars.next()) {
+                if !character.is_control() {
+                    return Some(character);
+                }
+            }
+        }
+        if let Some(character) = self.shifted_codepoint.and_then(char::from_u32) {
+            return Some(character);
+        }
+        let KeyCode::Char(character) = self.code else {
+            return None;
+        };
+        Some(character)
+    }
+
     pub fn with_text_commit(mut self) -> Self {
         let has_text_only_modifiers = match self.code {
             KeyCode::Char(ch) if ch.is_uppercase() => {
@@ -270,58 +293,6 @@ impl From<KeyEvent> for TerminalKey {
 
 pub(crate) const KITTY_FLAG_REPORT_ALL_KEYS: u16 = 0b0000_1000;
 
-pub fn ime_compatible_keyboard_enhancement_flags() -> KeyboardEnhancementFlags {
-    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-        | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModifyOtherKeysMode {
-    Mode1,
-    Mode2,
-}
-
-impl ModifyOtherKeysMode {
-    pub fn set_sequence(self) -> &'static [u8] {
-        match self {
-            Self::Mode1 => b"\x1b[>4;1m",
-            Self::Mode2 => b"\x1b[>4;2m",
-        }
-    }
-}
-
-pub fn host_modify_other_keys_mode() -> Option<ModifyOtherKeysMode> {
-    let alacritty_window_id = false;
-
-    host_modify_other_keys_mode_for_env(
-        std::env::var("TMUX").is_ok(),
-        std::env::var("TERM_PROGRAM").ok().as_deref(),
-        std::env::var_os("WEZTERM_PANE").is_some(),
-        alacritty_window_id,
-    )
-}
-
-fn host_modify_other_keys_mode_for_env(
-    in_tmux: bool,
-    term_program: Option<&str>,
-    wezterm_pane: bool,
-    alacritty_window_id: bool,
-) -> Option<ModifyOtherKeysMode> {
-    if in_tmux {
-        return Some(ModifyOtherKeysMode::Mode2);
-    }
-
-    if wezterm_pane
-        || alacritty_window_id
-        || term_program.is_some_and(|program| program.eq_ignore_ascii_case("wezterm"))
-    {
-        return Some(ModifyOtherKeysMode::Mode1);
-    }
-
-    None
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyboardProtocol {
     Legacy,
@@ -340,35 +311,6 @@ impl KeyboardProtocol {
     pub(crate) fn reports_all_keys(self) -> bool {
         matches!(self, Self::Kitty { flags } if flags & KITTY_FLAG_REPORT_ALL_KEYS != 0)
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg(test)]
-pub enum MouseProtocolMode {
-    None,
-    Press,
-    PressRelease,
-    ButtonMotion,
-    AnyMotion,
-}
-
-#[cfg(test)]
-impl MouseProtocolMode {
-    #[cfg(test)]
-    pub fn reporting_enabled(self) -> bool {
-        self != Self::None
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg(test)]
-pub enum MouseProtocolEncoding {
-    Default,
-    Utf8,
-    Sgr,
-    SgrPixels,
 }
 
 #[cfg(test)]
@@ -484,12 +426,24 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_enhancement_flags_stay_ime_compatible() {
-        let flags = ime_compatible_keyboard_enhancement_flags();
-
-        assert!(flags.contains(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES));
-        assert!(flags.contains(KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
-        assert!(flags.contains(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
-        assert!(!flags.contains(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES));
+    fn text_char_prefers_generated_text_then_alternate_then_code() {
+        let parse = |bytes: &str| {
+            crate::input::parse_terminal_key_sequence(bytes)
+                .unwrap_or_else(|| panic!("{bytes:?} parses"))
+        };
+        for (bytes, want) in [
+            // Shift+/ typing `?` with no shifted alternate.
+            ("\x1b[47;2;63u", Some('?')),
+            ("\x1b[47u", Some('/')),
+            ("/", Some('/')),
+            // Portuguese Shift+7: alternate and text agree.
+            ("\x1b[55:47;2;47u", Some('/')),
+            ("\x1b[55:47;2u", Some('/')),
+            ("\x1b[55;2u", Some('7')),
+            ("\x1b[47;5u", None),
+            ("\x1b[47;3u", None),
+        ] {
+            assert_eq!(parse(bytes).text_char(), want, "{bytes:?}");
+        }
     }
 }

@@ -3,10 +3,62 @@
 use std::io::{self, Write};
 
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, PopKeyboardEnhancementFlags,
+    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
     PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
+
+pub(super) fn ime_compatible_keyboard_enhancement_flags() -> KeyboardEnhancementFlags {
+    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ModifyOtherKeysMode {
+    Mode1,
+    Mode2,
+}
+
+impl ModifyOtherKeysMode {
+    pub(super) fn set_sequence(self) -> &'static [u8] {
+        match self {
+            Self::Mode1 => b"\x1b[>4;1m",
+            Self::Mode2 => b"\x1b[>4;2m",
+        }
+    }
+}
+
+pub(super) fn host_modify_other_keys_mode() -> Option<ModifyOtherKeysMode> {
+    let alacritty_window_id = false;
+
+    host_modify_other_keys_mode_for_env(
+        std::env::var("TMUX").is_ok(),
+        std::env::var("TERM_PROGRAM").ok().as_deref(),
+        std::env::var_os("WEZTERM_PANE").is_some(),
+        alacritty_window_id,
+    )
+}
+
+pub(super) fn host_modify_other_keys_mode_for_env(
+    in_tmux: bool,
+    term_program: Option<&str>,
+    wezterm_pane: bool,
+    alacritty_window_id: bool,
+) -> Option<ModifyOtherKeysMode> {
+    if in_tmux {
+        return Some(ModifyOtherKeysMode::Mode2);
+    }
+
+    if wezterm_pane
+        || alacritty_window_id
+        || term_program.is_some_and(|program| program.eq_ignore_ascii_case("wezterm"))
+    {
+        return Some(ModifyOtherKeysMode::Mode1);
+    }
+
+    None
+}
 
 const DISABLE_HOST_MOUSE_REPORTING_SEQUENCE: &[u8] =
     b"\x1b[?1006l\x1b[?1016l\x1b[?1015l\x1b[?1005l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?9l";
@@ -20,7 +72,7 @@ pub(in crate::client) fn set_host_kitty_keyboard_report_all<W: Write>(
     writer: &mut W,
     report_all_keys: bool,
 ) -> io::Result<()> {
-    let mut flags = crate::input::ime_compatible_keyboard_enhancement_flags();
+    let mut flags = ime_compatible_keyboard_enhancement_flags();
     if report_all_keys {
         flags |= crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES;
         flags = crossterm::event::KeyboardEnhancementFlags::from_bits_retain(
@@ -74,7 +126,7 @@ pub(super) fn set_mouse_capture_with(
 pub(super) fn push_keyboard_enhancement_flags(writer: &mut impl Write) -> io::Result<()> {
     execute!(
         writer,
-        PushKeyboardEnhancementFlags(crate::input::ime_compatible_keyboard_enhancement_flags())
+        PushKeyboardEnhancementFlags(ime_compatible_keyboard_enhancement_flags())
     )
 }
 
