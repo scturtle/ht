@@ -59,7 +59,7 @@ Like the graphics gate it uses only a private Core and a pixel-aware host PTY.
 `multiclient-ui-smoke.py` is the gate for the `latest` geometry policy: clients
 that disagree on a pane's size converge on the last interacting client's grid,
 the other side follows without misparsing and can reclaim by focusing the pane.
-The retired paint/cells fixtures are kept under `.local/core-only/retired-tests/`.
+The retired paint/cells fixtures were removed; the recipes above are the current gates.
 
 `existing-ui-smoke.py` supplies the shared PTY driver. Its old milestone main
 function is historical and is not a current gate; use the recipes above.

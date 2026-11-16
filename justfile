@@ -6,76 +6,77 @@ python := "python3"
 vendor-libghostty:
     {{python}} scripts/fetch_libghostty_vt.py
 
-# Run tests
-test: vendor-libghostty
+# Unit and contract tests (needs cargo-nextest, see README)
+test:
     {{python}} tests/core-tui/test-harness.py
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    just ui-hot-path-architecture-test
-    just vendor-patches-test
+    just arch-test
+    just vendor-test
 
 # Enforce deterministic UI hot-path architecture boundaries
-ui-hot-path-architecture-test:
+arch-test:
     {{python}} -m unittest scripts.test_ui_hot_path_architecture
 
 # Vendored patch index must stay accurate and still apply to the pinned tree
-vendor-patches-test:
+vendor-test:
     {{python}} -m unittest scripts.test_vendor_libghostty_vt
 
 # Run one nextest filter, e.g. `just test-one codex_stale_working`
 test-one filter:
     cargo nextest run --locked "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
 
-# Pinned local Core extension, never installed and never restarts another Core.
-core-source-build:
+# Build the pinned local Core; never installs and never restarts a running Core.
+build-core:
     {{python}} scripts/core-runtime/build.py build
 
-core-source-test:
+# Core build contracts and the pinned Core's own test suite
+test-core:
     {{python}} tests/core-runtime/test-build.py
     {{python}} scripts/core-runtime/build.py test
 
 # Build the test-only ANSI oracle (no production dependency).
-core-ui-oracle:
+oracle:
     cargo build --locked --manifest-path tests/core-tui/Cargo.toml --bin screen-oracle
 
 # Focused real-TUI copy-mode gate; not full Core-only migration acceptance.
 [unix]
-core-copy-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/copy-ui-smoke.py
+core-copy-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/copy-ui-smoke.py
 
 # Local private-PTY worker idle/output/input-latency gate; optional CORE_UI_BASELINE A/B.
 [unix]
-core-scheduling-smoke: build core-source-build
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/scheduling-ui-smoke.py
+core-scheduling-smoke: build build-core
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/scheduling-ui-smoke.py
 
 # Completed-host-frame synchronized output atomicity and bounded paint timeout.
 [unix]
-core-synchronized-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/synchronized-ui-smoke.py
+core-synchronized-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/synchronized-ui-smoke.py
 
 # Private userspace RTT/jitter/fragmentation/slow-read plus relay-recovery gate.
 [unix]
-core-network-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/network-ui-smoke.py
+core-network-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/network-ui-smoke.py
 
 # Real-TUI shared organization/CAS lifecycle; not full migration acceptance.
 [unix]
-core-organization-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/organization-ui-smoke.py
+core-organization-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/organization-ui-smoke.py
 
 # First attach uses the existing root shell cwd, not its launch/client cwd.
 [unix]
-core-cwd-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/cwd-ui-smoke.py
+core-cwd-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/cwd-ui-smoke.py
 
 # Two real clients, authoritative resize ordering, leadership and copy-mode.
 [unix]
-core-multiclient-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/multiclient-ui-smoke.py
+core-multiclient-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/multiclient-ui-smoke.py
 
 # Semantic Kitty input and stack replay across intentional client replacement.
 [unix]
-core-keyboard-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/keyboard-ui-smoke.py
+core-keyboard-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/keyboard-ui-smoke.py
 
 # The launcher script must retain the caller's stdin and never retarget its Core.
 [unix]
@@ -84,56 +85,46 @@ core-launcher-test:
 
 # A lost Core connection must recover; an explicit stop must never be undone.
 [unix]
-core-reconnect-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/reconnect-ui-smoke.py
+core-reconnect-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/reconnect-ui-smoke.py
 
 # A program's Kitty image must reach the host terminal through the real TUI.
 [unix]
-core-graphics-smoke: build core-source-build core-ui-oracle
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/graphics-ui-smoke.py
+core-graphics-smoke: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/graphics-ui-smoke.py
 
 # Real icat must read PTY pixels and display an image (requires kitten).
 [unix]
-core-icat-smoke: build core-source-build
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/icat-ui-smoke.py
+core-icat-smoke: build build-core
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/icat-ui-smoke.py
 
 # One timely image-probe answer per program, even with multiple real clients.
 [unix]
-core-image-answers-smoke: build core-source-build
-    CORE_TUI_HC="$PWD/.local/core-runtime/target/release/herdr-core" {{python}} tests/core-tui/image-answers-ui-smoke.py
+core-image-answers-smoke: build build-core
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/image-answers-ui-smoke.py
 
-# Run fast local lint checks
+# Formatting and clippy without tests
 [unix]
-lint: vendor-libghostty
+lint:
     cargo fmt --check
     cargo clippy --all-targets --locked -- -D warnings
 
-# Run local checks: lint + unit tests + maintenance contract tests
-ci: vendor-libghostty lint
-    just test
+# Everything a pre-commit needs: lint, unit tests and contract tests
+check: lint test
 
-check: vendor-libghostty ci
-
-# Install repo-local git hooks
-install-hooks:
-    git config core.hooksPath .githooks
-    chmod +x .githooks/pre-commit
-    chmod +x .githooks/commit-msg
-    @echo "installed git hooks from .githooks"
-
-# Build release binary
+# Build the ht release binary (fetches the pinned libghostty-vt sources first)
 [unix]
 build: vendor-libghostty
     cargo build --release --locked
 
-# Symlink the release binaries into ~/.local/bin so `ht` and `hc` run them from anywhere.
-# `hc` is the existing alias for `herdr-core`, so replacing that link is enough.
-install: build core-source-build
+# Link the release binaries into ~/.local/bin so `ht` and `herdr-core` run from anywhere.
+# Existing `hc` aliases point at the `herdr-core` link, so they follow the rebuild.
+install: build build-core
     @mkdir -p ~/.local/bin
     @ln -sf "{{justfile_directory()}}/target/release/ht" ~/.local/bin/ht
-    @ln -sf "{{justfile_directory()}}/.local/core-runtime/target/release/herdr-core" ~/.local/bin/herdr-core
+    @ln -sf "{{justfile_directory()}}/.local/hc/bin/herdr-core" ~/.local/bin/herdr-core
     @echo "ht         -> {{justfile_directory()}}/target/release/ht"
-    @echo "herdr-core -> {{justfile_directory()}}/.local/core-runtime/target/release/herdr-core"
+    @echo "herdr-core -> {{justfile_directory()}}/.local/hc/bin/herdr-core"
     @echo "hc         -> herdr-core (existing alias)"
 
 # Non-gating full-render scaling profile for background workspaces and active panes

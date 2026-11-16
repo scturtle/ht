@@ -73,7 +73,7 @@ class SourcePreparationTests(unittest.TestCase):
         manifest_path = self.here / "source.json"
         manifest = json.loads(manifest_path.read_text())
         old_sha = manifest["core"]["sha256"]
-        downloads = self.root / ".local/core-runtime/downloads"
+        downloads = self.root / ".local/hc/downloads"
         old_archive = downloads / f"core-{old_sha}.tar.gz"
         old_bytes = old_archive.read_bytes()
         (self.root / "inputs/core/new-file").write_text("new pin\n")
@@ -93,7 +93,7 @@ class SourcePreparationTests(unittest.TestCase):
         self.assertEqual((downloads / f"core-{new_sha}.tar.gz").read_bytes(), upgraded.read_bytes())
 
     def test_matching_legacy_archive_is_reused_without_overwriting_it(self):
-        downloads = self.root / ".local/core-runtime/downloads"
+        downloads = self.root / ".local/hc/downloads"
         downloads.mkdir(parents=True)
         legacy = downloads / "core.tar.gz"
         original = self.root / "core.tar.gz"
@@ -111,7 +111,7 @@ class SourcePreparationTests(unittest.TestCase):
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
         manifest_path = self.here / "source.json"
         manifest = json.loads(manifest_path.read_text())
-        archive = self.root / ".local/core-runtime/downloads" / f"core-{manifest['core']['sha256']}.tar.gz"
+        archive = self.root / ".local/hc/downloads" / f"core-{manifest['core']['sha256']}.tar.gz"
         archive.write_bytes(b"corrupt cache")
         # Force a fresh bundle so preparation must read its archives again.
         manifest_path.write_text(manifest_path.read_text() + "\n")

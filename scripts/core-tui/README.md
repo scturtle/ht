@@ -339,8 +339,8 @@ Core 使用独立 runtime dir，不自动配置 systemd/linger；不承诺注销
 直接使用构建好的二进制时：
 
 ```sh
-just core-source-build
-HERDR_CORE_BIN="$PWD/.local/core-runtime/target/release/herdr-core" \
+just build-core
+HERDR_CORE_BIN="$PWD/.local/hc/bin/herdr-core" \
   target/release/ht --core-home /absolute/path/to/a-private-core-home --core-session private-demo
 ```
 
@@ -364,7 +364,7 @@ bash scripts/core-tui/run.sh --stop
 ### 验证入口与当前证据
 
 ```sh
-just core-source-test
+just test-core
 just core-copy-smoke
 just core-organization-smoke
 just core-multiclient-smoke

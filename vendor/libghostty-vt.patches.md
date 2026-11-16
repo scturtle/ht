@@ -48,7 +48,7 @@ verification:
 just test-one modify_other_keys
 just test-one host_report_all_supplies_printable_releases_for_event_type_only_panes
 just maintenance-test
-just ui-hot-path-architecture-test
+just arch-test
 ```
 
 The former grapheme-default patch is replaced by upstream's public
@@ -334,6 +334,6 @@ verification:
 # Run in that copy, never mutate the pristine fetched tree or Core sources.
 zig build test-lib-vt -Doptimize=ReleaseSafe -Dtest-filter=PageList -Dtest-filter=setScrollback -Dtest-filter=snapshot
 just test-one scrollback
-just vendor-patches-test
+just vendor-test
 just check
 ```

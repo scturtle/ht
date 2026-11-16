@@ -7,8 +7,8 @@ release or an installation/update tool. The upstream package version still says
 number alone, to distinguish builds.
 
 ```sh
-just core-source-build
-just core-source-test
+just build-core
+just test-core
 ```
 
 `source.json` pins both Core and its Ghostty submodule by commit, archive URL and
@@ -18,9 +18,10 @@ refuses to replace edited prepared sources. Inputs are source-reproducible;
 binaries are not promised bit-identical across different toolchains. Use the
 project's Rust toolchain and Zig 0.16.0.
 
-- Prepared sources: `.local/core-runtime/prepared/<bundle-id>/`
-- Per-bundle Cargo/native artifacts: `.local/core-runtime/artifacts/<bundle-id>/`
-- Atomically published executable: `.local/core-runtime/target/release/herdr-core`
+- Downloaded archives: `.local/hc/downloads/`
+- Prepared sources: `.local/hc/work/prepared/<bundle-id>/`
+- Per-bundle Cargo/native artifacts: `.local/hc/work/artifacts/<bundle-id>/`
+- Atomically published executable: `.local/hc/bin/herdr-core`
 
 Downloaded archives are keyed by their pinned SHA-256, so upgrading a pin keeps
 previous downloads and prepared bundles available rather than replacing them.
@@ -196,8 +197,9 @@ holder PTY with equivalent compatibility and arbitration tests.
 
 ### Retired on 2026-11-10 (B+ cutover)
 
-Two patches are still dropped from the bundle; their files are kept for reference
-under `.local/core-only/retired-patches/` and are never applied again.
+Two patches are still dropped from the bundle: they are not listed in
+`source.json`, so `prepare` never applies them. The full rationale stays here so
+they are never reintroduced without a new entry.
 
 - **0004 — paint-completion boundaries** (`paint_barriers_v1`,
   `terminal.attach_painted`). The client accepted two consequences instead:

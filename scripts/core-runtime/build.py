@@ -14,13 +14,13 @@ import urllib.request
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-CACHE = ROOT / ".local/core-runtime"
+# Everything this script downloads, prepares and publishes lives under .local/hc.
+CACHE = ROOT / ".local/hc"
 
-# The pinned Core bundle vendors libghostty-vt from before 1.0 and still needs
-# Zig 0.16. Herdr's own vendored tree is on 1.0, which needs 0.17. Keep the two
-# toolchains apart instead of letting one ZIG export serve both.
-CORE_ZIG_ENV = "HERDR_CORE_SOURCE_ZIG"
-DEFAULT_CORE_ZIG = ROOT / ".local/toolchain/zig-py/ziglang/zig"
+# The pinned Core bundle vendors libghostty-vt from before 1.0 and needs exactly
+# Zig 0.16; Herdr's own vendored tree is on 1.0 and needs 0.17. Core therefore
+# ignores the caller's ZIG and always uses the sibling 0.16 checkout.
+CORE_ZIG = ROOT / ".local/toolchain/zig/0.16.0/zig"
 
 
 def digest(path):
@@ -88,7 +88,7 @@ def prepare():
     for path in patches:
         bundle.update(path.read_bytes())
     bundle = bundle.hexdigest()
-    builds = CACHE / "prepared"
+    builds = CACHE / "work" / "prepared"
     builds.mkdir(parents=True, exist_ok=True)
     source = builds / bundle[:20]
     stamp = source / ".core-source.json"
@@ -130,18 +130,17 @@ def main():
     # Cargo build scripts do not necessarily fingerprint an external Ghostty
     # tree when the workspace path changes. Never reuse native artifacts from
     # another patched source bundle (even when crate versions are unchanged).
-    target = CACHE / "artifacts" / source.name
+    target = CACHE / "work" / "artifacts" / source.name
     env["CARGO_TARGET_DIR"] = str(target)
-    # The Core source bundle vendors its own libghostty snapshot, which still
-    # needs Zig 0.16. Herdr's own vendored tree is on 1.0 and needs 0.17, so the
-    # two builds must not share whichever ZIG the caller exported.
-    core_zig = os.environ.get(CORE_ZIG_ENV)
-    if core_zig:
-        env["ZIG"] = core_zig
-    elif DEFAULT_CORE_ZIG.exists():
-        env["ZIG"] = str(DEFAULT_CORE_ZIG)
-    else:
-        env.pop("ZIG", None)
+    # Core's embedded Ghostty rejects any other minor Zig version, and the
+    # caller's ZIG is meant for the client. Never fall back to PATH: a 0.17 there
+    # would fail deep inside the build instead of here.
+    if not CORE_ZIG.exists():
+        raise RuntimeError(
+            f"Core needs Zig 0.16 at {CORE_ZIG}; install it there "
+            "(see README) or the build cannot run"
+        )
+    env["ZIG"] = str(CORE_ZIG)
     command = ["cargo", "build" if args.action == "build" else "test", "--locked"]
     if args.action == "build":
         command += ["-p", "herdr-core"]
@@ -153,7 +152,7 @@ def main():
     if args.action == "build":
         profile = "debug" if args.debug else "release"
         name = "herdr-core.exe" if os.name == "nt" else "herdr-core"
-        output = CACHE / "target" / profile / name
+        output = CACHE / "bin" / name
         output.parent.mkdir(parents=True, exist_ok=True)
         fd, pending = tempfile.mkstemp(prefix=name + "-", dir=output.parent)
         os.close(fd)

@@ -29,7 +29,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 HERDR = Path(os.environ.get("CORE_UI_HERDR", ROOT / "target/release/ht")).resolve()
 HC = Path(
-    os.environ.get("CORE_TUI_HC", ROOT / ".local/core-runtime/target/release/herdr-core")
+    os.environ.get("CORE_TUI_HC", ROOT / ".local/hc/bin/herdr-core")
 ).resolve()
 
 # A planned restart brings Core back in well under a second; the explicit-stop

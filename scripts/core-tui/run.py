@@ -5,12 +5,12 @@ import os
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
-hc = Path(os.environ.get('CORE_TUI_HC', root / '.local/core-runtime/target/release/herdr-core')).resolve()
+hc = Path(os.environ.get('CORE_TUI_HC', root / '.local/hc/bin/herdr-core')).resolve()
 home = Path(os.environ.get('CORE_UI_HOME', root / '.local/core-tui/existing')).resolve()
 config = os.environ.get('CORE_UI_CONFIG')
 env = {k:v for k,v in os.environ.items() if not k.startswith(('HERDR_', 'HC_'))}
 if not hc.is_file():
-    sys.exit(f'Core missing: {hc}. Build it with just core-source-build, or set CORE_TUI_HC to a compatible patched binary.')
+    sys.exit(f'Core missing: {hc}. Build it with just build-core, or set CORE_TUI_HC to a compatible patched binary.')
 # Start and stop select the same private hc session and XDG homes. Leave
 # HC_SOCKET unset so hc and ht derive the session socket by the same rule.
 session_name = 'trial-' + hashlib.sha1(str(home).encode()).hexdigest()[:12]

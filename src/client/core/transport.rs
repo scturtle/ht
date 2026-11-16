@@ -113,7 +113,7 @@ fn negotiate(input: &mut impl Write, output: &mut impl Read, existing: bool) -> 
         "keyboard_stacks_v1",
     ] {
         if !features.iter().any(|v| v == feature) {
-            return Err(io::Error::other(format!("Core lacks {feature}; build the pinned runtime with just core-source-build and set HERDR_CORE_BIN to its binary. Running servers are never replaced automatically; use a separate --core-home with --core-session, or plan an explicit upgrade")));
+            return Err(io::Error::other(format!("Core lacks {feature}; build the pinned runtime with just build-core and set HERDR_CORE_BIN to its binary. Running servers are never replaced automatically; use a separate --core-home with --core-session, or plan an explicit upgrade")));
         }
     }
     if existing && !features.iter().any(|v| v == "existing_connect") {
