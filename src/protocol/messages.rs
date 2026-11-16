@@ -646,7 +646,7 @@ impl CellData {
             fg: color_to_u32(cell.fg),
             bg: color_to_u32(cell.bg),
             modifier: modifier_to_u16(cell.modifier),
-            skip: cell.skip,
+            skip: cell.diff_option == ratatui::buffer::CellDiffOption::Skip,
             hyperlink: None,
         }
     }
@@ -799,7 +799,11 @@ impl FrameData {
                 cell.fg = u32_to_color(cell_data.fg);
                 cell.bg = u32_to_color(cell_data.bg);
                 cell.modifier = u16_to_modifier(cell_data.modifier);
-                cell.skip = cell_data.skip;
+                cell.set_diff_option(if cell_data.skip {
+                    ratatui::buffer::CellDiffOption::Skip
+                } else {
+                    ratatui::buffer::CellDiffOption::None
+                });
             }
         }
 
@@ -1607,6 +1611,31 @@ mod tests {
         assert_eq!(restored.cell((1, 0)).unwrap().symbol(), "i");
         assert_eq!(restored.cell((2, 0)).unwrap().symbol(), "!");
         assert_eq!(restored.cell((2, 0)).unwrap().fg, Color::Rgb(255, 128, 0));
+    }
+
+    #[test]
+    fn frame_data_roundtrip_preserves_skipped_cells() {
+        use ratatui::buffer::{Buffer, CellDiffOption};
+
+        let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, 2, 1));
+        buffer
+            .cell_mut((0, 0))
+            .unwrap()
+            .set_diff_option(CellDiffOption::Skip);
+
+        let frame = FrameData::from_ratatui_buffer(&buffer, None);
+        assert!(frame.cells[0].skip);
+        assert!(!frame.cells[1].skip);
+
+        let restored = frame.to_ratatui_buffer().unwrap();
+        assert_eq!(
+            restored.cell((0, 0)).unwrap().diff_option,
+            CellDiffOption::Skip
+        );
+        assert_eq!(
+            restored.cell((1, 0)).unwrap().diff_option,
+            CellDiffOption::None
+        );
     }
 
     #[test]

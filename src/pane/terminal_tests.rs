@@ -2853,10 +2853,12 @@ fn render_keeps_halfwidth_katakana_voiced_tail_empty() {
 
     let backend = ratatui::backend::TestBackend::new(20, 1);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
-    terminal
+    let rendered = terminal
         .draw(|frame| pane.render(frame, Rect::new(0, 0, 20, 1), false))
         .unwrap();
-    let buffer = terminal.backend().buffer();
+    // Inspect the composed frame: Ratatui skips the wide tail in its backend
+    // diff, so TestBackend retains its initial space there rather than "".
+    let buffer = rendered.buffer;
 
     assert_eq!(buffer[(0, 0)].symbol(), "ｶ\u{ff9e}");
     assert_eq!(
@@ -2865,6 +2867,12 @@ fn render_keeps_halfwidth_katakana_voiced_tail_empty() {
         "wide spacer tail must stay empty so the host terminal does not overwrite the voiced kana"
     );
     assert_eq!(buffer[(2, 0)].symbol(), "Z");
+
+    let previous = ratatui::buffer::Buffer::empty(buffer.area);
+    assert!(
+        previous.diff_iter(buffer).all(|(x, _, _)| x != 1),
+        "the backend must not write over the voiced kana's trailing column"
+    );
 }
 
 #[test]
