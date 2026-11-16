@@ -59,7 +59,7 @@ impl EndpointHandle {
         }
         let message = message.clone();
         self.queued
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 n.checked_add(bytes).filter(|n| *n <= 4 * 1024 * 1024)
             })
             .map_err(|_| io::Error::other("Core input queue exceeds 4 MiB"))?;

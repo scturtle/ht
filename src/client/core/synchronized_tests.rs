@@ -94,7 +94,7 @@ fn turn_status_does_not_close_a_live_pane_or_corrupt_its_lifecycle() {
                 }))
                 .unwrap()
                 .into_iter()
-                .chain([b'\n'])
+                .chain(b"\n".as_slice().iter().copied())
                 .collect(),
             })
             .unwrap();
@@ -163,7 +163,7 @@ fn foreground_event_updates_nested_facts_not_the_program_identity() {
                 }))
                 .unwrap()
                 .into_iter()
-                .chain([b'\n'])
+                .chain(b"\n".as_slice().iter().copied())
                 .collect(),
             })
             .unwrap();

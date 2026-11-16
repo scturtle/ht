@@ -89,7 +89,7 @@ fn projection_boot() -> io::Result<String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let epoch = NEXT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
         .map_err(|_| invalid("Core client projection epochs exhausted"))?;
     Ok(format!("core-client-{}-{epoch}", std::process::id()))
 }
