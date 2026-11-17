@@ -78,6 +78,17 @@ core-multiclient-smoke: build build-core oracle
 core-keyboard-smoke: build build-core oracle
     CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/keyboard-ui-smoke.py
 
+# Actual Kitty/X11 -> SSH -> private Core, continuous mouse/wheel across exit.
+# Requires kitty, kitten, Xvfb, libXtst and OpenSSH server/client.
+[unix]
+core-kitty-exit-smoke: build build-core
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/kitty-exit-ui-smoke.py
+
+# Delayed host palette replies must not leak into the shell after client exit.
+[unix]
+core-terminal-restore-smoke: build build-core
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/terminal-restore-ui-smoke.py
+
 # The launcher script must retain the caller's stdin and never retarget its Core.
 [unix]
 core-launcher-test:
