@@ -150,7 +150,7 @@ pub(super) fn finish_client_shell_input(
         query_host_terminal_appearance();
     }
     if outcome.query_host_theme {
-        query_host_terminal_theme();
+        query_host_terminal_theme(&state.host_color_replies_expected);
     }
     sync_client_shell_keyboard_report_all(state)?;
     let (replay, repaint) = dispatch_client_shell_actions(

@@ -254,6 +254,24 @@ mod modes {
     };
 
     #[test]
+    fn mouse_tracking_is_disabled_before_any_encoding_is_reset() {
+        let mut output = Vec::new();
+        super::super::modes::clear_host_mouse_reporting(&mut output).unwrap();
+        let encoding_reset = output
+            .windows(b"\x1b[?1006l".len())
+            .position(|bytes| bytes == b"\x1b[?1006l")
+            .unwrap();
+        for mode in [1003, 1002, 1000, 9] {
+            let sequence = format!("\x1b[?{mode}l");
+            let position = output
+                .windows(sequence.len())
+                .position(|bytes| bytes == sequence.as_bytes())
+                .unwrap();
+            assert!(position < encoding_reset, "tracking mode {mode}");
+        }
+    }
+
+    #[test]
     fn host_keyboard_report_all_replaces_the_current_herdr_stack_entry() {
         let mut output = Vec::new();
 
@@ -438,17 +456,10 @@ mod setup {
     }
 
     #[test]
-    fn terminal_restore_postlude_resets_only_claimed_color_reports() {
-        for reset_color_reports in [false, true] {
-            let mut output = Vec::new();
-            write_terminal_restore_postlude(&mut output, reset_color_reports).unwrap();
-            let expected: &[u8] = if reset_color_reports {
-                b"\x1b[?2031l\x1b[?25h\x1b[0 q"
-            } else {
-                b"\x1b[?25h\x1b[0 q"
-            };
-            assert_eq!(output, expected);
-        }
+    fn terminal_restore_postlude_restores_cursor_without_reenabling_input() {
+        let mut output = Vec::new();
+        write_terminal_restore_postlude(&mut output).unwrap();
+        assert_eq!(output, b"\x1b[?25h\x1b[0 q");
     }
 
     fn refresh_bytes(guard: &TerminalGuard, report_all_keys: bool, focus: bool) -> Vec<u8> {
@@ -824,8 +835,73 @@ mod restore {
         assert_eq!(guard.host_sgr_pixel_mouse(), Some(false));
         assert_eq!(guard.take_buffered_host_input(), b"typed input");
         assert!(guard.take_buffered_host_input().is_empty());
-        guard.restore().unwrap();
+        guard.restore(|| {}).unwrap();
         assert_single_restore(&record, (true, true, true));
+    }
+
+    #[test]
+    fn drain_callback_is_claimed_once_and_skipped_after_panic_restore() {
+        for panic_first in [false, true] {
+            let (guard, record) = initialized_guard(false);
+            let panic_restore = guard.panic_restore();
+            let drains = Cell::new(0);
+            if panic_first {
+                panic_restore();
+            }
+            guard.restore(|| drains.set(drains.get() + 1)).unwrap();
+            panic_restore();
+            assert_eq!(drains.get(), usize::from(!panic_first));
+            assert_single_restore(&record, (true, true, true));
+        }
+    }
+
+    #[test]
+    fn input_reporting_is_disabled_before_drain_and_raw_restore() {
+        struct SharedWriter<'a>(&'a std::cell::RefCell<Vec<u8>>);
+        impl io::Write for SharedWriter<'_> {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.borrow_mut().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = std::cell::RefCell::new(Vec::new());
+        let mut writer = SharedWriter(&bytes);
+        restore_terminal_state_with(
+            &mut writer,
+            true,
+            true,
+            true,
+            |_| Ok(()),
+            || {
+                let prefix = bytes.borrow();
+                for mode in [
+                    1003, 1002, 1000, 9, 1006, 1016, 1015, 1005, 1004, 2004, 2031,
+                ] {
+                    let sequence = format!("\x1b[?{mode}l");
+                    assert!(
+                        prefix
+                            .windows(sequence.len())
+                            .any(|part| part == sequence.as_bytes()),
+                        "mode {mode} must be disabled before the fence"
+                    );
+                }
+                assert_eq!(occurrences(&prefix, b"\x1b[?1049l"), 1);
+                assert_eq!(occurrences(&prefix, KEYBOARD_POP), 1);
+                assert_eq!(occurrences(&prefix, b"\x1b[>4;0m"), 1);
+                assert_eq!(occurrences(&prefix, b"\x1b[?25h\x1b[0 q"), 0);
+                drop(prefix);
+                bytes.borrow_mut().extend_from_slice(b"drain"); // still raw
+                Ok(()) // raw restore follows the drain in production
+            },
+        )
+        .unwrap();
+        let bytes = bytes.borrow();
+        assert!(bytes.ends_with(b"drain\x1b[?25h\x1b[0 q"));
+        assert_eq!(occurrences(&bytes, KEYBOARD_POP), 1);
+        assert_eq!(occurrences(&bytes, b"\x1b[?2031l"), 1);
     }
 
     #[test]
@@ -833,7 +909,7 @@ mod restore {
         for fails in [false, true] {
             let (guard, record) = initialized_guard(fails);
             let panic_restore = guard.panic_restore();
-            let result = guard.restore(); // Consumes the guard and runs its Drop too.
+            let result = guard.restore(|| {}); // Consumes the guard and runs its Drop too.
             if fails {
                 assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotConnected);
             } else {
@@ -867,7 +943,7 @@ mod restore {
         let guard = finish_setup(guard, &mut Vec::new()).unwrap();
         let panic_restore = guard.panic_restore();
         assert_eq!(
-            guard.restore().unwrap_err().kind(),
+            guard.restore(|| {}).unwrap_err().kind(),
             io::ErrorKind::BrokenPipe
         );
         panic_restore();
@@ -886,7 +962,7 @@ mod restore {
                 .refresh_host_keyboard_protocol(&mut refreshed, true, true)
                 .unwrap();
             assert!(refreshed.is_empty());
-            guard.restore().unwrap(); // Already claimed, regardless of the first attempt's result.
+            guard.restore(|| {}).unwrap(); // Already claimed, regardless of the first attempt's result.
             panic_restore();
             assert_single_restore(&record, (true, true, true));
         }
@@ -938,7 +1014,8 @@ mod restore {
         });
         let panic_restore = guard.panic_restore();
         assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| guard.restore())).is_err()
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| guard.restore(|| {})))
+                .is_err()
         );
         panic_restore();
         assert_eq!(calls.load(Ordering::Relaxed), 1);
@@ -1043,11 +1120,58 @@ mod restore {
                     result.unwrap();
                 }
                 if writer_fails {
-                    assert_eq!(writer.attempts.last().unwrap(), b"\x1b[?2031l");
+                    assert!(writer.attempts.iter().any(|bytes| bytes == b"\x1b[?2031l"));
+                    assert_eq!(writer.attempts.last().unwrap(), b"\x1b[?25h\x1b[0 q");
                 } else {
                     assert!(writer.bytes.ends_with(POSTLUDE));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn early_color_reset_error_does_not_skip_drain_raw_restore_or_cursor() {
+        let mut complete = FaultWriter::default();
+        restore_terminal_state_with(&mut complete, true, true, true, |_| Ok(()), || Ok(()))
+            .unwrap();
+        let color_write = complete
+            .attempts
+            .iter()
+            .position(|bytes| bytes == b"\x1b[?2031l")
+            .unwrap()
+            + 1;
+        for raw_fails in [false, true] {
+            let mut writer = FaultWriter {
+                fail_write_call: Some(color_write),
+                ..FaultWriter::default()
+            };
+            let drains_and_restores = Cell::new(0);
+            let result = restore_terminal_state_with(
+                &mut writer,
+                true,
+                true,
+                true,
+                |_| Ok(()),
+                || {
+                    drains_and_restores.set(drains_and_restores.get() + 1);
+                    if raw_fails {
+                        Err(io::Error::from(io::ErrorKind::NotConnected))
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            assert_eq!(drains_and_restores.get(), 1);
+            assert_eq!(
+                result.unwrap_err().kind(),
+                if raw_fails {
+                    io::ErrorKind::NotConnected
+                } else {
+                    io::ErrorKind::BrokenPipe
+                }
+            );
+            assert!(writer.bytes.ends_with(b"\x1b[?25h\x1b[0 q"));
+            assert_eq!(occurrences(&writer.bytes, KEYBOARD_POP), 1);
         }
     }
 
@@ -1079,41 +1203,324 @@ mod restore {
 }
 
 mod theme {
-    use std::io;
-
-    use super::super::theme::{write_host_query, write_host_theme_query};
+    use super::super::theme::{
+        drain_host_replies_with, write_host_query, write_host_theme_query, ShutdownFence,
+    };
+    use crate::raw_input::RawInputByteFramer;
     use crate::terminal::HOST_COLOR_SCHEME_QUERY_SEQUENCE;
+    use std::cell::Cell;
+    use std::io;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{Duration, Instant};
+
+    fn full_color_replies() -> Vec<u8> {
+        let mut bytes = b"\x1b]10;rgb:1111/2222/3333\x07\x1b]11;rgb:4444/5555/6666\x07".to_vec();
+        for index in 0..=u8::MAX {
+            bytes.extend_from_slice(format!("\x1b]4;{index};rgb:0000/afaf/d7d7\x1b\\").as_bytes());
+        }
+        bytes
+    }
+
+    fn drive(framer: &mut RawInputByteFramer, expected: u64, parts: Vec<Vec<u8>>) {
+        let fence = ShutdownFence::new("unit-test");
+        let mut parts = parts.iter().flat_map(|part| part.chunks(4096));
+        let mut writer = QueryWriter::default();
+        let completion = drain_host_replies_with(
+            &mut writer,
+            framer,
+            expected,
+            &fence,
+            Instant::now,
+            |scratch, _| {
+                let bytes = parts
+                    .next()
+                    .expect("a confirmed drain must not request more bytes");
+                scratch[..bytes.len()].copy_from_slice(bytes);
+                Ok(Some(bytes.len()))
+            },
+        )
+        .unwrap();
+        assert!(completion.confirmed(), "{completion:?}");
+        assert!(
+            parts.next().is_none(),
+            "must not return before actual replies complete"
+        );
+        assert_eq!(writer.bytes, fence.query);
+        assert_eq!(writer.flushes, 1);
+    }
+
+    #[test]
+    fn stale_dsr_or_other_shutdown_ack_cannot_confirm_this_shutdown() {
+        let fence = ShutdownFence::new("unit-test");
+        let other = ShutdownFence::new("old-shutdown");
+        assert_ne!(fence.query, other.query);
+        drive(
+            &mut RawInputByteFramer::default(),
+            0,
+            vec![b"\x1b[0n\x1b[3n".to_vec(), other.reply, fence.reply],
+        );
+    }
+
+    #[test]
+    fn early_matching_ack_does_not_abandon_late_palette_replies() {
+        let fence = ShutdownFence::new("unit-test");
+        let replies = full_color_replies();
+        drive(
+            &mut RawInputByteFramer::default(),
+            258,
+            vec![
+                fence.reply,
+                b"\x1b[<35;66;20M\x1b[<64;66;20M\x1b[<65;66;20M".to_vec(),
+                replies[..replies.len() - 32].to_vec(),
+                replies[replies.len() - 32..].to_vec(),
+            ],
+        );
+    }
+
+    #[test]
+    fn reply_drain_keeps_split_palette_replies_whole_across_large_reads() {
+        let fence = ShutdownFence::new("unit-test");
+        let mut replies = full_color_replies();
+        replies.extend_from_slice(&fence.reply);
+        assert!(replies.len() > 4096);
+        for first_read in [1, 2, 3, 8, 31, 4096] {
+            let mut framer = RawInputByteFramer::default();
+            let mut writer = QueryWriter::default();
+            let mut offset = 0;
+            let mut first = true;
+            let result = drain_host_replies_with(
+                &mut writer,
+                &mut framer,
+                258,
+                &fence,
+                Instant::now,
+                |scratch, wait| {
+                    assert!(wait <= Duration::from_secs(2));
+                    assert!(offset < replies.len());
+                    let limit = if first {
+                        first = false;
+                        first_read
+                    } else {
+                        scratch.len()
+                    };
+                    let count = limit.min(replies.len() - offset);
+                    scratch[..count].copy_from_slice(&replies[offset..offset + count]);
+                    offset += count;
+                    Ok(Some(count))
+                },
+            )
+            .unwrap();
+            assert!(result.confirmed());
+            assert_eq!(offset, replies.len());
+            assert_eq!(framer.host_color_replies_received(), 258);
+        }
+    }
+
+    #[test]
+    fn complete_color_counts_still_require_this_fences_complete_reply() {
+        let fence = ShutdownFence::new("unit-test");
+        for split in 1..fence.reply.len() {
+            let mut framer = RawInputByteFramer::default();
+            framer.push(&full_color_replies());
+            drive(
+                &mut framer,
+                258,
+                vec![fence.reply[..split].to_vec(), fence.reply[split..].to_vec()],
+            );
+        }
+    }
+
+    #[test]
+    fn pasted_or_osc_embedded_fence_is_not_an_acknowledgement() {
+        let fence = ShutdownFence::new("unit-test");
+        let mut paste = b"\x1b[200~".to_vec();
+        paste.extend_from_slice(&fence.reply);
+        paste.extend_from_slice(b"\x1b[201~");
+        let mut osc = b"\x1b]0;title".to_vec();
+        osc.extend_from_slice(&fence.reply);
+        osc.push(7);
+        drive(
+            &mut RawInputByteFramer::default(),
+            0,
+            vec![paste, osc, fence.reply],
+        );
+    }
+
+    #[test]
+    fn eof_or_timeout_keeps_outstanding_color_debt_unconfirmed() {
+        for value in [None, Some(0)] {
+            let fence = ShutdownFence::new("unit-test");
+            let mut framer = RawInputByteFramer::default();
+            let mut writer = QueryWriter::default();
+            let result = drain_host_replies_with(
+                &mut writer,
+                &mut framer,
+                258,
+                &fence,
+                Instant::now,
+                |_, _| Ok(value),
+            )
+            .unwrap();
+            assert!(!result.confirmed());
+            assert_eq!(result.pending_colors, 258);
+        }
+    }
+
+    #[test]
+    fn matching_ack_without_all_colors_is_not_logged_as_success() {
+        let fence = ShutdownFence::new("unit-test");
+        let mut framer = RawInputByteFramer::default();
+        let mut writer = QueryWriter::default();
+        let mut supplied = false;
+        let result = drain_host_replies_with(
+            &mut writer,
+            &mut framer,
+            258,
+            &fence,
+            Instant::now,
+            |scratch, _| {
+                if supplied {
+                    return Ok(None);
+                }
+                supplied = true;
+                scratch[..fence.reply.len()].copy_from_slice(&fence.reply);
+                Ok(Some(fence.reply.len()))
+            },
+        )
+        .unwrap();
+        assert!(result.fence_received);
+        assert_eq!(result.pending_colors, 258);
+        assert!(!result.confirmed());
+    }
+
+    #[test]
+    fn interrupted_reads_retry_and_other_read_errors_propagate() {
+        let fence = ShutdownFence::new("unit-test");
+        let mut interrupted = false;
+        let result = drain_host_replies_with(
+            &mut QueryWriter::default(),
+            &mut RawInputByteFramer::default(),
+            0,
+            &fence,
+            Instant::now,
+            |scratch, _| {
+                if !interrupted {
+                    interrupted = true;
+                    return Err(io::Error::from(io::ErrorKind::Interrupted));
+                }
+                scratch[..fence.reply.len()].copy_from_slice(&fence.reply);
+                Ok(Some(fence.reply.len()))
+            },
+        )
+        .unwrap();
+        assert!(result.confirmed());
+        let error = drain_host_replies_with(
+            &mut QueryWriter::default(),
+            &mut RawInputByteFramer::default(),
+            0,
+            &fence,
+            Instant::now,
+            |_, _| Err(io::Error::from(io::ErrorKind::BrokenPipe)),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn continuous_mouse_input_cannot_fake_progress_or_extend_the_deadline() {
+        let fence = ShutdownFence::new("unit-test");
+        let start = Instant::now();
+        let mut elapsed = Duration::ZERO;
+        let calls = Cell::new(0);
+        let result = drain_host_replies_with(
+            &mut QueryWriter::default(),
+            &mut RawInputByteFramer::default(),
+            1,
+            &fence,
+            || {
+                let now = start + elapsed;
+                elapsed += Duration::from_millis(500);
+                now
+            },
+            |scratch, _| {
+                let data = if calls.get() == 0 {
+                    fence.reply.as_slice()
+                } else {
+                    b"\x1b[<35;66;20M".as_slice()
+                };
+                scratch[..data.len()].copy_from_slice(data);
+                calls.set(calls.get() + 1);
+                Ok(Some(data.len()))
+            },
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 3);
+        assert!(result.fence_received);
+        assert_eq!(result.pending_colors, 1);
+        assert!(!result.confirmed());
+    }
+
+    #[test]
+    fn shutdown_does_not_read_after_query_write_or_flush_failure() {
+        let fence = ShutdownFence::new("unit-test");
+        for fail_write in [true, false] {
+            let mut writer = QueryWriter {
+                fail_write,
+                fail_flush: !fail_write,
+                ..QueryWriter::default()
+            };
+            let error = drain_host_replies_with(
+                &mut writer,
+                &mut RawInputByteFramer::default(),
+                0,
+                &fence,
+                Instant::now,
+                |_, _| panic!("unflushed fence"),
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        }
+    }
 
     #[derive(Default)]
     struct QueryWriter {
         bytes: Vec<u8>,
         flushes: usize,
+        fail_write: bool,
+        fail_flush: bool,
     }
-
     impl io::Write for QueryWriter {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.fail_write {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
             self.bytes.extend_from_slice(bytes);
             Ok(bytes.len())
         }
-
         fn flush(&mut self) -> io::Result<()> {
             self.flushes += 1;
+            if self.fail_flush {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
             Ok(())
         }
     }
 
     #[test]
-    fn theme_query_without_palette_writes_only_default_colors_and_flushes_once() {
+    fn theme_query_without_palette_counts_only_two_actual_replies() {
+        let expected = AtomicU64::new(0);
         let mut writer = QueryWriter::default();
-        write_host_theme_query(&mut writer, false).unwrap();
+        write_host_theme_query(&mut writer, false, &expected).unwrap();
         assert_eq!(writer.bytes, b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
         assert_eq!(writer.flushes, 1);
+        assert_eq!(expected.load(Ordering::Acquire), 2);
     }
 
     #[test]
-    fn theme_query_with_palette_keeps_all_indices_in_order_and_flushes_once() {
+    fn theme_query_with_palette_counts_all_indices_and_overlapping_queries() {
+        let expected = AtomicU64::new(0);
         let mut writer = QueryWriter::default();
-        write_host_theme_query(&mut writer, true).unwrap();
+        write_host_theme_query(&mut writer, true, &expected).unwrap();
         let text = std::str::from_utf8(&writer.bytes).unwrap();
         let mut queries = text.split_terminator("\x1b\\");
         assert_eq!(queries.next(), Some("\x1b]10;?"));
@@ -1122,7 +1529,14 @@ mod theme {
             assert_eq!(queries.next(), Some(format!("\x1b]4;{index};?").as_str()));
         }
         assert_eq!(queries.next(), None);
-        assert_eq!(writer.flushes, 1);
+        write_host_theme_query(&mut QueryWriter::default(), false, &expected).unwrap();
+        assert_eq!(expected.load(Ordering::Acquire), 260);
+        let mut failed = QueryWriter {
+            fail_write: true,
+            ..QueryWriter::default()
+        };
+        assert!(write_host_theme_query(&mut failed, true, &expected).is_err());
+        assert_eq!(expected.load(Ordering::Acquire), 518);
     }
 
     #[test]

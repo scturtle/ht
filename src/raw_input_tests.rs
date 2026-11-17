@@ -3,6 +3,35 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyEventKind};
 
+#[test]
+fn actual_color_completion_survives_parser_expiry_and_ignores_paste_and_mouse() {
+    let mut framer = RawInputByteFramer::default();
+    framer.host_color_query_sent();
+    framer.push(b"\x1b]4;245;rgb:8a8a/8a8a/8a8a\x1b\\");
+    assert_eq!(framer.host_color_replies_received(), 1);
+    framer.age_host_reply_activity(HOST_REPLY_QUIET_WINDOW);
+    framer.flush_timeout();
+    assert_eq!(framer.host_color_replies_received(), 1);
+    framer.push(b"\x1b[200~\x1b]4;246;rgb:9494/9494/9494\x1b\\\x1b[201~\x1b[<35;66;20M\x1b[<64;66;20M\x1b[0n");
+    assert_eq!(framer.host_color_replies_received(), 1);
+    framer.push(b"\x1b]10;rgb:1111/2222/3333\x07\x1b]4;246;rgb:9494/9494/9494\x1b\\");
+    assert_eq!(framer.host_color_replies_received(), 3);
+}
+
+#[test]
+fn shutdown_stops_followup_queries_without_erasing_inflight_counts() {
+    let mut framer = RawInputByteFramer::default();
+    framer.host_color_query_sent_with_replies(1);
+    framer.host_cell_size_query_sent();
+    framer.enable_host_color_scheme_change_tracking();
+    framer.enable_host_appearance_query_on_focus();
+    framer.stop_followup_host_query_tracking();
+    framer.push(b"\x1b[I\x1b[?997;1n");
+    assert_eq!(framer.host_color_replies_awaited, 1);
+    assert_eq!(framer.host_cell_size_replies_awaited, 1);
+    assert!(!framer.host_appearance_reply_awaited);
+}
+
 /// Parse raw terminal input bytes into a list of `RawInputEvent`s.
 ///
 /// This directly extracts events without going through a channel, making it
@@ -1676,21 +1705,38 @@ fn complete_unsupported_default_color_osc_is_consumed() {
 }
 
 #[test]
-fn host_color_reply_split_within_idle_limit_assembles() {
-    let reply = b"\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\";
-    let gap = HOST_COLOR_REPLY_IDLE_LIMIT - Duration::from_millis(100);
-    for cut in 1..reply.len() {
-        let mut framer = RawInputByteFramer::default();
-        framer.host_color_query_sent();
-        let mut chunks = framer.push(&reply[..cut]);
-        // Once the OSC 10/11 prefix is in, idle flushes keep holding it.
-        if cut >= 5 {
-            chunks.extend(framer.flush_timeout());
-            chunks.extend(framer.flush_timeout());
-            framer.age_partial_host_color_reply(gap);
+fn split_default_color_reply_uses_live_or_shutdown_idle_policy() {
+    for shutdown in [false, true] {
+        let margin = Duration::from_millis(100);
+        let gap = if shutdown {
+            HOST_COLOR_REPLY_IDLE_LIMIT + margin
+        } else {
+            HOST_COLOR_REPLY_IDLE_LIMIT - margin
+        };
+        for kind in [10, 11] {
+            let reply = format!("\x1b]{kind};rgb:1e1e/1e1e/2e2e\x1b\\").into_bytes();
+            for cut in 1..reply.len() {
+                let mut framer = RawInputByteFramer::default();
+                framer.host_color_query_sent();
+                let mut chunks = framer.push(&reply[..cut]);
+                if cut >= 5 {
+                    chunks.extend(framer.flush_timeout());
+                    chunks.extend(framer.flush_timeout());
+                    framer.age_partial_host_color_reply(gap);
+                }
+                chunks.extend(if shutdown {
+                    framer.push_without_idle_expiry(&reply[cut..])
+                } else {
+                    framer.push(&reply[cut..])
+                });
+                assert_eq!(
+                    chunks,
+                    vec![reply.clone()],
+                    "shutdown={shutdown}, cut={cut}"
+                );
+                assert_eq!(framer.host_color_replies_received(), 1);
+            }
         }
-        chunks.extend(framer.push(&reply[cut..]));
-        assert_eq!(chunks, vec![reply.to_vec()], "cut at {cut}");
     }
 }
 

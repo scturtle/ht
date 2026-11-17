@@ -60,8 +60,10 @@ pub(super) fn host_modify_other_keys_mode_for_env(
     None
 }
 
+// Stop event generation before changing encodings. Resetting SGR first can
+// turn an in-flight wheel/motion event into a legacy X10 report during cleanup.
 const DISABLE_HOST_MOUSE_REPORTING_SEQUENCE: &[u8] =
-    b"\x1b[?1006l\x1b[?1016l\x1b[?1015l\x1b[?1005l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?9l";
+    b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?9l\x1b[?1006l\x1b[?1016l\x1b[?1015l\x1b[?1005l";
 
 pub(in crate::client) fn clear_host_mouse_reporting<W: Write>(writer: &mut W) -> io::Result<()> {
     writer.write_all(DISABLE_HOST_MOUSE_REPORTING_SEQUENCE)?;

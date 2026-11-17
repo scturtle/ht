@@ -71,6 +71,7 @@ use notifications::handle_shell_notification_effects;
 
 use std::collections::HashMap;
 use std::io::{self, Write as _};
+use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -98,6 +99,7 @@ pub fn run_core_client() -> io::Result<()> {
         host_escape_disambiguation_active: false,
         host_sgr_pixel_mouse: None,
         initial_host_input: Vec::new(),
+        host_color_replies_expected: Default::default(),
         shell_config,
     };
 
@@ -150,6 +152,8 @@ pub fn run_core_client() -> io::Result<()> {
         warn!(%err, "failed to install termination handler; terminal restore relies on TerminalGuard::Drop and the panic hook");
     }
 
+    let host_color_replies_expected = Arc::clone(&loop_config.host_color_replies_expected);
+    let mut stdin_reader = None;
     let result = rt.block_on(async {
         run_client_loop(
             initial,
@@ -162,12 +166,32 @@ pub fn run_core_client() -> io::Result<()> {
             should_quit,
             loop_config,
             &terminal_guard,
+            &mut stdin_reader,
         )
         .await
     });
 
-    // Restore the terminal before printing any final status message.
-    let terminal_restore_failed = terminal_guard.restore().is_err();
+    // The UI has ended and dropped its receiver, unblocking a backpressured
+    // sender. Only now join and take the framer; no worker may fence the tty
+    // while the UI can still write queries or re-enable reporting modes.
+    let input_framer = stdin_reader.as_mut().and_then(input::StdinReader::finish);
+    drop(stdin_reader);
+
+    // Restore input modes BEFORE the fence, but retain raw mode until reports
+    // already in flight (including wheel packets across SSH) have been consumed.
+    let terminal_restore_failed = terminal_guard
+        .restore(move || {
+            if let Some(mut framer) = input_framer {
+                let stdin = io::stdin();
+                let reader = stdin.lock();
+                host_terminal::drain_pending_host_replies(
+                    reader.as_raw_fd(),
+                    &mut framer,
+                    host_color_replies_expected.load(Ordering::Acquire),
+                );
+            }
+        })
+        .is_err();
 
     if let Err(err) = result {
         let _ = writeln!(io::stderr(), "herdr: {err}");
@@ -224,11 +248,13 @@ async fn run_client_loop(
     should_quit: Arc<AtomicBool>,
     mut config: ClientLoopConfig,
     _terminal_guard: &TerminalGuard,
+    stdin_reader: &mut Option<input::StdinReader>,
 ) -> Result<(), ClientError> {
     let mut state = ClientState {
         blit_encoder: render_ansi::BlitEncoder::new(),
         image_files: image_files::FileTransport::from_environment(),
         mouse_capture_active: config.mouse_capture_active,
+        host_color_replies_expected: Arc::clone(&config.host_color_replies_expected),
         endpoint_mouse_capture_requested: false,
         endpoint_sgr_pixels_requested: false,
         shell_mouse_capture_preference: config.mouse_capture_active,
@@ -263,7 +289,6 @@ async fn run_client_loop(
 
     // Channel for events from the resize and server reader threads.
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<ClientLoopEvent>(256);
-    // Keep Windows console draining independent of server-frame backpressure.
     let stdin_tx = event_tx.clone();
 
     let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
@@ -285,7 +310,7 @@ async fn run_client_loop(
         .lock()
         .map(|matcher| matcher.active_handle())
         .unwrap_or_default();
-    std::thread::spawn(move || {
+    *stdin_reader = Some(input::StdinReader::spawn(should_quit.clone(), move || {
         input::stdin_reader_loop(
             stdin_tx,
             &stdin_quit,
@@ -298,11 +323,11 @@ async fn run_client_loop(
             stdin_initial_host_input,
             stdin_direct_response,
             stdin_direct_response_active,
-        );
-    });
+        )
+    }));
 
     if will_query_host_terminal_theme {
-        query_host_terminal_theme();
+        query_host_terminal_theme(&state.host_color_replies_expected);
         {
             query_host_terminal_appearance();
         }
@@ -358,6 +383,9 @@ async fn run_client_loop(
             _=tokio::time::sleep_until(timer_deadline.into())=>ClientLoopEvent::Timer,
             ev=event_rx.recv()=>ev.unwrap_or(ClientLoopEvent::Timer),
         };
+        if should_quit.load(Ordering::Acquire) {
+            break;
+        }
         let now = std::time::Instant::now();
 
         match event {
@@ -495,7 +523,7 @@ async fn run_client_loop(
                 // Re-query on redraw, including SIGWINCH without a resize.
                 if will_query_host_terminal_theme {
                     host_theme_query_pending.fetch_add(1, Ordering::AcqRel);
-                    query_host_terminal_theme();
+                    query_host_terminal_theme(&state.host_color_replies_expected);
                 }
                 let pixel_mouse_available =
                     pixel_geometry_exact && state.host_sgr_pixel_mouse == Some(true);

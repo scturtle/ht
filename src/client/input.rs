@@ -1,24 +1,62 @@
-//! Stdin input reading for the thin client.
+//! Host stdin reading, byte framing, and ownership at terminal handoff.
 //!
-//! On Unix, reads stdin bytes and forwards framed input to the main event loop.
-//! The server handles semantic parsing. On Windows, crossterm may surface
-//! terminal control strings as character key events, so the reader re-frames
-//! those control bytes before forwarding semantic client input events.
-//!
-//! This is simpler and more reliable because:
-//! - The server has the same input parsing code
-//! - We avoid duplicating parsing logic in the client
-//! - Host terminal control replies can be buffered or discarded before they leak
+//! One reader supplies framed batches to the client UI. On shutdown it hands its
+//! framer back to terminal restoration, which stops report producers before
+//! draining the ordered tty stream and finally restoring raw mode.
 
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Arc;
 
-use std::io::{self, Read};
+use std::io;
 use std::os::fd::AsRawFd;
 use tokio::sync::mpsc;
 
 use super::ClientLoopEvent;
+
+/// Joined before TerminalGuard restores raw mode. A detached stdin reader could
+/// otherwise leave replies for the shell or consume the shell's first keystrokes.
+pub(super) struct StdinReader {
+    should_quit: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<crate::raw_input::RawInputByteFramer>>,
+}
+
+impl StdinReader {
+    pub(super) fn spawn(
+        should_quit: Arc<AtomicBool>,
+        read: impl FnOnce() -> crate::raw_input::RawInputByteFramer + Send + 'static,
+    ) -> Self {
+        Self {
+            should_quit,
+            thread: Some(std::thread::spawn(read)),
+        }
+    }
+
+    /// Called only after the UI future has ended. Preserve partial replies for
+    /// the final drain rather than letting a reader race the UI's last writes.
+    pub(super) fn finish(&mut self) -> Option<crate::raw_input::RawInputByteFramer> {
+        self.should_quit.store(true, Ordering::Release);
+        match self.thread.take()?.join() {
+            Ok(framer) => Some(framer),
+            Err(_) => {
+                tracing::debug!("stdin reader panicked before shutdown");
+                None
+            }
+        }
+    }
+}
+
+impl Drop for StdinReader {
+    fn drop(&mut self) {
+        self.should_quit.store(true, Ordering::Release);
+        // The panic hook has already restored the terminal. Do not make panic
+        // restoration wait on an I/O thread (or introduce a join deadlock).
+        if std::thread::panicking() {
+            return;
+        }
+        let _ = self.finish();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Stdin reader thread
@@ -27,8 +65,7 @@ use super::ClientLoopEvent;
 /// Reads raw bytes from stdin and sends them to the main event loop.
 ///
 /// This runs on a dedicated thread because stdin reading is blocking.
-/// The main loop receives the raw bytes and forwards them as
-/// `ClientMessage::Input` to the server.
+/// The main loop translates batches into semantic pane input and host metadata.
 pub fn stdin_reader_loop(
     event_tx: mpsc::Sender<ClientLoopEvent>,
     should_quit: &Arc<AtomicBool>,
@@ -41,48 +78,52 @@ pub fn stdin_reader_loop(
     initial_host_input: Vec<u8>,
     direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
     direct_response_active: Arc<AtomicBool>,
-) {
-    unix_stdin_reader_loop(
-        event_tx,
-        should_quit,
-        host_color_query_sent,
-        host_theme_query_pending,
-        host_cell_size_query_sent,
-        host_mouse_capture_active,
-        host_sgr_pixels_active,
-        host_escape_disambiguation_active,
-        initial_host_input,
-        direct_response,
-        direct_response_active,
-    );
-}
-
-fn unix_stdin_reader_loop(
-    event_tx: mpsc::Sender<ClientLoopEvent>,
-    should_quit: &Arc<AtomicBool>,
-    host_color_query_sent: bool,
-    host_theme_query_pending: Arc<AtomicU32>,
-    host_cell_size_query_sent: bool,
-    host_mouse_capture_active: Arc<AtomicBool>,
-    host_sgr_pixels_active: Arc<AtomicBool>,
-    host_escape_disambiguation_active: bool,
-    initial_host_input: Vec<u8>,
-    direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
-    direct_response_active: Arc<AtomicBool>,
-) {
+) -> crate::raw_input::RawInputByteFramer {
     let stdin = io::stdin();
-    let mut reader = stdin.lock();
-    let mut scratch = [0u8; 4096];
+    let reader = stdin.lock();
     let mut framer = crate::raw_input::RawInputByteFramer::for_host_input();
     framer.set_host_escape_disambiguation_active(host_escape_disambiguation_active);
     if host_color_query_sent {
         framer.host_color_query_sent();
+        framer.host_appearance_query_sent();
         framer.enable_host_color_scheme_change_tracking();
         framer.enable_host_appearance_query_on_focus();
     }
     if host_cell_size_query_sent {
         framer.host_cell_size_query_sent();
     }
+    unix_stdin_reader_loop(
+        event_tx,
+        should_quit,
+        &host_theme_query_pending,
+        host_mouse_capture_active,
+        host_sgr_pixels_active,
+        initial_host_input,
+        direct_response,
+        direct_response_active,
+        &reader,
+        &mut framer,
+    );
+    // The last redraw query may have been sent while read() was blocked.
+    for _ in 0..host_theme_query_pending.swap(0, Ordering::AcqRel) {
+        framer.host_color_query_sent();
+    }
+    framer
+}
+
+fn unix_stdin_reader_loop(
+    event_tx: mpsc::Sender<ClientLoopEvent>,
+    should_quit: &Arc<AtomicBool>,
+    host_theme_query_pending: &AtomicU32,
+    host_mouse_capture_active: Arc<AtomicBool>,
+    host_sgr_pixels_active: Arc<AtomicBool>,
+    initial_host_input: Vec<u8>,
+    direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
+    direct_response_active: Arc<AtomicBool>,
+    reader: &impl AsRawFd,
+    framer: &mut crate::raw_input::RawInputByteFramer,
+) {
+    let mut scratch = [0u8; 4096];
     let mut pending_palette = Vec::new();
     let mut pending_mode = None;
     let mut last_geometry = None;
@@ -104,43 +145,25 @@ fn unix_stdin_reader_loop(
             return;
         }
         if (framer.has_pending_input() || !pending_palette.is_empty())
-            && stdin_read_ready(
-                &reader,
-                framer.idle_flush_timeout_ms(host_mouse_capture_active.load(Ordering::Acquire)),
-            ) == Some(false)
-        {
-            let had_pending = framer.has_pending_input();
-            let chunks = framer.flush_timeout();
-            let held_escape = had_pending && chunks.is_empty();
-            if !send_unix_input_chunks(
-                chunks,
+            && !flush_idle_input(
+                framer,
                 &event_tx,
-                &mut pending_palette,
+                should_quit,
+                host_mouse_capture_active.load(Ordering::Acquire),
                 sgr_pixels,
                 last_geometry,
-            ) || !flush_unix_palette_input(&event_tx, &mut pending_palette)
-            {
-                return;
-            }
-            if held_escape
-                && stdin_read_ready(&reader, framer.held_input_flush_timeout_ms()) == Some(false)
-                && !send_unix_input_chunks(
-                    framer.flush_timeout(),
-                    &event_tx,
-                    &mut pending_palette,
-                    sgr_pixels,
-                    last_geometry,
-                )
-            {
-                return;
-            }
+                &mut pending_palette,
+                |timeout| stdin_read_ready(reader, timeout),
+            )
+        {
+            return;
         }
         pending_mode = framer.has_pending_input().then_some(sgr_pixels);
     }
 
     while !should_quit.load(Ordering::Acquire) {
         if direct_filter.has_pending()
-            && stdin_read_ready(&reader, crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS)
+            && stdin_read_ready(reader, crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS)
                 == Some(false)
         {
             let released = direct_response
@@ -157,7 +180,15 @@ fn unix_stdin_reader_loop(
             }
             continue;
         }
-        match reader.read(&mut scratch) {
+        // One reader per client wakes at most every 50ms while idle so shutdown
+        // can join it. Active input stays batched; this is not key/pane-scaled.
+        match stdin_read_ready(reader, 50) {
+            Some(true) if !should_quit.load(Ordering::Acquire) => {}
+            Some(false) => continue,
+            _ => break,
+        }
+        // Bypass StdinLock's shared buffer: poll and read must see the same bytes.
+        match crate::platform::read_fd(reader.as_raw_fd(), &mut scratch) {
             Ok(0) => break,
             Ok(n) => {
                 // A redraw can issue queries while this thread is blocked in read().
@@ -208,45 +239,20 @@ fn unix_stdin_reader_loop(
                     return;
                 }
 
-                let timeout_ms =
-                    framer.idle_flush_timeout_ms(host_mouse_capture_active.load(Ordering::Acquire));
-                if stdin_read_ready(&reader, timeout_ms) == Some(false) {
-                    let had_pending = framer.has_pending_input();
-                    let chunks = framer.flush_timeout();
-                    let held_escape = had_pending && chunks.is_empty();
-                    let sgr_pixels = pending_mode
-                        .unwrap_or_else(|| host_sgr_pixels_active.load(Ordering::Acquire));
-                    if !framer.has_pending_input() {
-                        pending_mode = None;
-                    }
-                    if !send_unix_input_chunks(
-                        chunks,
-                        &event_tx,
-                        &mut pending_palette,
-                        sgr_pixels,
-                        last_geometry,
-                    ) || !flush_unix_palette_input(&event_tx, &mut pending_palette)
-                    {
-                        return;
-                    }
-                    if held_escape
-                        && stdin_read_ready(&reader, framer.held_input_flush_timeout_ms())
-                            == Some(false)
-                    {
-                        let chunks = framer.flush_timeout();
-                        if !framer.has_pending_input() {
-                            pending_mode = None;
-                        }
-                        if !send_unix_input_chunks(
-                            chunks,
-                            &event_tx,
-                            &mut pending_palette,
-                            sgr_pixels,
-                            last_geometry,
-                        ) {
-                            return;
-                        }
-                    }
+                if !flush_idle_input(
+                    framer,
+                    &event_tx,
+                    should_quit,
+                    host_mouse_capture_active.load(Ordering::Acquire),
+                    sgr_pixels,
+                    last_geometry,
+                    &mut pending_palette,
+                    |timeout| stdin_read_ready(reader, timeout),
+                ) {
+                    return;
+                }
+                if !framer.has_pending_input() {
+                    pending_mode = None;
                 }
             }
             Err(err) => {
@@ -257,6 +263,43 @@ fn unix_stdin_reader_loop(
             }
         }
     }
+}
+
+/// Both probe-buffered and newly read input use the same two-stage idle wait.
+/// Stop before either flush when the UI closes, preserving partial reports for
+/// the shutdown handoff. Injecting readiness keeps this race testable off-tty.
+fn flush_idle_input(
+    framer: &mut crate::raw_input::RawInputByteFramer,
+    event_tx: &mpsc::Sender<ClientLoopEvent>,
+    should_quit: &AtomicBool,
+    mouse_capture: bool,
+    sgr_pixels: bool,
+    geometry: Option<crate::client::host_terminal::HostGeometry>,
+    pending_palette: &mut Vec<Vec<u8>>,
+    mut read_ready: impl FnMut(i32) -> Option<bool>,
+) -> bool {
+    let mut timeout_ms = framer.idle_flush_timeout_ms(mouse_capture);
+    for _ in 0..2 {
+        if read_ready(timeout_ms) != Some(false) {
+            break;
+        }
+        if should_quit.load(Ordering::Acquire) || event_tx.is_closed() {
+            return false;
+        }
+        let had_pending = framer.has_pending_input();
+        let chunks = framer.flush_timeout();
+        let held = had_pending && chunks.is_empty();
+        if !send_unix_input_chunks(chunks, event_tx, pending_palette, sgr_pixels, geometry)
+            || !flush_unix_palette_input(event_tx, pending_palette)
+        {
+            return false;
+        }
+        if !held {
+            break;
+        }
+        timeout_ms = framer.held_input_flush_timeout_ms();
+    }
+    true
 }
 
 fn filter_direct_input(
@@ -412,11 +455,7 @@ fn windows_client_input_event_from_raw(
 }
 
 fn stdin_read_ready<R: AsRawFd>(reader: &R, timeout_ms: i32) -> Option<bool> {
-    poll_read_ready(reader.as_raw_fd(), timeout_ms)
-}
-
-fn poll_read_ready(fd: i32, timeout_ms: i32) -> Option<bool> {
-    crate::platform::poll_fd_readable(fd, timeout_ms).ok()
+    crate::platform::poll_fd_readable(reader.as_raw_fd(), timeout_ms).ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -425,11 +464,122 @@ fn poll_read_ready(fd: i32, timeout_ms: i32) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    // The stdin reader thread is hard to unit test since it reads from actual stdin.
-    // Integration tests will verify the full client→server input flow.
+    // Framing and reader ownership are testable without the host tty; real-PTY
+    // gates also verify input handoff after delayed terminal replies.
+
+    #[test]
+    fn stdin_reader_drop_joins_the_worker_before_returning() {
+        let quit = Arc::new(AtomicBool::new(false));
+        let worker_quit = Arc::clone(&quit);
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let reader = super::StdinReader::spawn(Arc::clone(&quit), move || {
+            while !worker_quit.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            done_tx.send(()).unwrap();
+            crate::raw_input::RawInputByteFramer::default()
+        });
+        drop(reader);
+        assert!(quit.load(Ordering::Acquire));
+        done_rx.try_recv().unwrap();
+    }
+
+    #[test]
+    fn closed_ui_receiver_unblocks_a_backpressured_stdin_reader_before_join() {
+        let quit = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        tx.try_send(super::ClientLoopEvent::StdinInput(vec![1]))
+            .unwrap();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let reader = super::StdinReader::spawn(Arc::clone(&quit), move || {
+            assert!(tx
+                .blocking_send(super::ClientLoopEvent::StdinInput(vec![2]))
+                .is_err());
+            done_tx.send(()).unwrap();
+            crate::raw_input::RawInputByteFramer::default()
+        });
+        drop(rx); // run_client_loop's receiver drops before its outer reader owner.
+        drop(reader);
+        done_rx.try_recv().unwrap();
+        assert!(quit.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn joined_reader_hands_a_partial_wheel_report_to_restoration() {
+        let quit = Arc::new(AtomicBool::new(false));
+        let mut reader = super::StdinReader::spawn(Arc::clone(&quit), || {
+            let mut framer = crate::raw_input::RawInputByteFramer::default();
+            assert!(framer.push(b"\x1b[<64;66;20").is_empty());
+            framer
+        });
+        let mut framer = reader.finish().unwrap();
+        assert!(reader.finish().is_none());
+        drop(reader);
+        assert!(quit.load(Ordering::Acquire));
+        assert_eq!(framer.push(b"M"), vec![b"\x1b[<64;66;20M".to_vec()]);
+    }
+
+    #[test]
+    fn stdin_reader_drop_does_not_wait_during_panic_unwind() {
+        let quit = Arc::new(AtomicBool::new(false));
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let result = std::panic::catch_unwind(|| {
+            let _reader = super::StdinReader::spawn(Arc::clone(&quit), move || {
+                release_rx
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .unwrap();
+                done_tx.send(()).unwrap();
+                crate::raw_input::RawInputByteFramer::default()
+            });
+            panic!("injected main-loop panic");
+        });
+        assert!(result.is_err());
+        assert!(quit.load(Ordering::Acquire));
+        release_tx.send(()).unwrap();
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+    }
     // Here we test the event type construction.
 
     use super::*;
+
+    #[test]
+    fn handoff_during_second_idle_wait_preserves_the_probe_prefix() {
+        for close_ui in [false, true] {
+            let (tx, mut rx) = mpsc::channel(1);
+            let quit = AtomicBool::new(false);
+            let mut framer = confirmed_disambiguation_framer();
+            assert!(framer.push(b"\x1b").is_empty());
+            let mut waits = 0;
+            assert!(!flush_idle_input(
+                &mut framer,
+                &tx,
+                &quit,
+                true,
+                false,
+                None,
+                &mut Vec::new(),
+                |_| {
+                    waits += 1;
+                    if waits == 2 {
+                        if close_ui {
+                            rx.close();
+                        } else {
+                            quit.store(true, Ordering::Release);
+                        }
+                    }
+                    Some(false)
+                },
+            ));
+            assert_eq!(waits, 2);
+            assert_eq!(
+                framer.push_without_idle_expiry(b"]11;rgb:1111/2222/3333\x07"),
+                vec![b"\x1b]11;rgb:1111/2222/3333\x07".to_vec()]
+            );
+        }
+    }
 
     #[test]
     fn stdin_input_event_carries_raw_bytes() {

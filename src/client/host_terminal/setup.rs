@@ -8,7 +8,7 @@ use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
 };
 use crossterm::execute;
-use crossterm::terminal::{DisableLineWrap, EnableLineWrap};
+use crossterm::terminal::{DisableLineWrap, EnableLineWrap, LeaveAlternateScreen};
 
 use super::modes::{
     clear_host_mouse_reporting, pop_keyboard_enhancement_flags, push_keyboard_enhancement_flags,
@@ -84,13 +84,7 @@ pub(super) fn enable_host_color_scheme_reports(writer: &mut impl io::Write) -> i
     writer.flush()
 }
 
-pub(super) fn write_terminal_restore_postlude(
-    writer: &mut impl io::Write,
-    reset_host_color_scheme_reports: bool,
-) -> io::Result<()> {
-    if reset_host_color_scheme_reports {
-        writer.write_all(crate::terminal::HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE.as_bytes())?;
-    }
+pub(super) fn write_terminal_restore_postlude(writer: &mut impl io::Write) -> io::Result<()> {
     // Restore a visible cursor and reset DECSCUSR back to the terminal default.
     writer.write_all(b"\x1b[?25h\x1b[0 q")?;
     writer.flush()
@@ -101,6 +95,7 @@ fn restore_terminal_state_once(
     reset_keyboard_enhancements: bool,
     reset_modify_other_keys: bool,
     reset_host_color_scheme_reports: bool,
+    drain_input: impl FnOnce(),
     #[cfg(test)] test_restore: Option<&TestRestore>,
 ) -> io::Result<()> {
     // Claim before any I/O. An error (or panic) must never cause a second stack pop.
@@ -109,6 +104,7 @@ fn restore_terminal_state_once(
     }
     #[cfg(test)]
     if let Some(restore) = test_restore {
+        drain_input();
         return restore(
             reset_keyboard_enhancements,
             reset_modify_other_keys,
@@ -119,6 +115,7 @@ fn restore_terminal_state_once(
         reset_keyboard_enhancements,
         reset_modify_other_keys,
         reset_host_color_scheme_reports,
+        drain_input,
     )
 }
 
@@ -126,6 +123,7 @@ fn restore_terminal_state(
     reset_keyboard_enhancements: bool,
     reset_modify_other_keys: bool,
     reset_host_color_scheme_reports: bool,
+    drain_input: impl FnOnce(),
 ) -> io::Result<()> {
     restore_terminal_state_with(
         &mut io::stdout(),
@@ -133,12 +131,16 @@ fn restore_terminal_state(
         reset_modify_other_keys,
         reset_host_color_scheme_reports,
         |writer| clear_received_kitty_graphics(writer),
-        ratatui::try_restore,
+        || {
+            drain_input();
+            ratatui::try_restore()
+        },
     )
 }
 
-/// Preserve best-effort mode cleanup, then always attempt Ratatui restore and
-/// the color/cursor postlude. Ratatui's error takes precedence over the postlude.
+/// Stop input-report producers before the injected drain/raw restore, then
+/// always attempt the cursor postlude. Raw restore errors take priority over
+/// color-reset and cursor errors, even though color reports are stopped early.
 pub(super) fn restore_terminal_state_with<W: io::Write>(
     writer: &mut W,
     reset_keyboard_enhancements: bool,
@@ -164,10 +166,25 @@ pub(super) fn restore_terminal_state_with<W: io::Write>(
         DisableBracketedPaste
     );
     let _ = set_mouse_capture_with(writer, false, false);
+    // Kitty's alternate-scroll behavior synthesizes arrow keys while the
+    // alternate screen is active even after mouse capture is disabled. Leave
+    // it BEFORE the fence; raw mode must stay on to consume in-flight input.
+    // Ratatui's later restore repeats this idempotently after disabling raw mode.
+    let _ = execute!(&mut *writer, LeaveAlternateScreen);
 
+    // Quiesce unsolicited color notifications before the drain/fence, just
+    // like mouse, focus, paste and keyboard reporting above. Keep its error in
+    // the postlude priority tier, but always attempt raw restore and the cursor.
+    let color_result = if reset_host_color_scheme_reports {
+        writer
+            .write_all(crate::terminal::HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE.as_bytes())
+            .and_then(|()| writer.flush())
+    } else {
+        Ok(())
+    };
     let restore_result = restore_terminal();
-    let postlude_result = write_terminal_restore_postlude(writer, reset_host_color_scheme_reports);
-    restore_result.and(postlude_result)
+    let cursor_result = write_terminal_restore_postlude(writer);
+    restore_result.and(color_result.and(cursor_result))
 }
 
 impl TerminalGuard {
@@ -185,12 +202,13 @@ impl TerminalGuard {
         }
     }
 
-    fn restore_state(&self) -> io::Result<()> {
+    fn restore_state(&self, drain_input: impl FnOnce()) -> io::Result<()> {
         restore_terminal_state_once(
             &self.restore_claimed,
             self.reset_keyboard_enhancements,
             self.modify_other_keys_sequence.is_some(),
             self.reset_host_color_scheme_reports,
+            drain_input,
             #[cfg(test)]
             self.test_restore.as_deref(),
         )
@@ -248,20 +266,23 @@ impl TerminalGuard {
                 reset_keyboard_enhancements,
                 reset_modify_other_keys,
                 reset_host_color_scheme_reports,
+                || {},
                 #[cfg(test)]
                 test_restore.as_deref(),
             );
         }
     }
 
-    pub(in crate::client) fn restore(self) -> io::Result<()> {
-        self.restore_state()
+    /// Stop owned input protocols first, drain while the tty is still raw, and
+    /// only then return tty modes to the shell. Drop/panic skip the drain.
+    pub(in crate::client) fn restore(self, drain_input: impl FnOnce()) -> io::Result<()> {
+        self.restore_state(drain_input)
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = self.restore_state();
+        let _ = self.restore_state(|| {});
     }
 }
 

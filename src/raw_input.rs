@@ -98,6 +98,9 @@ pub(crate) struct RawInputByteFramer {
     timed_out_mouse_prefix: Option<Vec<u8>>,
     lone_escape_recently_flushed: bool,
     host_color_replies_awaited: u16,
+    // Actual replies parsed over this reader's lifetime. Unlike the Escape
+    // ambiguity window, this completion accounting must never expire.
+    host_color_replies_received: u64,
     host_cell_size_replies_awaited: u16,
     host_appearance_reply_awaited: bool,
     /// Last query sent or reply received. Hosts may answer only part of a
@@ -142,18 +145,20 @@ impl RawInputByteFramer {
 
     pub(crate) fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
         if data.is_empty() {
-            return self.push_extended();
+            return self.push_without_idle_expiry(data);
         }
         // Bytes after the idle limit are never part of the abandoned reply.
         self.drop_abandoned_host_color_reply();
-        self.buffer.extend_from_slice(data);
-        let chunks = self.push_extended();
+        let chunks = self.push_without_idle_expiry(data);
         self.partial_host_color_reply_read_at =
             starts_with_incomplete_default_color_response(&self.buffer).then(Instant::now);
         chunks
     }
 
-    fn push_extended(&mut self) -> Vec<Vec<u8>> {
+    /// Once the UI is gone, its idle expiry no longer protects key latency.
+    /// Preserve even aged reply prefixes; the shutdown drain has its own deadline.
+    pub(crate) fn push_without_idle_expiry(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+        self.buffer.extend_from_slice(data);
         if let Some(prefix_len) = self.awaiting_mouse_tail_after.take() {
             if !continues_escape_sequence(&self.buffer) {
                 // The prefix already outlived keyboard timing; it was a key.
@@ -181,7 +186,6 @@ impl RawInputByteFramer {
     /// Whether a buffered unfinished OSC 10/11 reply has waited past its idle
     /// limit or grown past any real reply, so it can no longer hold input.
     fn host_color_reply_abandoned(&self) -> bool {
-        // The Windows default color query keeps its own reply deadline.
         self.buffer.len() >= MAX_DISCARDED_CONTROL_TAIL_BYTES
             || self
                 .partial_host_color_reply_read_at
@@ -203,7 +207,7 @@ impl RawInputByteFramer {
         self.partial_host_color_reply_read_at = None;
     }
 
-    fn host_appearance_query_sent(&mut self) {
+    pub(crate) fn host_appearance_query_sent(&mut self) {
         self.host_appearance_reply_awaited = true;
         self.held_pending_host_reply_esc = false;
         self.host_reply_activity_at = Some(Instant::now());
@@ -224,6 +228,17 @@ impl RawInputByteFramer {
             && self
                 .host_reply_activity_at
                 .is_some_and(|at| at.elapsed() < HOST_REPLY_QUIET_WINDOW)
+    }
+
+    pub(crate) fn host_color_replies_received(&self) -> u64 {
+        self.host_color_replies_received
+    }
+
+    /// The UI has stopped: consume in-flight replies, but no longer expect a
+    /// follow-up query in response to a focus or appearance notification.
+    pub(crate) fn stop_followup_host_query_tracking(&mut self) {
+        self.host_color_scheme_change_tracking = false;
+        self.host_appearance_query_on_focus = false;
     }
 
     /// Stop expecting replies the host never sent, so their reply handling no
@@ -592,6 +607,14 @@ impl RawInputByteFramer {
                 RawInputEvent::HostDefaultColor { .. } | RawInputEvent::HostPaletteColors { .. }
             ) {
                 self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_sub(1);
+                // One OSC may contain multiple palette entries. Count only
+                // parsed replies, never mouse/key bytes or paste lookalikes.
+                let count = match &event {
+                    RawInputEvent::HostPaletteColors { colors } => colors.len() as u64,
+                    _ => 1,
+                };
+                self.host_color_replies_received =
+                    self.host_color_replies_received.saturating_add(count);
             } else if matches!(event, RawInputEvent::HostCellSizeReport { .. }) {
                 self.host_cell_size_replies_awaited =
                     self.host_cell_size_replies_awaited.saturating_sub(1);
