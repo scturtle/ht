@@ -56,7 +56,8 @@ impl EndpointConnection {
             })
             .and_then(|endpoint| endpoint.send(message));
         match result {
-            Ok(()) => SendOutcome::Sent,
+            Ok(true) => SendOutcome::Sent,
+            Ok(false) => SendOutcome::NotSent,
             Err(error) => {
                 self.fail(error);
                 SendOutcome::NotSent
@@ -100,6 +101,47 @@ impl Drop for EndpointConnection {
 mod tests {
     use super::*;
     use crate::client::core::test_support::endpoint;
+
+    #[test]
+    fn clean_worker_stop_does_not_turn_late_mouse_input_into_failure() {
+        let (mut endpoint, probe) = endpoint();
+        // Same shared state as a worker that published graceful ServerShutdown
+        // and stopped before the UI dequeues it.
+        endpoint.disconnect();
+        let mut connection = EndpointConnection::new(endpoint, 1);
+        for bytes in [b"\x1b[<35;66;20M".as_slice(), b"\x1b[<64;66;20M", b"\x1b[A"] {
+            assert_eq!(
+                connection.send(&ClientMessage::Input {
+                    data: bytes.to_vec()
+                }),
+                SendOutcome::NotSent
+            );
+        }
+        assert!(probe.drain().is_empty());
+        assert!(connection.take_failure().is_none());
+        assert!(
+            connection.accepts(1),
+            "queued shutdown must still be accepted"
+        );
+    }
+
+    #[test]
+    fn failed_worker_stop_still_revokes_endpoint_and_preserves_real_error() {
+        let (endpoint, probe) = endpoint();
+        probe.fail(io::Error::new(io::ErrorKind::TimedOut, "writer deadline"));
+        let mut connection = EndpointConnection::new(endpoint, 1);
+        assert_eq!(
+            connection.send(&ClientMessage::Input {
+                data: b"\x1b[<64;66;20M".to_vec()
+            }),
+            SendOutcome::NotSent
+        );
+        let failure = connection.take_failure().unwrap();
+        assert_eq!(failure.kind, io::ErrorKind::TimedOut);
+        assert_eq!(failure.message, "writer deadline");
+        assert!(!connection.accepts(1));
+        assert!(probe.drain().is_empty());
+    }
 
     #[test]
     fn stale_connection_generations_remain_fenced() {

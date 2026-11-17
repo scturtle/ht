@@ -44,8 +44,14 @@ impl EndpointHandle {
         )
     }
 
-    pub(in crate::client) fn send(&mut self, message: &ClientMessage) -> io::Result<()> {
+    /// `false` means a cleanly stopped worker no longer accepts input. Its
+    /// graceful shutdown notification is already queued for the UI; late mouse
+    /// events must not turn that notification into a transport failure.
+    pub(in crate::client) fn send(&mut self, message: &ClientMessage) -> io::Result<bool> {
         if self.stopped.load(Ordering::Acquire) {
+            if self.error.lock().is_ok_and(|error| error.is_none()) {
+                return Ok(false);
+            }
             return Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "Core endpoint stopped",
@@ -72,7 +78,7 @@ impl EndpointHandle {
                 batch.bytes += bytes;
                 drop(batch);
                 self.wake.notify();
-                return Ok(());
+                return Ok(true);
             }
         }
         let batch = Arc::new(Mutex::new(InputBatch {
@@ -92,7 +98,7 @@ impl EndpointHandle {
         }
         self.pending = Some(batch);
         self.wake.notify();
-        Ok(())
+        Ok(true)
     }
     pub(in crate::client) fn disconnect(&mut self) {
         self.stopped.store(true, Ordering::Release);
