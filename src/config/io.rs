@@ -812,6 +812,53 @@ delivery = "herdr"
     }
 
     #[test]
+    fn retired_navigation_bindings_are_ignored_without_claiming_keys() {
+        let loaded = load_live_config_from_str(
+            r#"
+[keys]
+previous_workspace = "f3"
+next_workspace = "f3"
+previous_agent = "f3"
+next_agent = "f3"
+focus_agent = "f3"
+switch_workspace = "f3"
+cycle_pane_next = "f3"
+cycle_pane_previous = "f3"
+last_pane = "prefix+tab"
+new_tab = "f3"
+
+[keys.indexed]
+workspaces = "ctrl"
+agents = "alt"
+"#,
+        )
+        .unwrap();
+
+        assert!(loaded.invalid_sections.is_empty());
+        let keys = loaded.config.keybinds();
+        assert_eq!(keys.new_tab.labels(), ["f3"]);
+        assert_eq!(keys.last_pane.labels(), ["prefix+tab"]);
+        assert_eq!(keys.switch_tab.len(), 9);
+        assert_eq!(loaded.diagnostics.len(), 10);
+        for key in [
+            "previous_workspace",
+            "next_workspace",
+            "previous_agent",
+            "next_agent",
+            "focus_agent",
+            "switch_workspace",
+            "cycle_pane_next",
+            "cycle_pane_previous",
+            "indexed.workspaces",
+            "indexed.agents",
+        ] {
+            assert!(loaded
+                .diagnostics
+                .contains(&format!("unknown config key keys.{key}; ignoring key")));
+        }
+    }
+
+    #[test]
     fn load_live_config_warns_about_unknown_keys_and_applies_known_siblings() {
         let loaded = load_live_config_from_str(
             r##"
@@ -821,8 +868,13 @@ plugin = []
 accentt = "#ffffff"
 
 [keys]
-fullscreen = "prefix+z"
+fullscreen = "f3"
+navigate_workspace_up = "k"
+navigate_workspace_down = "j"
+new_tab = "f3"
 new_tabb = "prefix+t"
+remote_image_paste = "f3"
+split_vertical = "f3"
 
 [[keys.command]]
 key = "prefix+g"
@@ -851,7 +903,12 @@ claude = [["terminal_title"]]
                 "unknown config key plugin; ignoring key",
                 "unknown config key theme.custom.accentt; ignoring key",
                 "unknown config key keys.command; ignoring key",
+                "unknown config key keys.fullscreen; ignoring key",
+                "unknown config key keys.navigate_workspace_down; ignoring key",
+                "unknown config key keys.navigate_workspace_up; ignoring key",
                 "unknown config key keys.new_tabb; ignoring key",
+                "unknown config key keys.remote_image_paste; ignoring key",
+                "unknown config key keys.split_vertical; ignoring key",
                 "unknown config key ui.\"foo.?.bar\"; ignoring key",
                 "unknown config key ui.\"foo.bar\"; ignoring key",
                 "unknown config key ui.redraw_on_focus_gain; ignoring key",
@@ -865,10 +922,7 @@ claude = [["terminal_title"]]
             loaded.config.ui.toast.delivery,
             super::super::ToastDelivery::Herdr
         );
-        assert_eq!(
-            loaded.config.keys.zoom,
-            super::super::keybinds::BindingConfig::one("prefix+z")
-        );
+        assert_eq!(loaded.config.keybinds().new_tab.labels(), ["f3"]);
     }
 
     #[test]

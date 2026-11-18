@@ -202,15 +202,14 @@ fn help_frames_keep_existing_search_wrapping_scroll_cursor_and_hits() {
         }
     }
     // 144 frames including wrapping, clamped scroll, Unicode filter and rejection.
-    // Fingerprints reflect the retirement of native-only split/close/focus keys;
-    // the shared dialog painting/layout is unchanged.
+    // Includes the current default shortcut labels; the shared layout is unchanged.
     assert_eq!(
         hashes,
         [
-            17264778224359894023,
-            437149325322712572,
-            6649644799887520418,
-            18085470340868109852,
+            17531934096736559274,
+            16244457565041078871,
+            15074649226930433352,
+            1834709985684402153,
         ]
     );
 }

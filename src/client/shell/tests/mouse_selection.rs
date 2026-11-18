@@ -724,7 +724,7 @@ fn pane_mouse_input_keeps_stable_target_and_endpoint_encoding() {
     let moved = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
         kind: MouseEventKind::Moved,
         column: 0,
-        row: 0,
+        row: state.hits.new_tab.y,
         modifiers: KeyModifiers::ALT,
     })]);
     assert!(moved.requests.is_empty());
@@ -896,11 +896,7 @@ fn tab_click_waits_for_release_and_drag_reorders_by_stable_id() {
         }) if tab_id == "tab_1"
     ));
     let frame = state.compose(106, 20).expect("tab drop indicator");
-    assert!(frame
-        .cells
-        .iter()
-        .take(frame.width as usize)
-        .any(|cell| cell.symbol == "│"));
+    assert!(frame_rows(&frame)[usize::from(first.y)].contains('│'));
 
     let release =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {

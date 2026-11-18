@@ -43,11 +43,19 @@ fn tab_bar_renders_ellipses_and_clamps_to_useful_scroll() {
     state.set_snapshot(Box::new(projected));
     state.set_pane_surface(surface());
     let frame = state.compose(60, 20).expect("overflow tabs");
-    let top = frame.cells[..frame.width as usize]
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect::<String>();
-    assert!(top.contains('…'));
+    assert!(frame_rows(&frame)[usize::from(state.hits.new_tab.y)].contains('…'));
+
+    let tabs = state.hits.tabs.clone();
+    let new_tab = state.hits.new_tab;
+    let scroll_right = state.hits.tab_scroll_right;
+    assert_eq!(new_tab.right(), frame.width);
+    state.handle_input_bytes(b"\x01");
+    let prefix = state.compose(60, 20).expect("prefix with overflow tabs");
+    assert_eq!(prefix.cells, frame.cells);
+    assert_eq!(state.hits.tabs, tabs);
+    assert_eq!(state.hits.new_tab, new_tab);
+    assert_eq!(state.hits.tab_scroll_right, scroll_right);
+    state.handle_input_bytes(b"\x1b");
 
     state.tab_scroll = usize::MAX;
     state.reveal_focused_tab = false;
@@ -98,46 +106,97 @@ fn inactive_auto_named_tab_label_does_not_stack_terminal_faint() {
 }
 
 #[test]
-fn configured_prefix_is_client_owned_and_renders_its_bar() {
-    let config = toml::from_str::<Config>(
+fn configured_prefix_renders_after_new_tab_without_touching_tabs_or_panes() {
+    let mut config = toml::from_str::<Config>(
         r#"
 [keys]
-prefix = "ctrl+a"
+prefix = "ctrl+b"
 detach = "prefix+x"
 "#,
     )
     .expect("configured keybinds");
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-    state.set_snapshot(Box::new(snapshot()));
+    for position in [TabBarPositionConfig::Top, TabBarPositionConfig::Bottom] {
+        config.ui.tab_bar_position = position;
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+        let mut projected = snapshot();
+        projected.tabs.push(ClientShellTab {
+            tab_id: "tab_2".into(),
+            workspace_id: "ws_1".into(),
+            number: 2,
+            label: "second".into(),
+            custom_label: true,
+            focused: false,
+            agent_status: AgentStatus::Idle,
+        });
+        state.set_snapshot(Box::new(projected));
+        state.set_pane_surface(surface());
+        let normal = state.compose(106, 20).expect("terminal frame");
+        let tabs = state.hits.tabs.clone();
+        let new_tab = state.hits.new_tab;
+        assert_eq!(tabs.len(), 2);
+        assert!(!new_tab.is_empty());
+
+        let default_prefix = state.handle_input_bytes(&[0x01]);
+        assert_eq!(
+            default_prefix.requests.len(),
+            1,
+            "ctrl-a should reach the pane when the prefix is overridden"
+        );
+
+        let prefix = state.handle_input_bytes(&[0x02]);
+        assert!(prefix.requests.is_empty());
+        assert!(prefix.repaint);
+        let frame = state.compose(106, 20).expect("prefix frame");
+        let width = usize::from(frame.width);
+        let row_start = usize::from(new_tab.y) * width;
+        let hint_start = row_start + usize::from(new_tab.right());
+        let row_end = row_start + width;
+        let hints = frame.cells[hint_start..row_end]
+            .iter()
+            .map(|cell| cell.symbol.as_str())
+            .collect::<String>();
+        assert_eq!(
+            hints.trim_end(),
+            " PREFIX  esc cancel  ctrl+b send prefix  w workspace nav  ? keybinds"
+        );
+        assert_eq!(frame.cells[..hint_start], normal.cells[..hint_start]);
+        assert_eq!(frame.cells[row_end..], normal.cells[row_end..]);
+        assert_eq!(state.hits.tabs, tabs);
+        assert_eq!(state.hits.new_tab, new_tab);
+
+        state.handle_input_bytes(b"\x1b");
+        let cancelled = state.compose(106, 20).expect("prefix cancelled");
+        assert_eq!(cancelled.cells, normal.cells);
+
+        state.handle_input_bytes(&[0x02]);
+        let detach = state.handle_input_bytes(b"x");
+        assert!(detach.detach);
+        assert!(detach.requests.is_empty());
+    }
+}
+
+#[test]
+fn mobile_prefix_keeps_its_mode_bar() {
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
+    state.handle_input_bytes(b"\x01");
+    let frame = state.compose(64, 20).expect("mobile prefix frame");
+    let rows = frame_rows(&frame);
+    assert!(rows[19].starts_with(" PREFIX  esc cancel  ctrl+a send prefix"));
+    assert!(!rows[1].contains("esc cancel"));
+}
 
-    let old_default = state.handle_input_bytes(&[0x02]);
-    assert_eq!(
-        old_default.requests.len(),
-        1,
-        "ctrl-b should reach the pane"
-    );
-
-    let prefix = state.handle_input_bytes(&[0x01]);
-    assert!(prefix.requests.is_empty());
-    assert!(prefix.repaint);
-    let frame = state.compose(106, 20).expect("prefix frame");
-    let text = frame
-        .cells
-        .chunks(frame.width as usize)
-        .map(|row| {
-            row.iter()
-                .map(|cell| cell.symbol.as_str())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("PREFIX"), "frame: {text:?}");
-    assert!(text.contains("ctrl+a"), "frame: {text:?}");
-
-    let detach = state.handle_input_bytes(b"x");
-    assert!(detach.detach);
-    assert!(detach.requests.is_empty());
+#[test]
+fn ctrl_alt_p_and_n_reach_the_pane_by_default() {
+    let mut state = state_with_snapshot(snapshot());
+    for key in [b"\x1b[112;7u", b"\x1b[110;7u"] {
+        let outcome = state.handle_input_bytes(key);
+        assert!(outcome.actions.is_empty());
+        assert!(matches!(
+            &outcome.requests[..],
+            [ClientMessage::ClientShellPaneInput { .. }]
+        ));
+    }
 }
 
 #[test]
@@ -146,7 +205,7 @@ fn prefix_core_action_uses_typed_request_with_stable_ids() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     state.set_snapshot(Box::new(snapshot()));
 
-    assert!(state.handle_input_bytes(&[0x02]).actions.is_empty());
+    assert!(state.handle_input_bytes(&[0x01]).actions.is_empty());
     let create = state.handle_input_bytes(b"c");
     let [ClientShellAction::Endpoint {
         boot_id, request, ..

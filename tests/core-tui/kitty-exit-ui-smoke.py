@@ -340,7 +340,8 @@ def main():
                          text=True, capture_output=True, check=True, timeout=10).stdout
 
         def tab_row():
-            return (kitty("get-text") + "\n").splitlines()[0].strip()
+            # The desktop tab bar is at the bottom by default.
+            return kitty("get-text").rstrip().split("\n")[-1].strip()
 
         results = []
         for n in range(RUNS):

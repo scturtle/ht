@@ -37,7 +37,7 @@ fn workspace_chooser_omits_the_menu_on_desktop_and_mobile() {
     for width in [106, 44] {
         let mut state = state_with_snapshot(snapshot());
         state.set_pane_surface(surface());
-        let open = state.handle_input_bytes(b"\x02w");
+        let open = state.handle_input_bytes(b"\x01w");
         assert!(open.actions.is_empty() && open.requests.is_empty());
         let frame = state.compose(width, 40).expect("workspace chooser");
         let rows = frame_rows(&frame);

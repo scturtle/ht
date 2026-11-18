@@ -101,7 +101,6 @@ def main():
         (home / "config.toml").write_text('''[keys]
 new_tab = "f3"
 next_tab = "f5"
-next_workspace = "f6"
 new_workspace = "f7"
 rename_workspace = "f8"
 rename_tab = "f9"
@@ -133,7 +132,7 @@ close_pane = "f12"
         def check_workspace_label(label):
             before = rpc.doc()
             # The desktop selector reuses the mobile renderer; no persistent sidebar.
-            viewer.send(b"\x02w")
+            viewer.send(b"\x01w")
             UI.until(lambda: screen().splitlines()[0].strip().startswith("switch"), "workspace selector")
             def named_workspace():
                 text = screen()
@@ -169,15 +168,15 @@ close_pane = "f12"
             custom_config = original_config + '\n[theme.custom]\naccent = "#12ab34"\n'
             config_path.write_text(custom_config)
             output_start = len(viewer.output)
-            viewer.send(b"\x02R")
+            viewer.send(b"\x01R")
             UI.until(lambda: (viewer.read(), re.search(rb"(?:38|48);2;18;171;52(?:;|m)", viewer.output[output_start:]))[1],
                      "file override appears in the actual frame")
             assert config_path.read_text() == custom_config, "reload must not rewrite configuration"
             config_path.write_text(original_config)
-            viewer.send(b"\x02R")
+            viewer.send(b"\x01R")
             # The retired settings binding must not intercept the next live overlay.
-            viewer.send(b"\x02s")
-            viewer.send(b"\x02?")  # Default prefix+? opens help.
+            viewer.send(b"\x01s")
+            viewer.send(b"\x01?")  # Default prefix+? opens help.
             UI.until(lambda: "search / · scroll" in screen(), "help overlay")
             viewer.send(b"/reload")
             UI.until(lambda: "reload config" in screen() and "esc back" in screen(), "help filter")
@@ -208,12 +207,17 @@ close_pane = "f12"
             split_doc = rpc.put_doc(app)
             left, right = leaves(root)
             pids = {address: hc("get", address)["pid"] for address in (left, right)}
-            click_label("2.1", row=0)
+            desktop_tab_row = viewer.resizes[0][2] - 1
+            click_label("2.1", row=desktop_tab_row)
             UI.until(lambda: "SECOND_TAB_READY" in screen() and "SPLIT_READY" not in screen(), "desktop pane click")
-            viewer.send(b"\x02\t")  # prefix+Tab still cycles within the selected tab.
-            UI.until(lambda: "SPLIT_READY" in screen() and "SECOND_TAB_READY" not in screen(), "keyboard pane cycle")
-            viewer.send(b"\x02\t")
-            UI.until(lambda: "SECOND_TAB_READY" in screen() and "SPLIT_READY" not in screen(), "keyboard pane cycle wraps")
+            viewer.send(b"\x01\t\x01?")  # prefix+Tab is no longer bound.
+            UI.until(lambda: "search / · scroll" in screen(), "help after unbound prefix+Tab")
+            click_label("esc close")
+            UI.until(lambda: "SECOND_TAB_READY" in screen() and "SPLIT_READY" not in screen(), "prefix+Tab leaves pane unchanged")
+            viewer.send(b"\x01w\t")  # Tab still cycles inside the workspace selector.
+            UI.until(lambda: "SPLIT_READY" in screen() and "SECOND_TAB_READY" not in screen(), "selector pane cycle")
+            viewer.send(b"\x01w\x1b[Z")
+            UI.until(lambda: "SECOND_TAB_READY" in screen() and "SPLIT_READY" not in screen(), "selector reverse pane cycle")
 
             mobile = UI.Viewer(dict(env, HERDR_CORE_CLIENT_ID="organization-mobile"), cols=48, rows=22)
             try:
@@ -227,13 +231,13 @@ close_pane = "f12"
             finally:
                 mobile.cleanup()
 
-            click_label("2.2", row=0)
+            click_label("2.2", row=desktop_tab_row)
             UI.until(lambda: "SPLIT_READY" in screen() and "SECOND_TAB_READY" not in screen(), "desktop reclaims selected pane")
             UI.until(lambda: hc("get", right)["cols"] == 100, "desktop reclaims full width")
             viewer.send(b"\x1b[24~")  # F12
             UI.until(lambda: hc("get", right)["state"] == "finished", "explicit Pane close ends only its terminal")
             assert rpc.doc() == split_doc, "Pane close leaves App reconciliation to the layout writer"
-            UI.until(lambda: "2.1" not in screen().splitlines()[0] and "SECOND_TAB_READY" in screen(), "remaining pane loses suffix without losing its program")
+            UI.until(lambda: "2.1" not in screen().splitlines()[-1] and "SECOND_TAB_READY" in screen(), "remaining pane loses suffix without losing its program")
             assert hc("get", left)["pid"] == pids[left]
             version = rpc.doc()["version"]
             viewer.send(b"\x1b[15~")  # F5

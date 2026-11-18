@@ -44,7 +44,6 @@ def main():
             HERDR_CLIENT_SOCKET_PATH=str(home / "forbidden-client.sock"),
         )
         (home / "config.toml").write_text('''[keys]
-copy_mode = "f7"
 detach = "f10"
 ''')
         core_config = core / "config/herdr-core"
@@ -88,15 +87,25 @@ detach = "f10"
             )
             viewer.send(f"printf '{payload}'\r".encode())
             UI.until(lambda: "COPY_READY" in screen(), "known retained terminal text")
-            viewer.send(b"\x1b[18~")  # F7: existing client copy-mode.
-            UI.until(lambda: " COPY " in screen(), "copy-mode entry")
-            viewer.send(b"/needle\r")
+            viewer.send(b"\x01[")  # Default Ctrl+A prefix then [.
+            UI.until(
+                lambda: re.search(r"\+\s+COPY\s+J/K \^e/\^y scroll\s+H/M/L jump\s+z center",
+                                  screen().splitlines()[-1]),
+                "copy-mode hints sit after the new-tab button",
+            )
+            viewer.send(b"/needle")
+            UI.until(
+                lambda: re.search(r"\+\s+COPY\s+/needle.*enter search  esc cancel",
+                                  screen().splitlines()[-1]),
+                "copy search prompt and hints sit after the new-tab button",
+            )
+            viewer.send(b"\r")
             UI.until(lambda: "1/2" in screen(), "endpoint-backed search result")
             UI.until(lambda: "alpha needle one" in screen(), "search scrolls into retained history")
             viewer.send(b"y")
             UI.until(lambda: b"needle" in copied(), "search-match copy over captured OSC 52")
             assert "unexpected" not in screen(), "pane.scroll must return pane info, not a generic acknowledgement"
-            viewer.send(b"\x1b[18~")
+            viewer.send(b"\x01[")
             UI.until(lambda: " COPY " in screen(), "copy-mode reentry")
             # The existing shell queues async word motions before the copy.
             viewer.send(b"g0vwey")

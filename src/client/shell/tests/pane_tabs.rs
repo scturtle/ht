@@ -43,7 +43,7 @@ fn methods(outcome: &ClientShellInput) -> Vec<&Action> {
 
 #[test]
 fn pane_entries_share_a_tab_group_but_clicks_target_the_exact_pane() {
-    for (cols, bar_row) in [(106, 0), (56, 1)] {
+    for (cols, bar_row) in [(106, 23), (56, 1)] {
         let mut state = state_with_snapshot(grouped_snapshot());
         state.set_pane_surface(surface());
         let frame = state.compose(cols, 24).unwrap();

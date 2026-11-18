@@ -280,45 +280,6 @@ fn mobile_switcher_creation_rows_reuse_client_actions() {
 }
 
 #[test]
-fn mobile_previous_workspace_action_wraps_across_expanded_entries() {
-    let mut projected = snapshot();
-    for index in 2..=3 {
-        projected.workspaces.push(ClientShellWorkspace {
-            workspace_id: format!("ws_{index}"),
-            active_tab_id: format!("tab_{index}"),
-            new_workspace_cwd: "/tmp".into(),
-            number: index,
-            label: format!("workspace-{index}"),
-            custom_label: true,
-            branch: None,
-            git_ahead_behind: None,
-            tokens: Vec::new(),
-            worktree: None,
-            focused: false,
-            agent_status: AgentStatus::Idle,
-        });
-    }
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(projected));
-    state.set_pane_surface(surface());
-    state.compose(44, 20).expect("mobile layout");
-    let mut outcome = ClientShellInput::default();
-    state.record_binding(
-        keybindings::KeybindMatch::Action(keybindings::KeybindAction::PreviousWorkspace),
-        &mut outcome,
-    );
-    assert!(outcome.actions.iter().any(|action| matches!(
-        action,
-        ClientShellAction::Endpoint { request, .. }
-            if matches!(
-                &request.action,
-                crate::actions::Action::WorkspaceFocus(target)
-                    if target.workspace_id == "ws_3"
-            )
-    )));
-}
-
-#[test]
 fn mobile_switcher_scroll_close_and_width_transition_clear_mobile_hits() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut projected = snapshot();

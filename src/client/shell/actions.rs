@@ -573,9 +573,7 @@ impl ClientShellState {
         &mut self,
         action: keybindings::KeybindAction,
     ) -> Option<crate::actions::Action> {
-        use crate::actions::{
-            Action, PaneTarget, TabCreateParams, TabMoveParams, TabTarget, WorkspaceTarget,
-        };
+        use crate::actions::{Action, PaneTarget, TabCreateParams, TabMoveParams, TabTarget};
         use keybindings::KeybindAction;
 
         let snapshot = self.endpoint.snapshot.as_deref()?;
@@ -592,69 +590,6 @@ impl ClientShellState {
         let focused_tab = snapshot.focused_tab_id.clone();
         let focused_pane = snapshot.focused_pane_id.clone();
         match action {
-            KeybindAction::FocusAgent(index) => {
-                let agents = super::navigation_rows::ordered_agent_pane_ids(
-                    snapshot,
-                    self.config.agent_panel_sort,
-                );
-                Some(Action::PaneFocus(PaneTarget {
-                    pane_id: agents.get(index)?.clone(),
-                }))
-            }
-            KeybindAction::PreviousAgent | KeybindAction::NextAgent => {
-                let agents = super::navigation_rows::ordered_agent_pane_ids(
-                    snapshot,
-                    self.config.agent_panel_sort,
-                );
-                if agents.is_empty() {
-                    return None;
-                }
-                let current = agents.iter().position(|pane_id| {
-                    Some(pane_id.as_str()) == snapshot.focused_pane_id.as_deref()
-                });
-                let next = match (current, action) {
-                    (Some(current), KeybindAction::PreviousAgent) => {
-                        (current + agents.len() - 1) % agents.len()
-                    }
-                    (Some(current), KeybindAction::NextAgent) => (current + 1) % agents.len(),
-                    (None, KeybindAction::PreviousAgent) => agents.len() - 1,
-                    (None, KeybindAction::NextAgent) => 0,
-                    _ => unreachable!("relative agent action"),
-                };
-                let pane_id = agents[next].clone();
-                Some(Action::PaneFocus(PaneTarget { pane_id }))
-            }
-            KeybindAction::SwitchWorkspace(index) => {
-                let entries = navigation_rows::workspace_entries(snapshot);
-                let workspace_id = snapshot
-                    .workspaces
-                    .get(entries.get(index)?.index)?
-                    .workspace_id
-                    .clone();
-                Some(Action::WorkspaceFocus(WorkspaceTarget { workspace_id }))
-            }
-            KeybindAction::PreviousWorkspace | KeybindAction::NextWorkspace => {
-                let entries = navigation_rows::workspace_entries(snapshot);
-                if entries.is_empty() {
-                    return None;
-                }
-                let current = entries
-                    .iter()
-                    .position(|entry| {
-                        snapshot.workspaces[entry.index].workspace_id == focused_workspace
-                    })
-                    .unwrap_or(0);
-                let delta = if action == KeybindAction::PreviousWorkspace {
-                    -1
-                } else {
-                    1
-                };
-                let next = (current as isize + delta).rem_euclid(entries.len() as isize) as usize;
-                let workspace_id = snapshot.workspaces[entries[next].index]
-                    .workspace_id
-                    .clone();
-                Some(Action::WorkspaceFocus(WorkspaceTarget { workspace_id }))
-            }
             KeybindAction::SwitchTab(index) => {
                 let tabs = snapshot
                     .tabs
@@ -727,30 +662,6 @@ impl ClientShellState {
                 Some(Action::TabMove(TabMoveParams {
                     tab_id: focused_tab,
                     insert_index,
-                }))
-            }
-            KeybindAction::CyclePaneNext | KeybindAction::CyclePanePrevious => {
-                let focused_tab = focused_tab?;
-                let panes = snapshot
-                    .panes
-                    .iter()
-                    .filter(|pane| pane.tab_id == focused_tab)
-                    .collect::<Vec<_>>();
-                if panes.is_empty() {
-                    return None;
-                }
-                let focused_pane = focused_pane?;
-                let current = panes
-                    .iter()
-                    .position(|pane| pane.pane_id == focused_pane)
-                    .unwrap_or(0);
-                let next = if action == KeybindAction::CyclePanePrevious {
-                    (current + panes.len() - 1) % panes.len()
-                } else {
-                    (current + 1) % panes.len()
-                };
-                Some(Action::PaneFocus(PaneTarget {
-                    pane_id: panes[next].pane_id.clone(),
                 }))
             }
             KeybindAction::LastPane => {

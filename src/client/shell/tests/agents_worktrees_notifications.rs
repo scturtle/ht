@@ -25,61 +25,14 @@ fn mouse_hits_use_stable_workspace_tab_and_pane_ids() {
 }
 
 #[test]
-fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
+fn last_pane_action_resolves_to_stable_pane_id() {
     let mut initial = snapshot();
     let mut second = initial.panes[0].clone();
     second.pane_id = "pane_2".into();
     second.focused = false;
     initial.panes.push(second);
-    initial.agents = vec![
-        ClientShellAgent {
-            pane_id: "pane_1".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
-            name: Some("first".into()),
-            display_agent: None,
-            agent: None,
-            title: None,
-            terminal_title: None,
-            terminal_title_stripped: None,
-            agent_status: AgentStatus::Idle,
-            state_change_seq: 1,
-            state_labels: Vec::new(),
-            tokens: Vec::new(),
-            focused: true,
-        },
-        ClientShellAgent {
-            pane_id: "pane_2".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
-            name: Some("second".into()),
-            display_agent: None,
-            agent: None,
-            title: None,
-            terminal_title: None,
-            terminal_title_stripped: None,
-            agent_status: AgentStatus::Idle,
-            state_change_seq: 2,
-            state_labels: Vec::new(),
-            tokens: Vec::new(),
-            focused: false,
-        },
-    ];
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(initial.clone()));
-
-    let mut cycle = ClientShellInput::default();
-    state.record_binding(
-        keybindings::KeybindMatch::Action(keybindings::KeybindAction::CyclePaneNext),
-        &mut cycle,
-    );
-    let [ClientShellAction::Endpoint { request, .. }] = &cycle.actions[..] else {
-        panic!("pane cycle should use endpoint API");
-    };
-    assert!(matches!(
-        &request.action,
-        crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_2"
-    ));
 
     let mut replacement = initial;
     replacement.revision = 2;
@@ -99,23 +52,10 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
         &request.action,
         crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_1"
     ));
-
-    let mut agent = ClientShellInput::default();
-    state.record_binding(
-        keybindings::KeybindMatch::Action(keybindings::KeybindAction::FocusAgent(1)),
-        &mut agent,
-    );
-    let [ClientShellAction::Endpoint { request, .. }] = &agent.actions[..] else {
-        panic!("agent focus should use endpoint API");
-    };
-    assert!(matches!(
-        &request.action,
-        crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_2"
-    ));
 }
 
 #[test]
-fn active_agent_view_controls_focus_indices() {
+fn active_agent_view_controls_row_order() {
     let mut projected = snapshot();
     let mut second_pane = projected.panes[0].clone();
     second_pane.pane_id = "pane_2".into();
@@ -187,33 +127,6 @@ fn active_agent_view_controls_focus_indices() {
         ),
         ["pane_2", "pane_3"]
     );
-    let mut focus = ClientShellInput::default();
-    state.record_binding(
-        keybindings::KeybindMatch::Action(keybindings::KeybindAction::FocusAgent(0)),
-        &mut focus,
-    );
-    assert!(matches!(
-        &focus.actions[..],
-        [ClientShellAction::Endpoint { request, .. }]
-            if matches!(
-                &request.action,
-                crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_2"
-            )
-    ));
-
-    let mut next = ClientShellInput::default();
-    state.record_binding(
-        keybindings::KeybindMatch::Action(keybindings::KeybindAction::NextAgent),
-        &mut next,
-    );
-    assert!(matches!(
-        &next.actions[..],
-        [ClientShellAction::Endpoint { request, .. }]
-            if matches!(
-                &request.action,
-                crate::actions::Action::PaneFocus(target) if target.pane_id == "pane_2"
-            )
-    ));
 }
 
 #[test]
@@ -284,7 +197,7 @@ fn navigate_mode_selects_workspace_locally_then_focuses_by_stable_id() {
     state.set_snapshot(Box::new(snapshot));
     state.set_pane_surface(surface());
 
-    assert!(state.handle_input_bytes(&[0x02]).actions.is_empty());
+    assert!(state.handle_input_bytes(&[0x01]).actions.is_empty());
     let enter_navigate = state.handle_input_bytes(b"w");
     assert!(enter_navigate.repaint);
     assert_eq!(state.mode, ClientShellMode::Navigate);

@@ -123,8 +123,8 @@ detach = "f10"
             assert rpc.doc()["version"] == version, "geometry/copy must not write organization"
             a.send(b"\x1bOR")  # F3: shared new tab, local focus only.
             UI.until(lambda: len(rpc.doc()["value"]["spaces"][0]["tabs"]) == 2, "shared tab creation")
-            UI.until(lambda: re.search(r"\b2\b", screen(a,(100,28)).splitlines()[0]) and "WRAP_RESIZED" not in screen(a,(100,28)), "creator focuses new tab")
-            UI.until(lambda: re.search(r"\b2\b", screen(b,(90,25)).splitlines()[0]) and "WRAP_RESIZED" in screen(b,(90,25)), "other client sees membership without losing focus")
+            UI.until(lambda: re.search(r"\b2\b", screen(a,(100,28)).splitlines()[-1]) and "WRAP_RESIZED" not in screen(a,(100,28)), "creator focuses new tab")
+            UI.until(lambda: re.search(r"\b2\b", screen(b,(90,25)).splitlines()[-1]) and "WRAP_RESIZED" in screen(b,(90,25)), "other client sees membership without losing focus")
             created = rpc.doc()
             second_address = ORG.leaves(created["value"]["spaces"][0]["tabs"][1]["root"])[0]
             UI.until(lambda: "multi$" in screen(a,(100,28)), "new tab program prompt before input")
@@ -143,9 +143,9 @@ detach = "f10"
             UI.until(lambda: "WRAP_RESIZED" in screen(b,(84,23)), "other client returns to original tab")
             a.send(b"\x1bOS")  # F4: close the current pane, not an entire tab.
             UI.until(lambda: hc("get",second_address)["state"] == "finished", "shared pane termination")
-            UI.until(lambda: not re.search(r"\b2\b", screen(b,(84,23)).splitlines()[0]), "other client removes the ended pane")
+            UI.until(lambda: not re.search(r"\b2\b", screen(b,(84,23)).splitlines()[-1]), "other client removes the ended pane")
             assert rpc.doc() == created, "closing a pane does not edit the App document"
-            UI.until(lambda: not re.search(r"\b2\b", screen(a,(100,28)).splitlines()[0]) and "C" * 20 in screen(a,(100,28)), "creator focus repairs to surviving tab (marker may reflow)")
+            UI.until(lambda: not re.search(r"\b2\b", screen(a,(100,28)).splitlines()[-1]) and "C" * 20 in screen(a,(100,28)), "creator focus repairs to surviving tab (marker may reflow)")
             b.detach()
             UI.until(lambda: grid() == a_grid, "detaching leader restores remaining viewer's requested grid")
             UI.until(lambda: "C" * 20 + "WRAP_RESIZED"[:a_grid[0] - b_small[0]] in screen(a,(100,28)),

@@ -54,7 +54,8 @@ impl Session {
         if self.model.records.len() >= MAX_PANES {
             return Err(invalid("Core TUI pane limit reached"));
         }
-        env.insert("TERM".into(), crate::pane::PANE_TERM.into());
+        env.entry("TERM".into())
+            .or_insert_with(|| crate::pane::PANE_TERM.into());
         env.insert("COLORTERM".into(), "truecolor".into());
         // `keep` keeps a pane usable after its program is lost: Core replaces it
         // with a shell in place instead of leaving a dead screen behind.

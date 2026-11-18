@@ -20,6 +20,61 @@ fn restore_mode_bar(
 }
 
 impl ClientShellState {
+    pub(super) fn tab_bar_mode_hint<'a>(
+        &self,
+        layout: ClientShellLayout,
+        copy_mode: Option<&'a ClientCopyModeState>,
+    ) -> Option<(render::ModeHint<'a>, Rect)> {
+        if self.endpoint_error.is_some() || !layout.mobile_header.is_empty() {
+            return None;
+        }
+        let hint = match self.mode {
+            ClientShellMode::Prefix => render::ModeHint::Prefix,
+            ClientShellMode::Copy => render::ModeHint::Copy(copy_mode?),
+            _ => return None,
+        };
+        let area = render::tab_bar_hint_area(layout.tab_bar, self.hits.new_tab);
+        hint.fits_inline(area).then_some((hint, area))
+    }
+
+    pub(super) fn footer_mode_bar_area(&self, layout: ClientShellLayout) -> Rect {
+        if self.mode == ClientShellMode::Copy
+            && self.endpoint_error.is_none()
+            && self
+                .copy_mode
+                .as_ref()
+                .is_some_and(|copy| copy.search_prompt.is_some())
+        {
+            // An editable search that doesn't fit after + must not replace the tabs.
+            layout.pane_surface
+        } else {
+            layout.mode_bar_area()
+        }
+    }
+
+    fn render_mode_chrome(
+        &self,
+        buffer: &mut Buffer,
+        layout: ClientShellLayout,
+        mode_bar_area: Rect,
+        copy_mode: Option<&ClientCopyModeState>,
+    ) -> Option<Rect> {
+        if let Some((hint, area)) = self.tab_bar_mode_hint(layout, copy_mode) {
+            render::render_tab_bar_hint(buffer, area, hint, &self.config);
+            None
+        } else {
+            render::render_mode_bar(
+                buffer,
+                mode_bar_area,
+                self.mode,
+                copy_mode,
+                self.endpoint_error.as_deref(),
+                &self.config.keybinds,
+                &self.config.palette,
+            )
+        }
+    }
+
     fn compose_unavailable(&mut self, cols: u16, rows: u16) -> FrameData {
         let layout = self.layout(cols, rows);
         let mut buffer = Buffer::empty(Rect::new(0, 0, cols, rows));
@@ -59,15 +114,8 @@ impl ClientShellState {
             &message,
             Style::default().fg(self.config.palette.overlay0),
         );
-        render::render_mode_bar(
-            &mut buffer,
-            Rect::new(0, 0, cols, rows),
-            self.mode,
-            None,
-            self.endpoint_error.as_deref(),
-            &self.config.keybinds,
-            &self.config.palette,
-        );
+        let full_area = buffer.area;
+        self.render_mode_chrome(&mut buffer, layout, full_area, None);
         if let Some(notice) = &self.visible_endpoint_notice {
             self.hits.notification_toast = endpoint_notices::render_notice(
                 &mut buffer,
@@ -187,28 +235,17 @@ impl ClientShellState {
                 pixel_height: pane.pixel_height,
             })
             .collect();
-        let mode_bar_area = if layout.mobile_header.is_empty()
-            && self.config.tab_bar_position == TabBarPositionConfig::Bottom
-            && !layout.tab_bar.is_empty()
-        {
-            layout.tab_bar
-        } else {
-            layout.pane_surface
-        };
         let mobile_navigate_panel = !layout.mobile_header.is_empty()
             && self.mode == ClientShellMode::Navigate
             && self.endpoint_error.is_none();
         let mode_bar = if mobile_navigate_panel || self.overlay.is_some() {
             None
         } else {
-            render::render_mode_bar(
+            self.render_mode_chrome(
                 &mut buffer,
-                mode_bar_area,
-                self.mode,
+                layout,
+                self.footer_mode_bar_area(layout),
                 self.copy_mode.as_ref(),
-                self.endpoint_error.as_deref(),
-                &self.config.keybinds,
-                &self.config.palette,
             )
         };
         if mode_bar == Some(layout.tab_bar) {

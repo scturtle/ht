@@ -107,7 +107,8 @@ fn config_diagnostic_offsets_only_the_pane_rows_it_overlaps() {
 
     state.compose(106, 20).expect("one-line frame");
     let pane_area = state.layout(106, 20).pane_surface;
-    assert_eq!(state.hits.notification_toast.y, pane_area.y);
+    let first_uncovered_row = pane_area.y.max(1);
+    assert_eq!(state.hits.notification_toast.y, first_uncovered_row);
     let targetless_hit = state.hits.notification_toast;
     state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
@@ -121,7 +122,7 @@ fn config_diagnostic_offsets_only_the_pane_rows_it_overlaps() {
     endpoint_snapshot.config_diagnostic = Some("first warning\nsecond warning".into());
     state.set_snapshot(Box::new(endpoint_snapshot));
     state.compose(106, 20).expect("two-line frame");
-    assert_eq!(state.hits.notification_toast.y, pane_area.y);
+    assert_eq!(state.hits.notification_toast.y, first_uncovered_row);
 
     state
         .visible_notification

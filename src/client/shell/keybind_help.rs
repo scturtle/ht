@@ -67,14 +67,7 @@ pub(super) fn keybind_help_groups(
             "navigation",
             vec![
                 entry("esc", "back"),
-                entry(
-                    format!(
-                        "{} / {}",
-                        binding_label(&keybinds.navigate.workspace_up),
-                        binding_label(&keybinds.navigate.workspace_down)
-                    ),
-                    "workspace list",
-                ),
+                entry("up / down", "workspace list"),
                 entry("tab / shift+tab", "cycle pane"),
                 entry("enter", "open workspace"),
                 entry("1..9", "switch workspace"),
@@ -94,18 +87,6 @@ pub(super) fn keybind_help_groups(
                     "rename workspace",
                 ),
                 entry(binding_label(&keybinds.close_workspace), "close workspace"),
-                entry(
-                    binding_label(&keybinds.previous_workspace),
-                    "previous workspace",
-                ),
-                entry(binding_label(&keybinds.next_workspace), "next workspace"),
-                entry(
-                    indexed_label(&keybinds.switch_workspace),
-                    "switch workspace 1-9",
-                ),
-                entry(binding_label(&keybinds.previous_agent), "previous agent"),
-                entry(binding_label(&keybinds.next_agent), "next agent"),
-                entry(indexed_label(&keybinds.focus_agent), "focus agent 1-9"),
                 entry(binding_label(&keybinds.new_tab), "new tab"),
                 entry(binding_label(&keybinds.rename_tab), "rename tab"),
                 entry(
@@ -126,11 +107,6 @@ pub(super) fn keybind_help_groups(
                 entry(binding_label(&keybinds.edit_scrollback), "edit scrollback"),
                 entry(binding_label(&keybinds.clear_pane), "clear pane"),
                 entry(binding_label(&keybinds.copy_mode), "copy mode"),
-                entry(binding_label(&keybinds.cycle_pane_next), "cycle pane next"),
-                entry(
-                    binding_label(&keybinds.cycle_pane_previous),
-                    "cycle pane previous",
-                ),
                 entry(binding_label(&keybinds.last_pane), "last pane"),
             ],
         ),

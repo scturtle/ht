@@ -48,7 +48,8 @@ def main():
     for path in [core / "run", core / "config", core / "state"]:
         path.mkdir(parents=True, mode=0o700)
     config = private / "ui.toml"
-    config.write_text('[ui]\n[keys]\ndetach = "f10"\n')
+    # The probe needs Ctrl+A to reach the pane unchanged.
+    config.write_text('[ui]\n[keys]\nprefix = "ctrl+b"\ndetach = "f10"\n')
     (core / "config/herdr-core").mkdir(mode=0o700)
     (core / "config/herdr-core/config.toml").write_text('notes = false\n')
     env.update(HOME=str(private), XDG_RUNTIME_DIR=str(core / "run"),

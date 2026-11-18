@@ -5,9 +5,6 @@
 allow_nested = true
 
 [keys]
-# Keep the regular bindings; F12 is an alternative if an outer app captures Ctrl+b.
+# Use Ctrl+b or F12 if the outer app captures the default Ctrl+a.
 prefix = ["ctrl+b", "f12"]
-split_vertical = ["prefix+v", "f2"]
-split_horizontal = ["prefix+minus", "f3"]
-cycle_pane_next = ["prefix+tab", "f6"]
 detach = ["prefix+q", "f10"]

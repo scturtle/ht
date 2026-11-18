@@ -61,7 +61,7 @@ def main():
         viewer.detach()
         viewer = H.Viewer(env)  # attach from HOME, not from the root shell's cwd
         H.until(lambda: "CWD_READY" in screen(), "reattached pane paint")
-        viewer.send(b"\x02w")  # client-local chooser, no PTY input or Core focus request
+        viewer.send(b"\x01w")  # client-local chooser, no PTY input or Core focus request
         H.until(lambda: screen().splitlines()[0].strip().startswith("switch"), "first workspace chooser paint")
         text = screen()
         (home / "first-workspace-screen.txt").write_text(text)
@@ -74,7 +74,7 @@ def main():
         assert final["cwd"] == str(home) and final["foreground"]["cwd"] == str(project)
         viewer.send(b"\x1b")
         H.until(lambda: not screen().splitlines()[0].strip().startswith("switch"), "chooser closed")
-        viewer.send(b"\x02g")
+        viewer.send(b"\x01g")
         H.until(lambda: "Go to" in screen() and str(project) in screen(), "navigator uses current directory")
         text = screen()
         assert "search" not in text.lower() and "filter" not in text.lower()

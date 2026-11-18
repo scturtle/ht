@@ -36,7 +36,7 @@ mod native_source;
 pub mod pane_graphics_files;
 
 /// Terminfo entry the terminal emulates; child processes should see it as TERM.
-pub const TERM: &str = "xterm-256color";
+pub const TERM: &str = "xterm-kitty";
 
 pub use bindings as ffi;
 

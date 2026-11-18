@@ -22,14 +22,8 @@ pub(in crate::client) enum KeybindAction {
     NewWorkspace,
     RenameWorkspace,
     CloseWorkspace,
-    SwitchWorkspace(usize),
     SwitchTab(usize),
-    FocusAgent(usize),
     WorkspacePicker,
-    PreviousWorkspace,
-    NextWorkspace,
-    PreviousAgent,
-    NextAgent,
     NewTab,
     RenameTab,
     PreviousTab,
@@ -43,8 +37,6 @@ pub(in crate::client) enum KeybindAction {
     EditScrollback,
     ClearPane,
     CopyMode,
-    CyclePaneNext,
-    CyclePanePrevious,
     LastPane,
     Help,
     ReloadConfig,
@@ -82,13 +74,6 @@ pub(super) fn resolve_non_indexed_action(
         (&keybinds.new_workspace, KeybindAction::NewWorkspace),
         (&keybinds.rename_workspace, KeybindAction::RenameWorkspace),
         (&keybinds.close_workspace, KeybindAction::CloseWorkspace),
-        (
-            &keybinds.previous_workspace,
-            KeybindAction::PreviousWorkspace,
-        ),
-        (&keybinds.next_workspace, KeybindAction::NextWorkspace),
-        (&keybinds.previous_agent, KeybindAction::PreviousAgent),
-        (&keybinds.next_agent, KeybindAction::NextAgent),
         (&keybinds.new_tab, KeybindAction::NewTab),
         (&keybinds.rename_tab, KeybindAction::RenameTab),
         (&keybinds.previous_tab, KeybindAction::PreviousPaneInBar),
@@ -100,11 +85,6 @@ pub(super) fn resolve_non_indexed_action(
         (&keybinds.clear_pane, KeybindAction::ClearPane),
         (&keybinds.copy_mode, KeybindAction::CopyMode),
         (&keybinds.last_pane, KeybindAction::LastPane),
-        (&keybinds.cycle_pane_next, KeybindAction::CyclePaneNext),
-        (
-            &keybinds.cycle_pane_previous,
-            KeybindAction::CyclePanePrevious,
-        ),
         (&keybinds.close_pane, KeybindAction::ClosePane),
         (&keybinds.reload_config, KeybindAction::ReloadConfig),
         (
@@ -142,20 +122,6 @@ pub(super) fn resolve_indexed_action(
             if trigger_matches(binding) {
                 if let Some(index) = binding.matched_index(key) {
                     return Some(KeybindAction::SwitchTab(index));
-                }
-            }
-        }
-        for binding in &keybinds.switch_workspace {
-            if trigger_matches(binding) {
-                if let Some(index) = binding.matched_index(key) {
-                    return Some(KeybindAction::SwitchWorkspace(index));
-                }
-            }
-        }
-        for binding in &keybinds.focus_agent {
-            if trigger_matches(binding) {
-                if let Some(index) = binding.matched_index(key) {
-                    return Some(KeybindAction::FocusAgent(index));
                 }
             }
         }
@@ -202,6 +168,19 @@ mod tests {
     use crossterm::event::{KeyCode, KeyModifiers};
 
     use super::*;
+
+    #[test]
+    fn prefix_tab_and_backtab_have_no_default_shortcut() {
+        let keybinds = Keybinds::default();
+        for (code, modifiers) in [
+            (KeyCode::Tab, KeyModifiers::empty()),
+            (KeyCode::BackTab, KeyModifiers::SHIFT),
+        ] {
+            assert!(
+                resolve_prefix_binding(&keybinds, &TerminalKey::new(code, modifiers)).is_none()
+            );
+        }
+    }
 
     #[test]
     fn close_workspace_has_no_default_shortcut() {

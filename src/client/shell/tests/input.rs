@@ -96,6 +96,7 @@ fn host_bracketed_paste_inserts_text_through_overlay_text_path() {
 #[test]
 fn client_shell_graphics_follow_final_shell_origin_and_local_overlay_visibility() {
     let mut state = state_with_snapshot(snapshot());
+    state.config.tab_bar_position = TabBarPositionConfig::Top;
     let mut pane_surface = surface();
     let key = crate::protocol::SurfaceGraphicsAssetKey {
         source: crate::protocol::SurfaceGraphicsSource::Terminal {
@@ -415,16 +416,17 @@ fn unmatched_release_never_takes_a_held_key_while_herdr_owns_another_press() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
 
-    // Hold `a` in the pane, then press the prefix: Herdr owns that press.
-    let _ = state.handle_input_bytes(b"a");
-    let _ = state.handle_input_bytes(b"\x1b[98;5u");
-    // A release the leases cannot name must not be charged to the held `a`.
+    // Hold `x` in the pane, then press the prefix: Herdr owns that press.
+    let _ = state.handle_input_bytes(b"x");
+    let _ = state.handle_input_bytes(b"\x1b[97;5u");
+    assert_eq!(state.mode, ClientShellMode::Prefix);
+    // A release the leases cannot name must not be charged to the held `x`.
     let stray = state.handle_input_bytes(b"\x1b[47;1:3u");
     assert!(pane_key_events(&stray).is_empty());
-    let release = state.handle_input_bytes(b"\x1b[97;1:3u");
+    let release = state.handle_input_bytes(b"\x1b[120;1:3u");
     assert_eq!(
         pane_key_events(&release),
-        [(ClientKeyCode::Char('a'), ClientKeyKind::Release)]
+        [(ClientKeyCode::Char('x'), ClientKeyKind::Release)]
     );
 }
 
@@ -657,8 +659,8 @@ fn shell_targets_unconsumed_input_and_keeps_prefix_local() {
             ..
         }] if *modifiers == KeyModifiers::ALT.bits()
     ));
-    assert!(!state.handle_input_bytes(&[0x02]).detach);
-    let detach = state.handle_input_bytes(b"q");
+    assert!(!state.handle_input_bytes(&[0x01]).detach);
+    let detach = state.handle_input_bytes(b"d");
     assert!(detach.detach);
     assert!(detach.requests.is_empty());
 }
@@ -892,18 +894,18 @@ fn report_all_kitty_host_state(snapshot: crate::protocol::ClientShellSnapshot) -
 
 #[test]
 fn plain_text_after_the_prefix_runs_the_prefix_binding_on_a_report_all_host() {
-    // Prefix as a key report, then a plain `q` (Tern, IME commit).
+    // Prefix as a key report, then a plain `d` (Tern, IME commit).
     let mut state = report_all_kitty_host_state(snapshot());
-    let _ = state.handle_input_bytes(b"\x1b[98;5u");
+    let _ = state.handle_input_bytes(b"\x1b[97;5u");
     assert_eq!(state.mode, ClientShellMode::Prefix);
-    let detach = state.handle_input_bytes(b"q");
-    assert!(detach.detach, "plain q after a reported prefix must detach");
+    let detach = state.handle_input_bytes(b"d");
+    assert!(detach.detach, "plain d after a reported prefix must detach");
     assert!(pane_text_commits(&detach).is_empty());
 
     // Raw prefix byte and the key in one write (Ghostty `text:` bind).
     let mut state = report_all_kitty_host_state(snapshot());
-    let detach = state.handle_input_bytes(b"\x02q");
-    assert!(detach.detach, "one-write ^B q must detach");
+    let detach = state.handle_input_bytes(b"\x01d");
+    assert!(detach.detach, "one-write ^A d must detach");
     assert!(pane_text_commits(&detach).is_empty());
 }
 
@@ -918,7 +920,7 @@ fn plain_text_in_navigate_mode_runs_the_navigate_binding_on_a_report_all_host() 
     snapshot.workspaces.push(second);
     let mut state = report_all_kitty_host_state(snapshot);
 
-    let _ = state.handle_input_bytes(b"\x1b[98;5u");
+    let _ = state.handle_input_bytes(b"\x1b[97;5u");
     let _ = state.handle_input_bytes(b"\x1b[119u");
     assert_eq!(state.mode, ClientShellMode::Navigate);
     let jump = state.handle_input_bytes(b"2");
@@ -948,7 +950,7 @@ fn committed_text_still_reaches_a_report_all_pane_as_text() {
     assert_eq!(pane_text_commits(&ascii), ["n"]);
 
     // And after leaving prefix mode the pane gets text commits again.
-    let _ = state.handle_input_bytes(b"\x1b[98;5u");
+    let _ = state.handle_input_bytes(b"\x1b[97;5u");
     let _ = state.handle_input_bytes(b"\x1b");
     assert_eq!(state.mode, ClientShellMode::Terminal);
     let after = state.handle_input_bytes("\u{3042}".as_bytes());

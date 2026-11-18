@@ -56,7 +56,7 @@ fn desktop_workspace_selector_does_not_depend_on_a_pane_surface() {
             state.set_snapshot(Box::new(snapshot()));
         }
         assert!(state.pane_surface.is_none());
-        let opened = state.handle_input_bytes(b"\x02w");
+        let opened = state.handle_input_bytes(b"\x01w");
         assert!(opened.actions.is_empty() && opened.requests.is_empty());
         assert_eq!(state.mode, ClientShellMode::Navigate);
         state
@@ -127,7 +127,7 @@ fn desktop_keyboard_selector_keeps_context_targets_stable() {
     state.compose(106, 30).expect("desktop");
     assert!(state.hits.mobile_switch.is_empty());
     assert!(state.hits.global_launcher.is_empty());
-    let opened = state.handle_input_bytes(b"\x02w");
+    let opened = state.handle_input_bytes(b"\x01w");
     assert!(opened.repaint && opened.actions.is_empty() && opened.requests.is_empty());
     assert_eq!(state.mode, ClientShellMode::Navigate);
     state.compose(106, 30).expect("selector");

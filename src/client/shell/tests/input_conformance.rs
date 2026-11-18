@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, HashMap};
 use super::*;
 
 use crate::ghostty::{self, ffi};
+use crossterm::event::KeyEventKind;
 
 #[derive(Clone, Copy)]
 struct KeyDef {
@@ -378,11 +379,28 @@ impl HerdrPath {
             }
             chunks.extend(self.framer.flush_timeout());
         }
+        let mut direct_binding = false;
         let outcomes = chunks
             .iter()
-            .map(|chunk| self.state.handle_input_bytes(chunk))
+            .map(|chunk| {
+                let events = crate::raw_input::parse_framed_input(chunk);
+                direct_binding |= self.state.mode == ClientShellMode::Terminal
+                    && self.state.overlay.is_none()
+                    && events.iter().any(|event| {
+                        matches!(event, RawInputEvent::Key(key)
+                            if key.kind == KeyEventKind::Press
+                                && keybindings::resolve_direct_binding(&self.state.config.keybinds.keybinds, key).is_some())
+                    });
+                self.state.handle_raw_events(events)
+            })
             .collect();
-        self.deliver(outcomes)
+        let delivered = self.deliver(outcomes);
+        // A shortcut can be consumed without an endpoint action, e.g. moving the only tab.
+        if direct_binding && delivered.as_ref().is_some_and(Vec::is_empty) {
+            None
+        } else {
+            delivered
+        }
     }
 
     /// Route client outcomes through the Core presentation encoder and collect the bytes the

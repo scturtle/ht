@@ -228,18 +228,26 @@ accent = "#abcdef"
     }
 
     #[test]
+    fn desktop_tab_bar_defaults_to_bottom() {
+        let config: Config = toml::from_str("[ui]").unwrap();
+        let layout = ClientShellConfig::from_config(&config).layout(106, 20);
+        assert_eq!(layout.tab_bar, Rect::new(0, 19, 106, 1));
+        assert_eq!(layout.pane_surface, Rect::new(0, 0, 106, 19));
+    }
+
+    #[test]
     fn live_reload_applies_client_owned_sections() {
         let mut shell = ClientShellConfig::from_config(&Config::default());
         let mut next = Config::default();
-        next.ui.tab_bar_position = TabBarPositionConfig::Bottom;
+        next.ui.tab_bar_position = TabBarPositionConfig::Top;
         next.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
         next.ui.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
-        next.keys.prefix = crate::config::BindingConfig::one("ctrl+a");
+        next.keys.prefix = crate::config::BindingConfig::one("ctrl+b");
 
         let diagnostics = shell.apply_live_config(&next, &[], &[]);
 
         assert!(diagnostics.is_empty());
-        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Bottom);
+        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Top);
         assert_eq!(
             shell.agent_panel_sort,
             crate::config::AgentPanelSortConfig::Priority
@@ -253,17 +261,17 @@ accent = "#abcdef"
             &[],
             &["ui".to_owned(), "keys".to_owned()],
         );
-        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Bottom);
+        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Top);
         assert_eq!(
             shell.keybinds.prefix,
-            vec![(KeyCode::Char('a'), KeyModifiers::CONTROL)]
+            vec![(KeyCode::Char('b'), KeyModifiers::CONTROL)]
         );
     }
 
     #[test]
     fn live_reload_preserves_invalid_client_owned_sections() {
         let mut initial = Config::default();
-        initial.ui.tab_bar_position = TabBarPositionConfig::Bottom;
+        initial.ui.tab_bar_position = TabBarPositionConfig::Top;
         initial.keys.prefix = crate::config::BindingConfig::one("ctrl+x");
         let mut shell = ClientShellConfig::from_config(&initial);
 
@@ -272,7 +280,7 @@ accent = "#abcdef"
         let invalid_sections = vec!["ui".to_owned(), "keys".to_owned()];
         shell.apply_live_config(&invalid, &[], &invalid_sections);
 
-        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Bottom);
+        assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Top);
         assert_eq!(
             shell.keybinds.prefix,
             vec![(KeyCode::Char('x'), KeyModifiers::CONTROL)]

@@ -41,7 +41,7 @@ CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
 脚本清除继承的 `HC_*` / `HERDR_*` 身份和 socket 设置，运行时独立放在
 `.local/core-tui/existing/`，不会连接旧 Herdr server。TUI 仍读取正常 Herdr 界面配置；
 可用 `CORE_UI_CONFIG=/path/to/config.toml` 显式选择另一份配置。
-**已有 `[keys]` 会覆盖默认键位**，例如前缀可能是 `Ctrl+a` 而不是 `Ctrl+b`。
+**已有 `[keys]` 会覆盖默认键位**，例如可以把默认前缀 `Ctrl+a` 改成别的键。
 嵌套在 Herdr/tmux 中运行时，相同前缀还可能被外层截获；可以使用独立终端，
 或显式使用随附的试用配置（不会修改全局配置）：
 
@@ -50,13 +50,12 @@ CORE_UI_CONFIG="$PWD/scripts/core-tui/try-config.toml" \
   bash scripts/core-tui/run.sh
 ```
 
-试用配置同时保留 **Ctrl+b** 和 **F12** 两个前缀，以及常规的 `前缀 v`、`前缀 -`、
-`前缀 Tab`、`前缀 q`。另有 **F2** 左右分屏、**F3** 上下分屏、**F6** 下一 Pane、
-**F10** detach。嵌套外层截获 Ctrl+b 时，可改用 F12（例如 F12 然后 `?` 查看帮助）。
+试用配置使用 **Ctrl+b** 或 **F12** 作为前缀，`前缀 p/n` 按栏上的顺序切 Pane，
+`前缀 q` 或 **F10** detach。嵌套外层截获 Ctrl+b 时，可改用 F12（例如 F12 然后 `?` 查看帮助）。
 
 本工作目录另有不提交的个人配置副本 `.local/core-tui/personal-config.toml`，
-保留配置中的 fish、底部 Tab、配色 override 和 Ctrl+a 键位；只增加 F12 备用前缀、
-旧终端 `|` / `_` 别名及允许嵌套。原全局配置不变：
+保留配置中的 fish、底部 Tab、配色 override 和 Ctrl+a 键位，并添加 F12 备用前缀和嵌套许可。
+原全局配置不变：
 
 ```sh
 CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
@@ -271,8 +270,8 @@ PTY 大小仍沿用 `latest`：两端同时使用一个 Pane 时会跟随最后�
 - 数据仍是 Workspace → Tab → Pane。TUI 一次只显示一个 Pane，同 Tab 的多 Pane 在栏上并排编号，
   例如 `1.1  1.2 │ 2`。桌面和移动端都列出当前 Space 的所有 Tab/Panes；移动端用页头第二行，
   即使所有 Tab 都只有一个 Pane 也照常显示。点击直达，窄屏先去掉名称，再用两端箭头滚动。
-  `prefix+p/n` 按栏上的 Pane 顺序在当前 Workspace 内循环；
-  `prefix+Tab` / `prefix+Shift+Tab` 只在当前 Tab 内切 Pane；数字快捷键仍按 Tab 切换。
+  `prefix+p/n` 按栏上的 Pane 顺序在当前 Workspace 内循环，`prefix+1..9` 按 Tab 切换。
+  打开工作区选择器（`prefix+w`）后，`Tab` / `Shift+Tab` 可在当前 Tab 内切 Pane。
   `ht` 不显示分屏、Zoom 或分隔线；App 原有的分屏几何不会被改动。
 - App 外部编辑和 missed events 触发文档重读。Core 明确确认程序结束后，`ht` 从本地投影
   隐藏该 Pane，App 负责同步自己的共享布局；断流、Core restart/stop 本身不是程序退出证据。

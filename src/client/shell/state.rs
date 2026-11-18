@@ -30,6 +30,16 @@ pub(super) struct ClientShellLayout {
     pub pane_surface: Rect,
 }
 
+impl ClientShellLayout {
+    pub(super) fn mode_bar_area(self) -> Rect {
+        if !self.tab_bar.is_empty() && self.tab_bar.y >= self.pane_surface.bottom() {
+            self.tab_bar
+        } else {
+            self.pane_surface
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ClientMobileTarget {
     NewWorkspace,

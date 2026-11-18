@@ -234,7 +234,7 @@ fn ctrl_hover_ignores_late_reply_after_pointer_leaves() {
     let id = hover_request(&state.handle_raw_events(vec![RawInputEvent::Mouse(mouse)]));
     state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
         column: 0,
-        row: 0,
+        row: state.hits.new_tab.y,
         ..mouse
     })]);
     assert!(!resolve_hover(&mut state, &id));

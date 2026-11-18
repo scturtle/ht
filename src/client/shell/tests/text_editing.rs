@@ -174,24 +174,24 @@ fn all_naming_targets_preserve_submission_and_empty_semantics() {
 fn copy_search_owns_prefix_but_parked_prompt_does_not_steal_input() {
     let mut state = shell(4);
     *editor(&mut state) = TextEditor::from("ab");
-    press(&mut state, KeyCode::Char('b'), KeyModifiers::CONTROL);
+    press(&mut state, KeyCode::Char('a'), KeyModifiers::CONTROL);
     assert_eq!(state.mode, ClientShellMode::Copy);
     state.handle_raw_events(vec![RawInputEvent::Text(TextCommit::new("X"))]);
-    assert_eq!(editor(&mut state).as_str(), "aXb");
+    assert_eq!(editor(&mut state).as_str(), "Xab");
     state.open_rename_pane_overlay();
     state.handle_raw_events(vec![RawInputEvent::Paste("name".into())]);
     assert_eq!(editor(&mut state).as_str(), "name");
     state.overlay = None;
-    assert_eq!(editor(&mut state).as_str(), "aXb");
+    assert_eq!(editor(&mut state).as_str(), "Xab");
     state.mode = ClientShellMode::Terminal;
     let input = state.handle_raw_events(vec![RawInputEvent::Text(TextCommit::new("terminal"))]);
     assert!(
         matches!(&input.requests[..], [ClientMessage::ClientShellPaneInput { events, .. }] if matches!(&events[..], [ClientPaneInputEvent::TextCommit(text)] if text == "terminal"))
     );
-    assert_eq!(editor(&mut state).as_str(), "aXb");
+    assert_eq!(editor(&mut state).as_str(), "Xab");
     state.mode = ClientShellMode::Copy;
     press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
-    press(&mut state, KeyCode::Char('b'), KeyModifiers::CONTROL);
+    press(&mut state, KeyCode::Char('a'), KeyModifiers::CONTROL);
     assert_eq!(state.mode, ClientShellMode::Prefix);
 }
 

@@ -4,6 +4,7 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::key_fields::key_fields;
+use super::keybinds::{format_key_combo, DEFAULT_PREFIX};
 use super::{
     BindingConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
     DEFAULT_SCROLLBACK_LIMIT_LINES,
@@ -187,7 +188,7 @@ macro_rules! define_keys_config {
     } )*) => {
         #[derive(Debug, Clone, Serialize)]
         pub struct KeysConfig {
-            /// Prefix key(s) to enter prefix mode (e.g. "ctrl+b", "f12", "esc", or an
+            /// Prefix key(s) to enter prefix mode (e.g. "ctrl+a", "f12", "esc", or an
             /// array to accept several).
             pub prefix: BindingConfig,
             $($( $(#[$attr])* pub $field: $ty, )*)*
@@ -200,7 +201,7 @@ macro_rules! define_keys_config {
         impl Default for KeysConfig {
             fn default() -> Self {
                 Self {
-                    prefix: BindingConfig::one("ctrl+b"),
+                    prefix: BindingConfig::one(format_key_combo(DEFAULT_PREFIX)),
                     $($( $field: $default, )*)*
                     indexed: IndexedKeysConfig::default(),
                     user_fields: BTreeSet::new(),
@@ -280,17 +281,13 @@ impl KeysConfig {
 pub struct IndexedKeysConfig {
     /// Modifier combo for tab shortcuts 1-9. Unset by default.
     pub tabs: String,
-    /// Modifier combo for workspace shortcuts 1-9. Unset by default.
-    pub workspaces: String,
-    /// Modifier combo for agent shortcuts 1-9. Unset by default.
-    pub agents: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TabBarPositionConfig {
-    #[default]
     Top,
+    #[default]
     Bottom,
 }
 
@@ -307,7 +304,7 @@ pub struct UiConfig {
     pub redraw_on_focus_gained: bool,
     /// Lines to scroll per mouse wheel notch. Default: 3.
     pub mouse_scroll_lines: Option<NonZeroUsize>,
-    /// Desktop tab row placement. Default: top.
+    /// Desktop tab row placement. Default: bottom.
     pub tab_bar_position: TabBarPositionConfig,
     /// Agent navigation ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
@@ -332,7 +329,7 @@ impl Default for UiConfig {
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
             redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
-            tab_bar_position: TabBarPositionConfig::Top,
+            tab_bar_position: TabBarPositionConfig::default(),
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             status_indicators: StatusIndicatorStyle::Dots,
             toast: ToastConfig::default(),

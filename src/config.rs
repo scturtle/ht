@@ -22,8 +22,6 @@ pub use self::{
     theme::{parse_color, CustomThemeColors, ThemeConfig},
 };
 
-pub(crate) use self::keybinds::parse_key_combo;
-
 pub const CONFIG_PATH_ENV_VAR: &str = "HERDR_CONFIG_PATH";
 
 pub const DEFAULT_SCROLLBACK_LIMIT_LINES: u32 = 1000;
@@ -53,21 +51,7 @@ impl Config {
 
     pub fn collect_diagnostics(&self) -> Vec<String> {
         let (prefix_diag, _, keybind_diags, _) = self.validated_keybinds();
-        prefix_diag
-            .into_iter()
-            .chain(keybind_diags)
-            .chain(self.remote_image_paste_key().err())
-            .collect()
-    }
-
-    pub(crate) fn remote_image_paste_key(&self) -> Result<Option<(KeyCode, KeyModifiers)>, String> {
-        let raw = self.keys.remote_image_paste.trim();
-        if raw.is_empty() {
-            return Ok(None);
-        }
-        parse_key_combo(raw).map(Some).ok_or_else(|| {
-            format!("invalid keybinding: keys.remote_image_paste = {raw:?}; disabling binding")
-        })
+        prefix_diag.into_iter().chain(keybind_diags).collect()
     }
 
     pub(crate) fn live_keybinds_with_diagnostics(
@@ -145,11 +129,5 @@ mod tests {
         assert!(keys.switch_tab.iter().all(|b| b.label.starts_with("ctrl+")));
         let invalid: Config = toml::from_str("[keys.indexed]\ntabs = \"bogus\"").unwrap();
         assert!(invalid.keybinds().switch_tab.is_empty());
-    }
-
-    #[test]
-    fn remote_image_paste_key_can_be_disabled() {
-        let config: Config = toml::from_str("[keys]\nremote_image_paste = ''\n").unwrap();
-        assert_eq!(config.remote_image_paste_key().unwrap(), None);
     }
 }

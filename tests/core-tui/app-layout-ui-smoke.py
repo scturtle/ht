@@ -29,8 +29,6 @@ def main():
         Path(env["HERDR_CONFIG_PATH"]).write_text('''[terminal]
 default_shell = "/bin/sh"
 [keys]
-move_tab_previous = "f6"
-move_tab_next = "f7"
 detach = "f10"
 close_workspace = "f11"
 ''')
@@ -56,6 +54,9 @@ close_workspace = "f11"
             oracle = subprocess.run([str(ORG["ORACLE"]), str(cols), str(rows)], input=peer.read(),
                                     capture_output=True, timeout=5, check=True)
             return oracle.stdout.decode(errors="replace")
+
+        def tab_bar(peer):
+            return screen(peer).splitlines()[-1]
 
         def showing(peer, expected, *excluded):
             return UI.until(lambda: (s := screen(peer)) and expected in s and not any(e in s for e in excluded),
@@ -104,20 +105,21 @@ close_workspace = "f11"
             assert rpc.doc(DOC) == absent
             draft = publish([space(first, plugin, second)])
             showing(wide, "APP_SCREEN_A", "APP_SCREEN_B", "APP_SCREEN_C")
-            assert "1.1" in screen(wide).splitlines()[0] and "1.2" in screen(wide).splitlines()[0]
+            heading = tab_bar(wide)
+            assert "1.1" in heading and "1.2" in heading
             for key, target in [(b"n", "B"), (b"n", "C"), (b"n", "A"), (b"p", "C"), (b"p", "B")]:
-                wide.send(b"\x02" + key)
+                wide.send(b"\x01" + key)
                 showing(wide, f"APP_SCREEN_{target}")
-            wide.send(b"\x022")
+            wide.send(b"\x012")
             showing(wide, "APP_SCREEN_C", "APP_SCREEN_A", "APP_SCREEN_B")
-            wide.send(b"\x02x")  # The App marks this terminal as not closable.
+            wide.send(b"\x01x")  # The App marks this terminal as not closable.
             showing(wide, "not closable")
             assert call("terminal.get", terminal=cc)["pid"] == c["pid"]
-            wide.send(b"\x021")
+            wide.send(b"\x011")
             showing(wide, "APP_SCREEN_B", "APP_SCREEN_A", "APP_SCREEN_C")
-            wide.send(b"\x02\t")
+            wide.send(b"\x01w\t")  # Pane cycling is local to the workspace selector.
             showing(wide, "APP_SCREEN_A", "APP_SCREEN_B", "APP_SCREEN_C")
-            wide.send(b"\x02\t")
+            wide.send(b"\x01w\x1b[Z")
             showing(wide, "APP_SCREEN_B", "APP_SCREEN_A", "APP_SCREEN_C")
             wide.send(b"printf 'FROM_%s_HERE\\n' 'HT'\r")
             showing(wide, "FROM_HT_HERE")
@@ -136,7 +138,7 @@ close_workspace = "f11"
             showing(wide, "STILL_APP_LIVE")
             assert rpc.doc(DOC) == draft
             moved = publish([space(second, first, plugin)])
-            UI.until(lambda: "2.2" in screen(wide).splitlines()[0], "App reorders tabs")
+            UI.until(lambda: "2.2" in tab_bar(wide), "App reorders tabs")
             showing(wide, "APP_SCREEN_B", "APP_SCREEN_A", "APP_SCREEN_C")
             showing(narrow, "APP_SCREEN_A", "APP_SCREEN_B", "APP_SCREEN_C")
             assert rpc.doc(DOC) == moved
@@ -158,11 +160,11 @@ close_workspace = "f11"
             for address, pid in pid_by_address.items():
                 record = call("terminal.get", terminal=address)
                 assert record["state"] == "live" and record["pid"] == pid
-            wide.send(b"\x022")
+            wide.send(b"\x012")
             showing(wide, "APP_SCREEN_A", "APP_SCREEN_B")
-            wide.send(b"\x02n")
+            wide.send(b"\x01n")
             showing(wide, "APP_SCREEN_B")
-            wide.send(b"\x02x")
+            wide.send(b"\x01x")
             showing(wide, "APP_SCREEN_A", "APP_SCREEN_B")
             UI.until(lambda: "2.2" not in screen(narrow).splitlines()[1], "other viewer drops the ended pane")
             closed = call("terminal.get", terminal=bb)
@@ -173,9 +175,9 @@ close_workspace = "f11"
             wide.detach()
             wide = UI.Viewer(wide_env, shared=True)
             showing(wide, "APP_SCREEN_A", "APP_SCREEN_B")
-            assert "2.2" not in screen(wide).splitlines()[0]
+            assert "2.2" not in tab_bar(wide)
 
-            wide.send(b"\x02c")
+            wide.send(b"\x01c")
             def appended():
                 current = rpc.doc(DOC)
                 return current if current["version"] > restored["version"] else None
@@ -185,7 +187,7 @@ close_workspace = "f11"
             tab = spaces[0]["tabs"].pop()
             assert created["value"] == restored["value"], "only the new tab is appended"
             address = tab["root"]["children"][0]["content"]["terminal"]
-            UI.until(lambda: "3" in screen(wide).splitlines()[0]
+            UI.until(lambda: "3" in tab_bar(wide)
                     and "APP_SCREEN_A" not in screen(wide), "new tab gets local focus")
             wide.send(b"printf 'NEW_%s_READY\\n' 'TAB'\r")
             showing(wide, "NEW_TAB_READY")
@@ -194,11 +196,13 @@ close_workspace = "f11"
             assert facts["labels"]["herdr.space"] == "space-main"
             assert facts["labels"]["herdr.tab"] == tab["id"]
             assert facts["cwd"] == str(home)
+            wide.send(b"printf 'PANE_TERM_%s\\n' \"$TERM\"\r")
+            showing(wide, "PANE_TERM_xterm-kitty")
             showing(narrow, "APP_SCREEN_C", "NEW_TAB_READY")
             click(narrow, "3", 1)  # All three tabs now have a single pane.
             showing(narrow, "NEW_TAB_READY", "APP_SCREEN_C")
 
-            wide.send(b"\x02T")
+            wide.send(b"\x01T")
             showing(wide, "rename tab")
             wide.send(b"\x03Shared QA Tab\r")
             UI.until(lambda: rpc.doc(DOC)["value"]["spaces"][0]["tabs"][-1]["name"] == "Shared QA Tab",
@@ -206,9 +210,9 @@ close_workspace = "f11"
             showing(narrow, "Shared QA Tab")
             renamed = rpc.doc(DOC)["value"]
             original_tabs = renamed["spaces"][0]["tabs"]
-            wide.send(b"\x022")
+            wide.send(b"\x012")
             showing(wide, "APP_SCREEN_A", "NEW_TAB_READY")
-            wide.send(b"\x1b[18~")  # F7: move Pair one visible slot toward the end.
+            wide.send(b"\x1b[46;7u")  # Ctrl+Alt+period: move Pair one visible slot toward the end.
             expected = [original_tabs[i] for i in (0, 2, 3, 1)]
             UI.until(lambda: rpc.doc(DOC)["value"]["spaces"][0]["tabs"] == expected,
                      "keyboard moves one whole tab, preserving the plugin tab")
@@ -217,13 +221,14 @@ close_workspace = "f11"
 
             # Drag Pair back left of Shared QA Tab; the hidden plugin keeps its data.
             def reordered_heading():
-                line = screen(wide).splitlines()[0]
+                line = tab_bar(wide)
                 return line if 0 <= line.find("Shared QA Tab") < line.find("Pair") else None
 
             heading = UI.until(reordered_heading, "reordered tab bar is rendered")
             source = heading.index("Pair") + 1
             destination = heading.index("Shared QA Tab")  # first half of its tab
-            wide.send(f"\x1b[<0;{source};1M\x1b[<32;{destination};1M\x1b[<0;{destination};1m".encode())
+            tab_row = wide.resizes[0][2]  # The mouse report uses one-based screen coordinates.
+            wide.send(f"\x1b[<0;{source};{tab_row}M\x1b[<32;{destination};{tab_row}M\x1b[<0;{destination};{tab_row}m".encode())
             expected = [original_tabs[i] for i in (0, 2, 1, 3)]
             UI.until(lambda: rpc.doc(DOC)["value"]["spaces"][0]["tabs"] == expected,
                      "drag reorders by visible tab anchors")
@@ -237,24 +242,24 @@ close_workspace = "f11"
             assert rpc.doc(DOC)["value"]["spaces"] == [existing_space]
             assert call("terminal.get", terminal=aa)["pid"] == pid_by_address[aa]
 
-            wide.send(b"\x02N")
+            wide.send(b"\x01N")
             UI.until(lambda: len(rpc.doc(DOC)["value"]["spaces"]) == 2, "prefix+Shift+n creates a Space")
             new = rpc.doc(DOC)["value"]["spaces"][1]
             new_addr = new["tabs"][0]["root"]["children"][0]["content"]["terminal"]
             UI.until(lambda: "Shared QA Tab" not in screen(wide), "new Space takes local focus")
             showing(narrow, "NEW_TAB_READY")
-            wide.send(b"\x02W")
+            wide.send(b"\x01W")
             showing(wide, "rename workspace")
             wide.send(b"\x03Workspace 2\r")
             UI.until(lambda: rpc.doc(DOC)["value"]["spaces"][1]["name"] == "Workspace 2",
                      "rename Space in the shared layout")
             UI.until(lambda: "rename workspace" not in screen(wide), "Space rename dialog closes")
-            wide.send(b"\x02w")
+            wide.send(b"\x01w")
             showing(wide, "Workspace 2")
             wide.send(b"\x1b")
             UI.until(lambda: "Workspace 2" not in screen(wide), "return from Space switcher")
             assert call("terminal.get", terminal=new_addr)["cwd"] == str(home)
-            wide.send(b"\x02c")
+            wide.send(b"\x01c")
             UI.until(lambda: len(rpc.doc(DOC)["value"]["spaces"][1]["tabs"]) == 2,
                      "second terminal in the new Space")
             new_tabs = rpc.doc(DOC)["value"]["spaces"][1]["tabs"]
@@ -269,7 +274,7 @@ close_workspace = "f11"
 
             publish([])
             UI.until(lambda: "Shared QA Tab" not in screen(wide), "App layout becomes empty")
-            wide.send(b"\x02c")
+            wide.send(b"\x01c")
             UI.until(lambda: len(rpc.doc(DOC)["value"]["spaces"]) == 1, "prefix+c adds the first tab")
             wide.detach()
             narrow.detach()

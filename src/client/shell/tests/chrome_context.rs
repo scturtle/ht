@@ -139,7 +139,7 @@ fn focused_last_overflow_tab_shows_its_full_label() {
     })]);
     let frame = state.compose(120, 20).expect("manual scroll right");
     assert_eq!(state.tab_scroll, end_scroll);
-    assert!(frame_rows(&frame)[0].contains("nvim test"));
+    assert!(frame_rows(&frame)[usize::from(state.hits.new_tab.y)].contains("nvim test"));
     assert_eq!(
         frame.cells[(right.y * frame.width + right.x + 1) as usize].fg,
         crate::protocol::color_to_u32(state.config.palette.overlay0),
@@ -153,7 +153,7 @@ fn context_menus_capture_stable_targets_and_route_actions() {
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("composed frame");
 
-    state.handle_input_bytes(b"\x02w");
+    state.handle_input_bytes(b"\x01w");
     state.compose(106, 20).expect("workspace switcher");
     let workspace = state.hits.mobile_targets.iter().find_map(|(rect, target)| {
         matches!(target, ClientMobileTarget::Workspace { workspace_id } if workspace_id == "ws_1").then_some(*rect)
@@ -246,14 +246,14 @@ fn client_action_shortcuts_work_without_chooser_menu_or_tab_buttons() {
     state.compose(106, 30).expect("shell frame");
     assert!(state.hits.global_launcher.is_empty());
     assert!(state.hits.mobile_switch.is_empty());
-    let help = state.handle_input_bytes(b"\x02?");
+    let help = state.handle_input_bytes(b"\x01?");
     assert!(help.actions.is_empty() && help.requests.is_empty());
     assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(_))));
     state.handle_input_bytes(b"\x1b");
-    let retired = state.handle_input_bytes(b"\x02s");
+    let retired = state.handle_input_bytes(b"\x01s");
     assert!(retired.actions.is_empty() && retired.requests.is_empty());
     assert!(state.overlay.is_none());
-    let detach = state.handle_input_bytes(b"\x02q");
+    let detach = state.handle_input_bytes(b"\x01d");
     assert!(detach.detach);
     assert!(state.overlay.is_none());
 }

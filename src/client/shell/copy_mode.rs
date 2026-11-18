@@ -1,6 +1,31 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyModifiers};
 
+enum CopyViewportLine {
+    Top,
+    Middle,
+    Bottom,
+}
+
+impl CopyViewportLine {
+    fn row_offset(self, last_row: u32) -> u32 {
+        match self {
+            Self::Top => 0,
+            Self::Middle => last_row / 2,
+            Self::Bottom => last_row,
+        }
+    }
+}
+
+impl ClientCopyModeState {
+    fn viewport_top_at(&self, offset_from_bottom: usize) -> u32 {
+        let top = self
+            .max_offset_from_bottom
+            .saturating_sub(offset_from_bottom);
+        u32::try_from(top).unwrap_or(u32::MAX)
+    }
+}
+
 impl ClientShellState {
     pub(super) fn reset_copy_pipeline(&mut self) {
         self.copy_session_generation = self.copy_session_generation.saturating_add(1);
@@ -196,6 +221,14 @@ impl ClientShellState {
                 self.move_copy_page(1, true, outcome);
                 return;
             }
+            (KeyCode::Char('e'), modifiers) if modifiers == KeyModifiers::CONTROL => {
+                self.scroll_copy_line(1, outcome);
+                return;
+            }
+            (KeyCode::Char('y'), modifiers) if modifiers == KeyModifiers::CONTROL => {
+                self.scroll_copy_line(-1, outcome);
+                return;
+            }
             _ => {}
         }
 
@@ -215,6 +248,12 @@ impl ClientShellState {
             'j' => self.move_copy_cursor(1, 0, outcome),
             'k' => self.move_copy_cursor(-1, 0, outcome),
             'l' => self.move_copy_cursor(0, 1, outcome),
+            'J' => self.scroll_copy_line(1, outcome),
+            'K' => self.scroll_copy_line(-1, outcome),
+            'H' => self.move_copy_to_viewport_line(CopyViewportLine::Top),
+            'M' => self.move_copy_to_viewport_line(CopyViewportLine::Middle),
+            'L' => self.move_copy_to_viewport_line(CopyViewportLine::Bottom),
+            'z' => self.center_copy_cursor(outcome),
             'g' => self.move_copy_history(true, outcome),
             'G' => self.move_copy_history(false, outcome),
             '0' => {
@@ -527,6 +566,90 @@ impl ClientShellState {
         outcome.repaint = true;
     }
 
+    fn copy_viewport_last_row_offset(&self) -> u32 {
+        let Some(copy_mode) = self.copy_mode.as_ref() else {
+            return 0;
+        };
+        // With a top tab bar or mobile header the mode bar can cover the pane's last row.
+        let bar_covers_last_row = self.last_composed_size.is_some_and(|(cols, rows)| {
+            let layout = self.layout(cols, rows);
+            if self.tab_bar_mode_hint(layout, Some(copy_mode)).is_some() {
+                return false;
+            }
+            let area = self.footer_mode_bar_area(layout);
+            !area.is_empty()
+                && self.hits.panes.iter().any(|hit| {
+                    hit.pane_id == copy_mode.pane_id && hit.inner_rect.bottom() == area.bottom()
+                })
+        });
+        u32::from(
+            copy_mode
+                .geometry
+                .1
+                .saturating_sub(1 + u16::from(bar_covers_last_row)),
+        )
+    }
+
+    fn scroll_copy_line(&mut self, direction: i8, outcome: &mut ClientShellInput) {
+        let last_row = self.copy_viewport_last_row_offset();
+        let Some(copy_mode) = self.copy_mode.as_mut() else {
+            return;
+        };
+        let offset = if direction < 0 {
+            copy_mode
+                .offset_from_bottom
+                .saturating_add(1)
+                .min(copy_mode.max_offset_from_bottom)
+        } else {
+            copy_mode.offset_from_bottom.saturating_sub(1)
+        };
+        if offset == copy_mode.offset_from_bottom {
+            return;
+        }
+        // Keep the same content row whenever it is still visible in the new viewport.
+        let top = copy_mode.viewport_top_at(offset);
+        copy_mode.cursor.row = copy_mode
+            .cursor
+            .row
+            .clamp(top, top.saturating_add(last_row));
+        self.set_copy_viewport_offset(offset, outcome);
+        self.sync_copy_selection();
+        outcome.repaint = true;
+    }
+
+    fn move_copy_to_viewport_line(&mut self, line: CopyViewportLine) {
+        let row_offset = line.row_offset(self.copy_viewport_last_row_offset());
+        let Some(copy_mode) = self.copy_mode.as_mut() else {
+            return;
+        };
+        let top = copy_mode.viewport_top_at(copy_mode.offset_from_bottom);
+        copy_mode.cursor.row = top.saturating_add(row_offset);
+        copy_mode.cursor.col = 0;
+        self.sync_copy_selection();
+    }
+
+    fn center_copy_cursor(&mut self, outcome: &mut ClientShellInput) {
+        let middle = CopyViewportLine::Middle.row_offset(self.copy_viewport_last_row_offset());
+        let Some(copy_mode) = self.copy_mode.as_ref() else {
+            return;
+        };
+        let top = copy_mode.cursor.row.saturating_sub(middle) as usize;
+        let offset = copy_mode.max_offset_from_bottom.saturating_sub(top);
+        self.set_copy_viewport_offset(offset, outcome);
+    }
+
+    fn set_copy_viewport_offset(&mut self, offset: usize, outcome: &mut ClientShellInput) {
+        if let Some(copy_mode) = self
+            .copy_mode
+            .as_mut()
+            .filter(|mode| mode.offset_from_bottom != offset)
+        {
+            copy_mode.offset_from_bottom = offset;
+            let pane_id = copy_mode.pane_id.clone();
+            self.push_pane_scroll_offset(pane_id, offset, outcome);
+        }
+    }
+
     fn move_copy_page(&mut self, direction: i8, half_page: bool, outcome: &mut ClientShellInput) {
         let Some(hit) = self.copy_hit() else {
             return;
@@ -592,23 +715,17 @@ impl ClientShellState {
         }
     }
 
-    fn reveal_copy_cursor(&mut self, outcome: &mut ClientShellInput, reserve_mode_bar_row: bool) {
+    fn reveal_copy_cursor(&mut self, outcome: &mut ClientShellInput, avoid_mode_bar: bool) {
+        let visible_last_row = avoid_mode_bar.then(|| self.copy_viewport_last_row_offset());
         let request = self.copy_mode.as_mut().and_then(|copy_mode| {
-            let current_top = copy_mode
-                .max_offset_from_bottom
-                .saturating_sub(copy_mode.offset_from_bottom) as u32;
-            let max_cursor_row = copy_mode
-                .geometry
-                .1
-                .saturating_sub(if reserve_mode_bar_row { 2 } else { 1 });
-            let bottom = current_top.saturating_add(u32::from(max_cursor_row));
+            let current_top = copy_mode.viewport_top_at(copy_mode.offset_from_bottom);
+            let max_cursor_row = visible_last_row
+                .unwrap_or_else(|| u32::from(copy_mode.geometry.1.saturating_sub(1)));
+            let bottom = current_top.saturating_add(max_cursor_row);
             let desired_top = if copy_mode.cursor.row < current_top {
                 copy_mode.cursor.row
             } else if copy_mode.cursor.row > bottom {
-                copy_mode
-                    .cursor
-                    .row
-                    .saturating_sub(u32::from(max_cursor_row))
+                copy_mode.cursor.row.saturating_sub(max_cursor_row)
             } else {
                 current_top
             };

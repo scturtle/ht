@@ -34,7 +34,7 @@ fn preview_key(state: &mut ClientShellState, bytes: &[u8]) {
 }
 
 fn enter_navigation(state: &mut ClientShellState) {
-    preview_key(state, &[0x02]);
+    preview_key(state, &[0x01]);
     preview_key(state, b"w");
     assert_eq!(state.mode, ClientShellMode::Navigate);
 }
@@ -74,6 +74,24 @@ fn workspace_navigation_preserves_parent_child_group_order() {
         preview_key(&mut state, b"\x1b[B");
         assert_selected(&state, id);
     }
+}
+
+#[test]
+fn picker_digits_follow_workspace_group_order() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(grouped_workspaces()));
+    state.set_pane_surface(surface());
+    state.compose(100, 28).unwrap();
+    enter_navigation(&mut state);
+
+    let outcome = state.handle_input_bytes(b"2");
+    assert!(matches!(
+        outcome.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+            if matches!(&request.action, crate::actions::Action::WorkspaceFocus(target)
+                if target.workspace_id == "ws_3")
+    ));
+    assert_eq!(state.mode, ClientShellMode::Terminal);
 }
 
 #[test]
@@ -338,32 +356,12 @@ fn navigation_highlight_requires_enqueued_focus_and_yields_to_new_intent() {
 }
 
 #[test]
-fn direct_agent_focus_repaints_when_releasing_a_workspace_highlight() {
-    let mut config = Config::default();
-    config.keys.focus_agent = crate::config::BindingConfig::one("ctrl+alt+1");
-    let mut projected = workspaces(3);
-    projected.agents.push(ClientShellAgent {
-        pane_id: "pane_1".into(),
-        workspace_id: "ws_1".into(),
-        tab_id: "tab_1".into(),
-        name: None,
-        display_agent: None,
-        agent: None,
-        title: None,
-        terminal_title: None,
-        terminal_title_stripped: None,
-        agent_status: AgentStatus::Idle,
-        state_change_seq: 1,
-        state_labels: Vec::new(),
-        tokens: Vec::new(),
-        focused: false,
-    });
+fn direct_pane_focus_repaints_when_releasing_a_workspace_highlight() {
+    let config: Config = toml::from_str("[keys]\nnext_tab = \"ctrl+alt+1\"\n").unwrap();
 
     for pending in [false, true] {
         let mut state = local_navigation_state(false);
         state.config.keybinds = ClientShellConfig::from_config(&config).keybinds;
-        state.set_snapshot(Box::new(projected.clone()));
-        state.compose(100, 28).unwrap();
         if pending {
             request_local_navigation(&mut state, 2);
             assert_local_highlight(&mut state, "ws_3");
@@ -458,19 +456,20 @@ fn kitty_ctrl_bracket_leaves_navigation_like_esc() {
 }
 
 #[test]
-fn configured_ctrl_bracket_navigate_binding_wins_over_cancel() {
-    let config: Config = toml::from_str("[keys]\nnavigate_workspace_down = \"ctrl+[\"\n").unwrap();
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-    state.set_snapshot(Box::new(workspaces(3)));
-    state.set_pane_surface(surface());
-    state.compose(100, 28).unwrap();
+fn unmodified_arrows_move_workspace_preview() {
+    let mut state = local_navigation_state(false);
     enter_navigation(&mut state);
     assert_selected(&state, "ws_1");
 
-    preview_key(&mut state, KITTY_CTRL_BRACKET);
-
-    assert_eq!(state.mode, ClientShellMode::Navigate);
+    preview_key(&mut state, b"\x1b[B");
     assert_selected(&state, "ws_2");
+
+    let modified = state.handle_input_bytes(b"\x1b[1;2B"); // Shift+Down.
+    assert!(modified.actions.is_empty() && modified.requests.is_empty());
+    assert_selected(&state, "ws_2");
+
+    preview_key(&mut state, b"\x1b[A");
+    assert_selected(&state, "ws_1");
 }
 
 #[test]

@@ -547,7 +547,7 @@ impl ClientShellState {
         key: &crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
     ) {
-        use keybindings::{KeybindAction, KeybindDispatch, KeybindMatch};
+        use keybindings::{KeybindDispatch, KeybindMatch};
 
         self.pending_workspace_highlight = None;
         if key.code == KeyCode::Esc || self.config.keybinds.matches_prefix(key) {
@@ -555,35 +555,20 @@ impl ClientShellState {
             return;
         }
 
-        if self
-            .config
-            .keybinds
-            .keybinds
-            .navigate
-            .workspace_up
-            .matches_direct_key(key)
-        {
-            self.move_navigate_workspace(-1);
-            outcome.repaint = true;
-            return;
-        }
-        if self
-            .config
-            .keybinds
-            .keybinds
-            .navigate
-            .workspace_down
-            .matches_direct_key(key)
-        {
-            self.move_navigate_workspace(1);
-            outcome.repaint = true;
-            return;
-        }
-
         let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
-        if code == KeyCode::Enter && modifiers.is_empty() {
-            self.accept_navigate_workspace(outcome);
-            return;
+        if modifiers.is_empty() {
+            match code {
+                KeyCode::Up | KeyCode::Down => {
+                    self.move_navigate_workspace(if code == KeyCode::Up { -1 } else { 1 });
+                    outcome.repaint = true;
+                    return;
+                }
+                KeyCode::Enter => {
+                    self.accept_navigate_workspace(outcome);
+                    return;
+                }
+                _ => {}
+            }
         }
         if self.workspace_preview_action_blocked() {
             // Bindings cannot run against a foreign preview, so Ctrl+[ has
@@ -608,16 +593,17 @@ impl ClientShellState {
                 (KeyCode::Char(digit), KeyModifiers::empty()),
             )
         }) {
-            let valid = self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                navigation_rows::workspace_entries(snapshot)
-                    .get(index)
-                    .is_some()
-            });
-            if valid {
+            if let Some(workspace_id) = self.endpoint.snapshot.as_deref().and_then(|snapshot| {
+                let entries = navigation_rows::workspace_entries(snapshot);
+                let entry = entries.get(index)?;
+                Some(snapshot.workspaces[entry.index].workspace_id.clone())
+            }) {
                 self.mode = ClientShellMode::Terminal;
                 self.navigate_workspace_id = None;
-                self.record_binding(
-                    KeybindMatch::Action(KeybindAction::SwitchWorkspace(index)),
+                self.push_endpoint_method(
+                    crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
+                        workspace_id,
+                    }),
                     outcome,
                 );
                 outcome.repaint = true;
@@ -625,24 +611,10 @@ impl ClientShellState {
             return;
         }
 
-        if modifiers.is_empty() {
-            match code {
-                KeyCode::Tab => {
-                    self.record_navigate_binding(
-                        KeybindMatch::Action(KeybindAction::CyclePaneNext),
-                        outcome,
-                    );
-                    return;
-                }
-                KeyCode::BackTab => {
-                    self.record_navigate_binding(
-                        KeybindMatch::Action(KeybindAction::CyclePanePrevious),
-                        outcome,
-                    );
-                    return;
-                }
-                _ => {}
-            }
+        if modifiers.is_empty() && matches!(code, KeyCode::Tab | KeyCode::BackTab) {
+            self.cycle_pane(code == KeyCode::BackTab, outcome);
+            self.cancel_navigate(outcome);
+            return;
         }
 
         let binding = keybindings::resolve_non_indexed_action(
@@ -677,19 +649,11 @@ impl ClientShellState {
         binding: keybindings::KeybindMatch,
         outcome: &mut ClientShellInput,
     ) {
-        use keybindings::{KeybindAction, KeybindMatch};
-
         if !self.indexed_navigation_target_exists(&binding) {
             return;
         }
-        if let KeybindMatch::Action(KeybindAction::CyclePaneNext) = binding {
-            self.cycle_pane(false, outcome);
-        } else if let KeybindMatch::Action(KeybindAction::CyclePanePrevious) = binding {
-            self.cycle_pane(true, outcome);
-        } else {
-            self.mode = ClientShellMode::Terminal;
-            self.record_binding(binding, outcome);
-        }
+        self.mode = ClientShellMode::Terminal;
+        self.record_binding(binding, outcome);
         if self.mode == ClientShellMode::Navigate {
             self.mode = self.copy_or_terminal_mode();
         }
@@ -697,20 +661,10 @@ impl ClientShellState {
         outcome.repaint = true;
     }
 
-    pub(super) fn indexed_navigation_target_exists(
-        &self,
-        binding: &keybindings::KeybindMatch,
-    ) -> bool {
+    fn indexed_navigation_target_exists(&self, binding: &keybindings::KeybindMatch) -> bool {
         use keybindings::{KeybindAction, KeybindMatch};
 
         match binding {
-            KeybindMatch::Action(KeybindAction::SwitchWorkspace(index)) => {
-                self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                    navigation_rows::workspace_entries(snapshot)
-                        .get(*index)
-                        .is_some()
-                })
-            }
             KeybindMatch::Action(KeybindAction::SwitchTab(index)) => self
                 .endpoint
                 .snapshot
@@ -724,16 +678,6 @@ impl ClientShellState {
                         .nth(*index)
                 })
                 .is_some(),
-            KeybindMatch::Action(KeybindAction::FocusAgent(index)) => {
-                self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                    super::navigation_rows::ordered_agent_pane_ids(
-                        snapshot,
-                        self.config.agent_panel_sort,
-                    )
-                    .get(*index)
-                    .is_some()
-                })
-            }
             _ => true,
         }
     }
@@ -742,28 +686,29 @@ impl ClientShellState {
         let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
-        let Some(surface) = self.pane_surface.as_ref() else {
+        let Some(tab_id) = snapshot.focused_tab_id.as_deref() else {
             return;
         };
-        if surface.panes.is_empty() {
+        // The retained surface contains only the revealed pane; the snapshot
+        // lists all panes in the current tab, including hidden siblings.
+        let panes: Vec<_> = snapshot
+            .panes
+            .iter()
+            .filter(|pane| pane.tab_id == tab_id)
+            .collect();
+        if panes.is_empty() {
             return;
         }
-        let current = snapshot
-            .focused_pane_id
-            .as_deref()
-            .and_then(|focused| {
-                surface
-                    .panes
-                    .iter()
-                    .position(|pane| pane.pane_id == focused)
-            })
+        let current = panes
+            .iter()
+            .position(|pane| Some(pane.pane_id.as_str()) == snapshot.focused_pane_id.as_deref())
             .unwrap_or(0);
         let next = if reverse {
-            (current + surface.panes.len() - 1) % surface.panes.len()
+            (current + panes.len() - 1) % panes.len()
         } else {
-            (current + 1) % surface.panes.len()
+            (current + 1) % panes.len()
         };
-        let pane_id = surface.panes[next].pane_id.clone();
+        let pane_id = panes[next].pane_id.clone();
         self.push_endpoint_method(
             crate::actions::Action::PaneFocus(crate::actions::PaneTarget { pane_id }),
             outcome,

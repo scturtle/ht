@@ -238,6 +238,8 @@ fn clipboard_feedback_is_client_local_and_respects_config() {
 #[test]
 fn selection_edge_drag_requests_scroll_and_timer_continues_it() {
     let mut state = state_with_snapshot(snapshot());
+    // The top tab bar gives the pointer a screen row above the pane.
+    state.config.tab_bar_position = TabBarPositionConfig::Top;
     let mut pane_surface = surface();
     pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
@@ -314,7 +316,7 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
     assert!(enter.actions.is_empty());
 
     state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Char('b'),
+        KeyCode::Char('a'),
         KeyModifiers::CONTROL,
     ))]);
     assert_eq!(state.mode, ClientShellMode::Prefix);
@@ -406,6 +408,177 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
     )));
 }
 
+fn copy_viewport_state(
+    position: TabBarPositionConfig,
+    offset: u64,
+    cursor_y: u16,
+) -> ClientShellState {
+    let mut state = state_with_snapshot(snapshot());
+    state.config.tab_bar_position = position;
+    let mut frame = surface();
+    frame.panes[0].rect.height = 10;
+    frame.panes[0].inner_rect.height = 10;
+    frame.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+        offset_from_bottom: offset,
+        max_offset_from_bottom: 20,
+        viewport_rows: 10,
+    });
+    let cursor = crate::protocol::CursorState {
+        x: 1,
+        y: cursor_y,
+        visible: true,
+        shape: 2,
+    };
+    frame.frame = FrameData::from_ratatui_buffer_with_hyperlinks(
+        &Buffer::empty(Rect::new(0, 0, 4, 10)),
+        Some(cursor),
+        &[],
+    );
+    state.set_pane_surface(frame);
+    state.compose(106, 11).expect("composed viewport");
+    state.handle_input_bytes(b"\x01[");
+    assert_eq!(state.mode, ClientShellMode::Copy);
+    state
+}
+
+fn assert_copy_cursor(state: &ClientShellState, row: u32, col: u16, offset: u64) {
+    let copy_mode = state.copy_mode.as_ref().expect("copy mode");
+    assert_eq!(copy_mode.cursor, crate::actions::PaneTextPoint { row, col });
+    assert_eq!(copy_mode.offset_from_bottom as u64, offset);
+}
+
+fn press_copy_scroll(state: &mut ClientShellState, key: &[u8], offset: u64) {
+    let outcome = state.handle_input_bytes(key);
+    assert!(outcome.repaint);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("expected a pane scroll for {key:?}");
+    };
+    assert!(
+        matches!(&request.action, crate::actions::Action::PaneScroll(params)
+        if params.pane_id == "pane_1" && params.offset_from_bottom == offset)
+    );
+    state.handle_endpoint_result(
+        "boot-1",
+        &request.id,
+        Ok(pane_scroll_result(offset, 20, 10)),
+    );
+}
+
+#[test]
+fn copy_line_scroll_keeps_content_cursor_until_the_viewport_edge() {
+    let mut state = copy_viewport_state(TabBarPositionConfig::Bottom, 10, 4);
+    for (key, offset) in [(b"\x05", 9), (b"J", 8), (b"\x19", 9), (b"K", 10)] {
+        press_copy_scroll(&mut state, key, offset);
+        assert_copy_cursor(&state, 14, 1, offset);
+    }
+
+    state.handle_input_bytes(b"Hlv");
+    press_copy_scroll(&mut state, b"\x05", 9);
+    assert_copy_cursor(&state, 11, 1, 9);
+    assert!(state
+        .selection
+        .as_ref()
+        .expect("extended selection")
+        .is_visible());
+
+    state.handle_input_bytes(b"Ll");
+    press_copy_scroll(&mut state, b"K", 10);
+    assert_copy_cursor(&state, 19, 1, 10);
+}
+
+#[test]
+fn copy_viewport_jumps_do_not_scroll_or_land_under_the_mode_bar() {
+    for (position, cols, rows, last) in [
+        (TabBarPositionConfig::Top, 106, 11, 19),
+        (TabBarPositionConfig::Bottom, 106, 11, 19),
+        (TabBarPositionConfig::Top, 64, 12, 18),
+    ] {
+        let mut state = copy_viewport_state(position, 10, 3);
+        state.compose(cols, rows).expect("copy viewport");
+        for (key, row) in [(b"H", 10), (b"M", 14), (b"L", last)] {
+            let moved = state.handle_input_bytes(key);
+            assert!(moved.repaint && moved.actions.is_empty());
+            assert_copy_cursor(&state, row, 0, 10);
+            state.handle_input_bytes(b"l");
+        }
+    }
+}
+
+#[test]
+fn desktop_copy_hints_and_search_prompt_follow_plus() {
+    for position in [TabBarPositionConfig::Top, TabBarPositionConfig::Bottom] {
+        let mut state = copy_viewport_state(position, 10, 3);
+        let tabs = state.hits.tabs.clone();
+        let new_tab = state.hits.new_tab;
+        let frame = state.compose(106, 11).expect("copy hints");
+        let rows = frame_rows(&frame);
+        let bar = &rows[usize::from(new_tab.y)];
+        let hint_x = usize::from(new_tab.right());
+        assert!(bar[..hint_x].trim_end().ends_with('+'), "{bar:?}");
+        assert!(
+            bar[hint_x..].starts_with(" COPY  J/K ^e/^y scroll  H/M/L jump  z center"),
+            "{bar:?}"
+        );
+        assert!(rows
+            .iter()
+            .enumerate()
+            .all(|(y, row)| y == usize::from(new_tab.y) || !row.contains(" COPY ")));
+        assert_eq!(state.hits.tabs, tabs);
+        assert_eq!(state.hits.new_tab, new_tab);
+
+        state.handle_input_bytes(b"/needle");
+        let frame = state.compose(106, 11).expect("copy search prompt");
+        let search_rows = frame_rows(&frame);
+        let search_bar = &search_rows[usize::from(new_tab.y)];
+        assert_eq!(&search_bar[..hint_x], &bar[..hint_x]);
+        assert!(search_bar[hint_x..].starts_with(" COPY  /needle"));
+        assert!(search_bar.ends_with("enter search  esc cancel"));
+        assert!(search_rows
+            .iter()
+            .enumerate()
+            .all(|(y, row)| y == usize::from(new_tab.y) || !row.contains(" COPY ")));
+        assert_eq!(state.hits.tabs, tabs);
+        assert_eq!(state.hits.new_tab, new_tab);
+        state.handle_input_bytes(b"\x1b");
+        let restored = state.compose(106, 11).expect("copy hints after search");
+        assert_eq!(frame_rows(&restored)[usize::from(new_tab.y)], *bar);
+        assert_eq!(state.hits.tabs, tabs);
+    }
+}
+
+#[test]
+fn copy_search_falls_back_to_pane_footer_when_tab_space_is_too_narrow() {
+    let mut state = copy_viewport_state(TabBarPositionConfig::Bottom, 10, 3);
+    state.config.mobile_width_threshold = 0;
+    let cols = state.hits.new_tab.right() + 10;
+    state.handle_input_bytes(b"?needle");
+    let frame = state.compose(cols, 11).expect("narrow copy search");
+    let rows = frame_rows(&frame);
+    assert!(rows[9].starts_with(" COPY  ?needle"));
+    assert!(rows[10].trim_end().ends_with('+'));
+    assert_eq!(state.hits.tabs.len(), 1);
+    assert!(!state.hits.new_tab.is_empty());
+}
+
+#[test]
+fn copy_center_keeps_cursor_and_clamps_to_history_bounds() {
+    for (offset, y, expected_offset, outward_key) in [
+        (10, 8, 6, None),
+        (19, 0, 20, Some(b"K")),
+        (1, 9, 0, Some(b"J")),
+    ] {
+        let mut state = copy_viewport_state(TabBarPositionConfig::Bottom, offset, y);
+        let row = (20 - offset) as u32 + u32::from(y);
+        press_copy_scroll(&mut state, b"z", expected_offset);
+        assert_copy_cursor(&state, row, 1, expected_offset);
+        assert!(state.handle_input_bytes(b"z").actions.is_empty());
+        if let Some(key) = outward_key {
+            assert!(state.handle_input_bytes(key).actions.is_empty());
+            assert_copy_cursor(&state, row, 1, expected_offset);
+        }
+    }
+}
+
 #[test]
 fn keyboard_selections_survive_output_and_copy_live_ranges() {
     // Character and linewise selections have distinct anchor/range projections.
@@ -419,7 +592,7 @@ fn keyboard_selections_survive_output_and_copy_live_ranges() {
         });
         state.set_pane_surface(pane_surface.clone());
         state.compose(106, 20).expect("composed frame");
-        state.handle_input_bytes(b"\x02[");
+        state.handle_input_bytes(b"\x01[");
         state.handle_input_bytes(selection_key);
         state.handle_input_bytes(b"k");
         let range = state
@@ -469,7 +642,7 @@ fn empty_keyboard_anchor_keeps_search_fallback_revision_guard() {
     });
     state.set_pane_surface(pane_surface);
     state.compose(106, 20).expect("composed frame");
-    state.handle_input_bytes(b"\x02[");
+    state.handle_input_bytes(b"\x01[");
     let search = state.handle_input_bytes(b"/LIVE\r");
     let [ClientShellAction::Endpoint { request, .. }] = &search.actions[..] else {
         panic!("search request");
@@ -508,7 +681,7 @@ fn keyboard_selection_does_not_return_after_resize_or_screen_switch() {
         });
         state.set_pane_surface(pane_surface.clone());
         state.compose(106, 20).expect("composed frame");
-        state.handle_input_bytes(b"\x02[");
+        state.handle_input_bytes(b"\x01[");
         state.handle_input_bytes(b"vk");
         assert!(state.selection.is_some());
         pane_surface.surface_revision += 1;
