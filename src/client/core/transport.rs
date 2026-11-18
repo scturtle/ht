@@ -54,7 +54,7 @@ pub struct CoreRelay {
 
 /// `isolate` marks a Core this client owns end to end. A shared session must not
 /// redirect the Core's XDG dirs: `hc` and the client have to agree on them.
-pub fn command(binary: &Path, home: &Path, socket: &Path, isolate: bool) -> Command {
+pub fn command(binary: &Path, home: &Path, socket: Option<&Path>, isolate: bool) -> Command {
     let mut cmd = Command::new(binary);
     // Never inherit identity/socket overrides from the enclosing Herdr or Core.
     for (key, _) in std::env::vars_os() {
@@ -63,7 +63,9 @@ pub fn command(binary: &Path, home: &Path, socket: &Path, isolate: bool) -> Comm
             cmd.env_remove(key);
         }
     }
-    cmd.env("HC_SOCKET", socket);
+    if let Some(socket) = socket {
+        cmd.env("HC_SOCKET", socket);
+    }
     if isolate {
         // A custom runtime dir bypasses Core's systemd/linger auto-setup.
         cmd.env("XDG_RUNTIME_DIR", home.join("run"))
@@ -148,7 +150,12 @@ fn negotiate(input: &mut impl Write, output: &mut impl Read, existing: bool) -> 
 
 impl CoreRelay {
     /// Explicit launch: may start a Core that is not running yet.
-    pub fn connect(binary: &Path, home: &Path, socket: &Path, isolate: bool) -> io::Result<Self> {
+    pub fn connect(
+        binary: &Path,
+        home: &Path,
+        socket: Option<&Path>,
+        isolate: bool,
+    ) -> io::Result<Self> {
         Self::open(
             binary,
             home,
@@ -165,7 +172,7 @@ impl CoreRelay {
     pub fn connect_existing(
         binary: &Path,
         home: &Path,
-        socket: &Path,
+        socket: Option<&Path>,
         isolate: bool,
     ) -> io::Result<Self> {
         Self::open(
@@ -182,7 +189,7 @@ impl CoreRelay {
     fn open(
         binary: &Path,
         home: &Path,
-        socket: &Path,
+        socket: Option<&Path>,
         isolate: bool,
         existing: bool,
         handshake_timeout: Duration,
@@ -225,18 +232,22 @@ impl CoreRelay {
             Err(err) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                if err.kind() == io::ErrorKind::UnexpectedEof {
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::UnexpectedEof | io::ErrorKind::BrokenPipe
+                ) {
                     let hint = if existing {
                         "check that HC_SOCKET points to a running Core; connect --existing does not start it"
                     } else {
                         "check the Core socket and the relay's stderr"
                     };
+                    let target = socket.map_or_else(
+                        || "the default Core endpoint".into(),
+                        |path| path.display().to_string(),
+                    );
                     return Err(io::Error::new(
-                        err.kind(),
-                        format!(
-                            "Core relay closed before the handshake on {}: {hint}",
-                            socket.display()
-                        ),
+                        io::ErrorKind::UnexpectedEof,
+                        format!("Core relay closed before the handshake on {target}: {hint}"),
                     ));
                 }
                 return Err(err);

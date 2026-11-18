@@ -22,7 +22,8 @@ the shared layout or restarting either program.
 
 `just smoke app-layout` starts `ht` with its default socket and layout selectors
 in a private runtime, with an App-format fixture writer and real Core PTYs.
-It checks Tab creation, rename and keyboard/mouse reorder, Space creation,
+It checks both startup orders and that the App fixture can read the layout
+and the first shell created by `ht`. It also checks Tab creation, rename and keyboard/mouse reorder, Space creation,
 rename and close, Tab number vs Pane cycling, independent focus, and that
 scoped edits preserve unrelated PTYs and plugin data.
 It does not launch the desktop GUI or a native mobile app.

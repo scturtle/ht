@@ -123,7 +123,10 @@ impl Session {
         ensure_private_directory(&options.home)?;
         ensure_private_directory(&options.home.join("run"))?;
         let preferences = client_preferences(&options.home, options.client_id.as_deref())?;
-        let (mut core, subscription) = Self::open_core(&options, !options.isolate)?;
+        // Only an explicit external socket is attach-only on initial launch.
+        // Default and isolated sessions let the Core relay connect or start.
+        let attach_only = !options.isolate && options.socket.is_some();
+        let (mut core, subscription) = Self::open_core(&options, attach_only)?;
         let shell = configured_shell(config);
         let (mut model, document_version) = app_layout::bootstrap(&mut core, &subscription)?;
         if let Some((home, _)) = &preferences {
@@ -173,14 +176,14 @@ impl Session {
             CoreRelay::connect_existing(
                 &options.binary,
                 &options.home,
-                &options.socket,
+                options.socket.as_deref(),
                 options.isolate,
             )?
         } else {
             CoreRelay::connect(
                 &options.binary,
                 &options.home,
-                &options.socket,
+                options.socket.as_deref(),
                 options.isolate,
             )?
         };
@@ -254,13 +257,6 @@ impl Session {
         self.resize(self.size, self.cells.0, self.cells.1)?;
         self.save()?;
         Ok(())
-    }
-
-    pub fn socket_path(&self) -> PathBuf {
-        self.options
-            .as_ref()
-            .map(|options| options.socket.clone())
-            .unwrap_or_default()
     }
 
     pub fn save(&self) -> io::Result<()> {

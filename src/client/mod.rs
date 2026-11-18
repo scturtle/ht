@@ -104,7 +104,7 @@ pub fn run_core_client() -> io::Result<()> {
     };
 
     crate::logging::startup("client");
-    info!(path = %core_options.socket.display(), "connecting to Core");
+    info!(socket_override = ?core_options.socket, "connecting to Core");
 
     // Get one coherent geometry snapshot before raw mode changes the terminal.
     let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) =

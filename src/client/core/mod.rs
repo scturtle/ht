@@ -45,10 +45,9 @@ use std::{
 pub(super) struct Options {
     pub binary: PathBuf,
     pub home: PathBuf,
-    /// Socket this client drives: explicit `HC_SOCKET`, otherwise
-    /// `$XDG_RUNTIME_DIR/herdr-core/<session>.sock`, as with `hc`.
-    /// The client never keeps a socket of its own.
-    pub socket: PathBuf,
+    /// Socket override for `HC_SOCKET` or an isolated session. Otherwise the
+    /// relay resolves the default Core endpoint exactly as the App does.
+    pub socket: Option<PathBuf>,
     /// A private session owns its Core end to end and isolates its state dirs.
     pub isolate: bool,
     pub client_id: Option<String>,
@@ -91,7 +90,11 @@ fn session_socket(session: &str) -> io::Result<PathBuf> {
     Ok(dir.join(format!("{session}.sock")))
 }
 
-fn selected_socket(explicit: Option<PathBuf>, session: &str, isolate: bool) -> io::Result<PathBuf> {
+fn selected_socket(
+    explicit: Option<PathBuf>,
+    session: &str,
+    isolate: bool,
+) -> io::Result<Option<PathBuf>> {
     if let Some(socket) = explicit {
         if isolate {
             return Err(io::Error::new(
@@ -105,9 +108,13 @@ fn selected_socket(explicit: Option<PathBuf>, session: &str, isolate: bool) -> i
                 "HC_SOCKET must not be empty",
             ));
         }
-        return Ok(socket);
+        return Ok(Some(socket));
     }
-    session_socket(session)
+    if isolate {
+        session_socket(session).map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
 impl Options {
@@ -299,21 +306,16 @@ fn recover_connection(
     let cause = error.to_string();
     let dropped = drain_input(receiver, queued);
     let started = Instant::now();
-    let socket = session.socket_path();
     let mut absent_since: Option<Instant> = None;
     let mut attempt = 0;
     loop {
         if stopped.load(Ordering::Acquire) || started.elapsed() >= RECONNECT_WINDOW {
             return Err(error);
         }
-        // A planned restart recreates its socket quickly. Do not undo a stop.
-        if socket.exists() {
-            absent_since = None;
-        } else {
-            let since = *absent_since.get_or_insert_with(Instant::now);
-            if since.elapsed() >= RECONNECT_ABSENT_WINDOW {
-                return Err(error);
-            }
+        // A planned restart normally answers quickly. Use the relay outcome
+        // rather than guessing which socket the shared Core resolved.
+        if absent_since.is_some_and(|since| since.elapsed() >= RECONNECT_ABSENT_WINDOW) {
+            return Err(error);
         }
         let until = Instant::now() + reconnect_delay(attempt);
         while !stopped.load(Ordering::Acquire) && Instant::now() < until {
@@ -337,6 +339,11 @@ fn recover_connection(
             }
             Err(resume) if !recoverable(&resume) => return Err(resume),
             Err(resume) => {
+                if resume.kind() == io::ErrorKind::UnexpectedEof {
+                    absent_since.get_or_insert_with(Instant::now);
+                } else {
+                    absent_since = None;
+                }
                 tracing::debug!(attempt, error = %resume, "Core recovery probe failed");
             }
         }

@@ -57,7 +57,15 @@ published `hc/bin/herdr-core`). Client Cargo outputs stay in `target/`.
 HERDR_CORE_BIN="$PWD/.local/hc/bin/herdr-core" ./target/release/ht
 ```
 
-With the binaries on `PATH` (via `just install`), launch with `ht`.
+With both binaries on `PATH` (via `just install`), launch with `ht`. It
+connects to the default Core or starts it if needed. The iOS App and `ht`
+can connect in either order: point the App at the same Linux user and Core
+endpoint (normally `$XDG_RUNTIME_DIR/herdr-core/default.sock`). Both use the
+`herdr-app` layout document. In an empty layout, press `Ctrl+a` then `c` to
+open the first shared tab.
+
+Set `HC_SOCKET` to attach to an already-running Core at a specific socket.
+Recovery after a disconnect never starts Core.
 
 ## Configuration
 

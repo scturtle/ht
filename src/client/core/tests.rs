@@ -32,18 +32,32 @@ fn advertised_core_actions_are_internal_and_exclude_unimplemented_ui_actions() {
 }
 
 #[test]
+fn a_shared_launch_without_an_override_uses_the_core_default() {
+    assert_eq!(selected_socket(None, "default", false).unwrap(), None);
+    let command = transport::command(
+        std::path::Path::new("herdr-core"),
+        std::path::Path::new("/client/state"),
+        None,
+        false,
+    );
+    assert!(!command.get_envs().any(|(key, value)| {
+        value.is_some() && matches!(key.to_str(), Some("HC_SOCKET" | "HC_SESSION"))
+    }));
+}
+
+#[test]
 fn hc_socket_selects_an_external_core_without_creating_a_session_socket() {
     // No directory creation or existence check: `hc connect` handles the target.
     let socket = PathBuf::from("/external/nonexistent/runtime/other.sock");
     assert_eq!(
         selected_socket(Some(socket.clone()), "default", false).unwrap(),
-        socket
+        Some(socket)
     );
     // Match hc's support for paths relative to the caller's working directory.
     let relative = PathBuf::from("other.sock");
     assert_eq!(
         selected_socket(Some(relative.clone()), "default", false).unwrap(),
-        relative
+        Some(relative)
     );
 }
 
@@ -68,7 +82,7 @@ fn relay_receives_the_selected_socket_without_private_xdg_overrides() {
     let command = transport::command(
         std::path::Path::new("herdr-core"),
         std::path::Path::new("/client/state"),
-        &socket,
+        Some(&socket),
         false,
     );
     let env = command.get_envs().collect::<HashMap<_, _>>();

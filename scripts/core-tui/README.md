@@ -244,13 +244,14 @@ BCE、palette、inverse/invisible、中文宽字符换行、链接及备用屏�
 
 ### App 共享布局
 
-让桌面 `herdr-app` 先连接 Core 并建好终端，再在 Core 所在机器上直接运行 `ht`。
-默认连接 `$XDG_RUNTIME_DIR/herdr-core/default.sock`。若 App 使用其他 **Core** socket，
-用 `HC_SOCKET` 指定，不要填 App 的控制 socket。
-若握手前连接关闭，先用相同的 `HC_SOCKET` 运行 `herdr-core server status` 确认 Core 正在运行。
-默认启动只连接已运行的 Core，不会启动新实例。布局只使用 `herdr-app` 文档：
-App 改分组或顺序后，`ht` 跟着更新；插件不显示，纯插件的 Tab 不占编号。
-没有终端时会继续等待 App 更新。终端输入、复制和本地切换可用；`prefix+x` 结束当前
+直接运行 `ht` 会复用默认 Core；没有运行时，由 `herdr-core connect` 启动。iOS / 桌面 App
+与 `ht` 只要使用同一个 Linux 用户和 Core endpoint，谁先启动都能共享同一个 Core。
+默认 endpoint 由 Core 选取，通常是 `$XDG_RUNTIME_DIR/herdr-core/default.sock`。若 App
+已连接其他 **Core** socket，可用 `HC_SOCKET` 指定该 socket（不要填 App 的控制 socket）；
+显式指定时只连接已有的 Core。断线重连也不会自动启动 Core。
+布局只使用 `herdr-app` 文档：App 改分组或顺序后，`ht` 跟着更新；插件不显示，纯插件的 Tab
+不占编号。空布局可等待 App 更新，或在 `ht` 里用 `prefix+c` 创建第一个共享 Tab。
+终端输入、复制和本地切换可用；`prefix+x` 结束当前
 Pane 的终端，App 同步清理已结束的 Pane。`ht` 不关闭同组的其他 Pane，也不关闭 App 标记为不可关闭的 Pane。
 `prefix+c` 在共享布局里新增一个 Tab，`prefix+Shift+t` 重命名。可以拖动整个 Tab 重排，
 也可配置 `move_tab_previous` / `move_tab_next`。不显示的插件 Tab 仍保留在 App 文档里。

@@ -20,7 +20,57 @@ def block(node_id, **content):
     return {"id": node_id, "type": "block", "content": content}
 
 
+def ht_first():
+    with tempfile.TemporaryDirectory(prefix="hc-ht-first-", dir="/var/tmp") as scratch:
+        home = Path(scratch)
+        env = UI.isolated_env(home, home / "core")
+        env["HC_SESSION"] = "default"
+        shell = home / "shell"
+        shell.write_text("#!/bin/sh\nprintf 'HT_FIRST_READY\\n'\nexec /bin/sh\n")
+        shell.chmod(0o700)
+        Path(env["HERDR_CONFIG_PATH"]).write_text(f'[terminal]\ndefault_shell = "{shell}"\n[keys]\ndetach = "f10"\n')
+        socket = UI.private_socket(env, shared=True)
+        assert not socket.exists()
+        attach_only = UI.Viewer(dict(env, HC_SOCKET=str(socket)), shared=True)
+        try:
+            attach_only.wait_exit(success=False)
+            assert bytes(socket) in attach_only.output, attach_only.output
+            assert not socket.exists(), "an explicit HC_SOCKET is still attach-only"
+        finally:
+            attach_only.cleanup()
+            UI.stop_private_core(env, shared=True)
+
+        viewer = UI.Viewer(env, shared=True)
+        app = None
+        try:
+            UI.until(lambda: socket.exists(), "ht starts the default Core without the App")
+            UI.until(lambda: b"\x1b[?2026l" in viewer.read(), "ht paints the empty layout")
+            viewer.send(b"\x01c")
+            try:
+                UI.until(lambda: b"HT_FIRST_READY" in viewer.read(), "ht can create its first shared shell")
+            except AssertionError as error:
+                raise AssertionError(bytes(viewer.output)) from error
+
+            # The App uses normal connect-or-start. It must see the existing
+            # shell and document, not start a different Core.
+            app = ORG["Rpc"](env, existing=False, shared=True)
+            document = app.doc(DOC)
+            assert document["version"] == 1
+            tab, = document["value"]["spaces"][0]["tabs"]
+            address = tab["root"]["children"][0]["content"]["terminal"]
+            assert "HT_FIRST_READY" in app.request("terminal.read", {"terminal": address})["result"]["text"]
+            viewer.detach()
+            assert app.doc(DOC) == document
+            assert app.request("terminal.get", {"terminal": address})["result"]["state"] == "live"
+        finally:
+            viewer.cleanup()
+            if app:
+                app.close()
+            UI.stop_private_core(env, shared=True)
+
+
 def main():
+    ht_first()
     with tempfile.TemporaryDirectory(prefix="hc-app-layout-ui-", dir="/var/tmp") as scratch:
         home = Path(scratch)
         env = UI.isolated_env(home, home / "core")
@@ -71,12 +121,7 @@ close_workspace = "f11"
             peer.send(f"\x1b[<0;{x};{row + 1}M\x1b[<0;{x};{row + 1}m".encode())
 
         try:
-            wide = UI.Viewer(env, shared=True)
-            wide.wait_exit(success=False)
-            socket = UI.private_socket(env, shared=True)
-            assert not socket.exists(), "read-only launch must not start Core"
-            assert b"check that HC_SOCKET points to a running Core" in wide.output, wide.output
-            assert bytes(socket) in wide.output, wide.output
+            # App first: start Core through the same relay that an App uses.
             rpc = ORG["Rpc"](env, existing=False, shared=True)
             absent = rpc.doc(DOC)
             assert absent["value"] is None
@@ -278,7 +323,7 @@ close_workspace = "f11"
             UI.until(lambda: len(rpc.doc(DOC)["value"]["spaces"]) == 1, "prefix+c adds the first tab")
             wide.detach()
             narrow.detach()
-            print("App-format document: tab rename/reorder, Space create/rename/close, pane cycling and independent focus")
+            print("Both startup orders share the App document and PTYs; tab/Space edits and independent focus work")
         finally:
             for viewer in (narrow, wide):
                 if viewer:
