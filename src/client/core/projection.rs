@@ -1,56 +1,54 @@
 //! Existing endpoint/TUI projections of the shared organization and local focus.
-use super::model::{invalid, status, Model};
-use crate::{actions, layout::Node, protocol::*};
-use ratatui::layout::{Direction, Rect};
+use super::{
+    model::{invalid, status, Model},
+    organization::{Tab, Workspace},
+    tab_layout::TabLayout,
+};
+use crate::{
+    actions::{self, AgentStatus},
+    protocol::*,
+};
 use std::io;
 
-fn aggregate(values: impl Iterator<Item = actions::AgentStatus>) -> actions::AgentStatus {
-    values
-        .max_by_key(|state| match state {
-            actions::AgentStatus::Blocked => 4,
-            actions::AgentStatus::Working => 3,
-            actions::AgentStatus::Idle => 2,
-            actions::AgentStatus::Done => 1,
-            _ => 0,
-        })
-        .unwrap_or(actions::AgentStatus::Unknown)
+fn higher_priority_status(left: AgentStatus, right: AgentStatus) -> AgentStatus {
+    std::cmp::max_by_key(left, right, |state| match state {
+        AgentStatus::Blocked => 4,
+        AgentStatus::Working => 3,
+        AgentStatus::Idle => 2,
+        AgentStatus::Done => 1,
+        AgentStatus::Unknown => 0,
+    })
 }
 
-// Pure conversion retained from the original app/api/panes.rs.
-impl From<Rect> for actions::PaneLayoutRect {
-    fn from(rect: Rect) -> Self {
-        Self {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-        }
-    }
+fn aggregate(values: impl Iterator<Item = AgentStatus>) -> AgentStatus {
+    values.fold(AgentStatus::Unknown, higher_priority_status)
 }
 
 impl Model {
-    fn tab_status(&self, tab: &str) -> actions::AgentStatus {
+    fn tab_status(&self, tab: &Tab<TabLayout>) -> AgentStatus {
         aggregate(
-            self.layouts
-                .get(tab)
-                .into_iter()
-                .flat_map(|l| l.pane_ids())
-                .filter_map(|id| self.records.get(&id))
+            tab.panes
+                .pane_ids()
+                .iter()
+                .filter_map(|id| self.records.get(id))
                 .map(|r| status(&r.facts)),
         )
     }
-    /// The original named a workspace after the cwd of its first tab's root pane.
-    fn workspace_root_cwd(&self, w: &super::organization::Workspace) -> Option<String> {
-        let tab = w.tabs.first()?;
-        let address = tab.root_terminal.clone().or_else(|| {
-            self.layouts
-                .get(&tab.id)
-                .and_then(|layout| super::view::first_leaf(layout.root()))
-                .and_then(|id| self.records.get(&id))
-                .map(|record| record.address.clone())
-        })?;
-        let record = self.records.get(&self.id(&address)?)?;
-        super::metadata::current_cwd(&record.facts).map(str::to_owned)
+
+    fn workspace_name(&self, workspace: &Workspace<TabLayout>) -> String {
+        if !workspace.label.is_empty() {
+            return workspace.label.clone();
+        }
+        workspace
+            .tabs
+            .first()
+            .and_then(|tab| tab.panes.pane_ids().first())
+            .and_then(|pane| self.records.get(pane))
+            .and_then(|record| super::metadata::current_cwd(&record.facts))
+            .map_or_else(
+                || "workspace".into(),
+                |cwd| crate::client::identity::derive_label_from_cwd(std::path::Path::new(cwd)),
+            )
     }
 
     pub fn workspace_info(&self, key: &str) -> io::Result<actions::WorkspaceInfo> {
@@ -65,36 +63,37 @@ impl Model {
             workspace_id: w.id.clone(),
             // The original reported the workspace's position, not a counter.
             number: index + 1,
-            label: w.display_name(self.workspace_root_cwd(w).as_deref()),
+            label: self.workspace_name(w),
             focused: self.active_workspace == key,
-            pane_count: w
-                .tabs
-                .iter()
-                .filter_map(|t| self.layouts.get(&t.id))
-                .map(|l| l.pane_count())
-                .sum(),
+            pane_count: w.tabs.iter().map(|t| t.panes.pane_ids().len()).sum(),
             tab_count: w.tabs.len(),
             active_tab_id: self.active_tabs.get(key).cloned().unwrap_or_default(),
-            agent_status: aggregate(w.tabs.iter().map(|t| self.tab_status(&t.id))),
+            agent_status: aggregate(w.tabs.iter().map(|t| self.tab_status(t))),
             tokens: Default::default(),
             worktree: None,
         })
     }
     pub fn tab_info(&self, key: &str) -> io::Result<actions::TabInfo> {
-        let (w, t) = self
+        let (w, index, t) = self
             .organization
             .workspaces
             .iter()
-            .find_map(|w| w.tabs.iter().find(|t| t.id == key).map(|t| (w, t)))
+            .find_map(|w| {
+                w.tabs
+                    .iter()
+                    .enumerate()
+                    .find(|(_, t)| t.id == key)
+                    .map(|(i, t)| (w, i, t))
+            })
             .ok_or_else(|| invalid("Core tab not found"))?;
         Ok(actions::TabInfo {
             tab_id: t.id.clone(),
             workspace_id: w.id.clone(),
-            number: t.number,
-            label: t.label.clone(),
+            number: index + 1,
+            label: t.display_name(index),
             focused: self.active_workspace == w.id && self.active_tab() == Some(key),
-            pane_count: self.layouts.get(key).map_or(0, |l| l.pane_count()),
-            agent_status: self.tab_status(key),
+            pane_count: t.panes.pane_ids().len(),
+            agent_status: self.tab_status(t),
         })
     }
     pub fn snapshot(&self) -> ClientShellSnapshot {
@@ -107,49 +106,18 @@ impl Model {
             let active_tab = self
                 .active_tabs
                 .get(&workspace.id)
-                .cloned()
-                .unwrap_or_default();
-            workspaces.push(ClientShellWorkspace {
-                workspace_id: workspace.id.clone(),
-                active_tab_id: active_tab.clone(),
-                new_workspace_cwd: self
-                    .layouts
-                    .get(&active_tab)
-                    .and_then(|layout| self.records.get(&layout.focused()))
-                    .and_then(|record| super::metadata::current_cwd(&record.facts))
-                    .unwrap_or(".")
-                    .into(),
-                number: position + 1,
-                label: workspace.display_name(self.workspace_root_cwd(workspace).as_deref()),
-                custom_label: workspace.is_custom_named(),
-                branch: None,
-                git_ahead_behind: None,
-                tokens: Vec::new(),
-                worktree: None,
-                focused: workspace_focused,
-                agent_status: aggregate(workspace.tabs.iter().map(|t| self.tab_status(&t.id))),
-            });
+                .map_or("", String::as_str);
+            let mut workspace_status = AgentStatus::Unknown;
             for (index, tab) in workspace.tabs.iter().enumerate() {
                 let tab_focused = workspace_focused && tab.id == active_tab;
-                tabs.push(ClientShellTab {
-                    tab_id: tab.id.clone(),
-                    workspace_id: workspace.id.clone(),
-                    number: tab.number,
-                    label: tab.display_name(index),
-                    custom_label: tab.is_custom_named(),
-                    zoomed: self.zoomed_tabs.contains(&tab.id),
-                    focused: tab_focused,
-                    agent_status: self.tab_status(&tab.id),
-                });
-                let Some(layout) = self.layouts.get(&tab.id) else {
-                    continue;
-                };
-                for id in layout.pane_ids() {
+                let mut tab_status = AgentStatus::Unknown;
+                let focused_pane = tab_focused.then(|| tab.panes.focused());
+                for &id in tab.panes.pane_ids() {
                     let Some(record) = self.records.get(&id) else {
                         continue;
                     };
                     let facts = &record.facts;
-                    let focused = tab_focused && id == layout.focused();
+                    let focused = focused_pane == Some(id);
                     let cwd = facts["cwd"].as_str().map(str::to_owned);
                     panes.push(ClientShellPane {
                         pane_id: record.address.clone(),
@@ -162,6 +130,8 @@ impl Model {
                         right_click_passthrough: false,
                     });
                     if facts["status"].is_object() {
+                        let pane_status = status(facts);
+                        tab_status = higher_priority_status(tab_status, pane_status);
                         agents.push(ClientShellAgent {
                             pane_id: record.address.clone(),
                             workspace_id: workspace.id.clone(),
@@ -177,7 +147,7 @@ impl Model {
                             title: facts["status"]["message"].as_str().map(str::to_owned),
                             terminal_title: facts["title"].as_str().map(str::to_owned),
                             terminal_title_stripped: facts["title"].as_str().map(str::to_owned),
-                            agent_status: status(facts),
+                            agent_status: pane_status,
                             state_change_seq: record.seq,
                             state_labels: vec![(
                                 "OSC 7501".into(),
@@ -191,7 +161,38 @@ impl Model {
                         });
                     }
                 }
+                workspace_status = higher_priority_status(workspace_status, tab_status);
+                tabs.push(ClientShellTab {
+                    tab_id: tab.id.clone(),
+                    workspace_id: workspace.id.clone(),
+                    number: index + 1,
+                    label: tab.display_name(index),
+                    custom_label: !tab.label.is_empty(),
+                    focused: tab_focused,
+                    agent_status: tab_status,
+                });
             }
+            workspaces.push(ClientShellWorkspace {
+                workspace_id: workspace.id.clone(),
+                active_tab_id: active_tab.into(),
+                new_workspace_cwd: workspace
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.id == active_tab)
+                    .and_then(|tab| self.records.get(&tab.panes.focused()))
+                    .and_then(|record| super::metadata::current_cwd(&record.facts))
+                    .unwrap_or(".")
+                    .into(),
+                number: position + 1,
+                label: self.workspace_name(workspace),
+                custom_label: !workspace.label.is_empty(),
+                branch: None,
+                git_ahead_behind: None,
+                tokens: Vec::new(),
+                worktree: None,
+                focused: workspace_focused,
+                agent_status: workspace_status,
+            });
         }
         ClientShellSnapshot {
             boot_id: self.boot.clone(),
@@ -212,99 +213,5 @@ impl Model {
             panes,
             agents,
         }
-    }
-    pub fn description(&self) -> Option<actions::LayoutDescription> {
-        self.description_for(self.active_tab()?)
-    }
-    pub fn description_for(&self, tab: &str) -> Option<actions::LayoutDescription> {
-        fn convert(node: &Node, model: &Model) -> actions::LayoutNode {
-            match node {
-                Node::Pane(id) => actions::LayoutNode::Pane {
-                    pane: actions::LayoutPane {
-                        pane_id: model.records.get(id).map(|r| r.address.clone()),
-                        ..Default::default()
-                    },
-                },
-                Node::Split {
-                    direction,
-                    ratio,
-                    first,
-                    second,
-                } => actions::LayoutNode::Split {
-                    direction: if *direction == Direction::Horizontal {
-                        actions::SplitDirection::Right
-                    } else {
-                        actions::SplitDirection::Down
-                    },
-                    ratio: *ratio,
-                    first: Box::new(convert(first, model)),
-                    second: Box::new(convert(second, model)),
-                },
-            }
-        }
-        let workspace = self
-            .organization
-            .workspaces
-            .iter()
-            .find(|w| w.tabs.iter().any(|t| t.id == tab))?;
-        let layout = self.layouts.get(tab)?;
-        Some(actions::LayoutDescription {
-            workspace_id: workspace.id.clone(),
-            tab_id: tab.into(),
-            zoomed: self.zoomed_tabs.contains(tab),
-            focused_pane_id: self.records.get(&layout.focused())?.address.clone(),
-            root: convert(layout.root(), self),
-        })
-    }
-    pub fn layout_snapshot(&self, area: Rect) -> io::Result<actions::PaneLayoutSnapshot> {
-        self.layout_snapshot_for(
-            self.active_tab().ok_or_else(|| invalid("no active tab"))?,
-            area,
-        )
-    }
-    pub fn layout_snapshot_for(
-        &self,
-        tab: &str,
-        area: Rect,
-    ) -> io::Result<actions::PaneLayoutSnapshot> {
-        let workspace = self
-            .organization
-            .workspaces
-            .iter()
-            .find(|w| w.tabs.iter().any(|t| t.id == tab))
-            .ok_or_else(|| invalid("Core tab not found"))?;
-        let layout = self.layouts.get(tab).ok_or_else(|| invalid("no panes"))?;
-        let rect = actions::PaneLayoutRect::from;
-        Ok(actions::PaneLayoutSnapshot {
-            workspace_id: workspace.id.clone(),
-            tab_id: tab.into(),
-            zoomed: self.zoomed_tabs.contains(tab),
-            area: rect(area),
-            focused_pane_id: self.records[&layout.focused()].address.clone(),
-            panes: layout
-                .panes(area)
-                .into_iter()
-                .map(|p| actions::PaneLayoutPane {
-                    pane_id: self.records[&p.id].address.clone(),
-                    focused: p.is_focused,
-                    rect: rect(p.rect),
-                })
-                .collect(),
-            splits: layout
-                .splits(area)
-                .into_iter()
-                .enumerate()
-                .map(|(i, s)| actions::PaneLayoutSplit {
-                    id: i.to_string(),
-                    direction: if s.direction == Direction::Horizontal {
-                        actions::SplitDirection::Right
-                    } else {
-                        actions::SplitDirection::Down
-                    },
-                    ratio: s.ratio,
-                    rect: rect(s.area),
-                })
-                .collect(),
-        })
     }
 }

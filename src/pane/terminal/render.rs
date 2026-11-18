@@ -6,7 +6,7 @@ use ratatui::{layout::Rect, Frame};
 use unicode_width::UnicodeWidthStr;
 
 use super::read::ghostty_cell_symbol;
-use super::viewport::{cursor_state_from_render_state, effective_cursor_state};
+use super::viewport::cursor_state_from_render_state;
 use super::{GhosttyPaneCore, GhosttyPaneTerminal};
 
 impl GhosttyPaneTerminal {
@@ -197,9 +197,7 @@ impl GhosttyPaneTerminal {
 
         let current_cursor = cursor_state_from_render_state(render_state, decscusr_tracker);
         if show_cursor {
-            if let Some(cursor) =
-                effective_cursor_state(&mut core, current_cursor).filter(|cursor| cursor.visible)
-            {
+            if let Some(cursor) = current_cursor.filter(|cursor| cursor.visible) {
                 if cursor.x < area.width && cursor.y < area.height {
                     frame.set_cursor_position((area.x + cursor.x, area.y + cursor.y));
                 }

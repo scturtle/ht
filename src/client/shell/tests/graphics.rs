@@ -67,8 +67,7 @@ fn add_main_image(
 fn failed_direct_ack_composition_restores_graphics_for_inline_retry() {
     use crate::kitty_graphics::surface::host_image_id;
 
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut pane = surface();
     let (mut asset, mut placement) = image(
         SurfaceGraphicsTarget::Pane {
@@ -202,8 +201,7 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
 
 #[test]
 fn endpoint_notice_and_multiline_diagnostic_cover_the_actual_rows() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.visible_endpoint_notice = Some(ClientVisibleEndpointNotice {
         key: ClientEndpointNoticeKey {
@@ -252,8 +250,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
         ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay { highlighted: 0 }),
     ];
     for overlay in overlays {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot(Box::new(snapshot()));
+        let mut state = state_with_snapshot(snapshot());
         state.set_pane_surface(surface());
         state.compose(106, 40).unwrap();
         let layout = state.layout(106, 40);
@@ -334,8 +331,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
 
 #[test]
 fn selection_copy_cursor_and_search_hide_only_the_highlighted_images() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let layout = state.layout(106, 20);
     let mut surface = surface();
     surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
@@ -391,8 +387,7 @@ fn selection_copy_cursor_and_search_hide_only_the_highlighted_images() {
 
 #[test]
 fn mobile_switcher_still_hides_the_entire_underlying_surface() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let layout = state.layout(40, 24);
     let point = (layout.pane_surface.x, layout.pane_surface.y);
     let mut surface = surface();

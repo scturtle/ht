@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::Config;
+use super::{key_fields::key_fields, Config};
 use crate::input::TerminalKey;
 
 pub type KeyCombo = (KeyCode, KeyModifiers);
@@ -268,10 +268,6 @@ impl IndexedKeybind {
 pub struct NavigateKeybinds {
     pub workspace_up: ActionKeybinds,
     pub workspace_down: ActionKeybinds,
-    pub pane_left: ActionKeybinds,
-    pub pane_down: ActionKeybinds,
-    pub pane_up: ActionKeybinds,
-    pub pane_right: ActionKeybinds,
 }
 
 /// Parsed keybinds for Herdr actions.
@@ -300,31 +296,14 @@ pub struct Keybinds {
     pub move_tab_next: ActionKeybinds,
     pub switch_tab: Vec<IndexedKeybind>,
     pub switch_workspace: Vec<IndexedKeybind>,
-    pub close_tab: ActionKeybinds,
     pub rename_pane: ActionKeybinds,
     pub edit_scrollback: ActionKeybinds,
     pub clear_pane: ActionKeybinds,
     pub copy_mode: ActionKeybinds,
-    pub focus_pane_left: ActionKeybinds,
-    pub focus_pane_down: ActionKeybinds,
-    pub focus_pane_up: ActionKeybinds,
-    pub focus_pane_right: ActionKeybinds,
-    pub swap_pane_left: ActionKeybinds,
-    pub swap_pane_down: ActionKeybinds,
-    pub swap_pane_up: ActionKeybinds,
-    pub swap_pane_right: ActionKeybinds,
     pub cycle_pane_next: ActionKeybinds,
     pub cycle_pane_previous: ActionKeybinds,
     pub last_pane: ActionKeybinds,
-    pub split_vertical: ActionKeybinds,
-    pub split_horizontal: ActionKeybinds,
     pub close_pane: ActionKeybinds,
-    pub zoom: ActionKeybinds,
-    pub resize_mode: ActionKeybinds,
-    pub resize_pane_left: ActionKeybinds,
-    pub resize_pane_down: ActionKeybinds,
-    pub resize_pane_up: ActionKeybinds,
-    pub resize_pane_right: ActionKeybinds,
 }
 
 impl Default for Keybinds {
@@ -450,10 +429,6 @@ impl Config {
             navigate: NavigateKeybinds {
                 workspace_up: empty_action!(),
                 workspace_down: empty_action!(),
-                pane_left: empty_action!(),
-                pane_down: empty_action!(),
-                pane_up: empty_action!(),
-                pane_right: empty_action!(),
             },
             help: empty_action!(),
             new_workspace: empty_action!(),
@@ -477,31 +452,14 @@ impl Config {
             move_tab_next: empty_action!(),
             switch_tab: Vec::new(),
             switch_workspace: Vec::new(),
-            close_tab: empty_action!(),
             rename_pane: empty_action!(),
             edit_scrollback: empty_action!(),
             clear_pane: empty_action!(),
             copy_mode: empty_action!(),
-            focus_pane_left: empty_action!(),
-            focus_pane_down: empty_action!(),
-            focus_pane_up: empty_action!(),
-            focus_pane_right: empty_action!(),
-            swap_pane_left: empty_action!(),
-            swap_pane_down: empty_action!(),
-            swap_pane_up: empty_action!(),
-            swap_pane_right: empty_action!(),
             cycle_pane_next: empty_action!(),
             cycle_pane_previous: empty_action!(),
             last_pane: empty_action!(),
-            split_vertical: empty_action!(),
-            split_horizontal: empty_action!(),
             close_pane: empty_action!(),
-            zoom: empty_action!(),
-            resize_mode: empty_action!(),
-            resize_pane_left: empty_action!(),
-            resize_pane_down: empty_action!(),
-            resize_pane_up: empty_action!(),
-            resize_pane_right: empty_action!(),
         };
 
         macro_rules! field_source {
@@ -513,137 +471,72 @@ impl Config {
                 }
             };
         }
-        macro_rules! apply_action {
-            ($target:expr, $field:ident, $source:expr) => {
+        macro_rules! apply_binding {
+            ($parser:ident, $registry:ident, $target:expr, $field:ident, $source:expr) => {
                 if field_source!($field) == $source {
-                    $target = parse_action_bindings(
+                    $target = $parser(
                         concat!("keys.", stringify!($field)),
                         &self.keys.$field,
-                        &mut registry,
+                        &mut $registry,
                         &mut diagnostics,
                         $source,
                     );
                 }
             };
         }
-        macro_rules! apply_indexed {
-            (
-                $target:expr,
-                $field:ident,
-                $legacy_config:expr,
-                $source:expr
+        macro_rules! apply_key_field {
+            (action, $field:ident, $source:expr) => {
+                apply_binding!(
+                    parse_action_bindings,
+                    registry,
+                    keybinds.$field,
+                    $field,
+                    $source
+                );
+            };
+            (navigate($target:ident), $field:ident, $source:expr) => {
+                apply_binding!(
+                    parse_navigate_bindings,
+                    navigate_registry,
+                    keybinds.navigate.$target,
+                    $field,
+                    $source
+                );
+            };
+            (indexed($legacy:ident), $field:ident, $source:expr) => {
+                // A legacy [keys.indexed] entry displaces the modern default, not a user binding.
+                if $source == BindingSource::User || self.keys.indexed.$legacy.trim().is_empty() {
+                    apply_binding!(
+                        parse_indexed_bindings,
+                        registry,
+                        keybinds.$field,
+                        $field,
+                        $source
+                    );
+                }
+            };
+            (config_only, $field:ident, $source:expr) => {};
+        }
+        macro_rules! apply_key_fields {
+            (($source:expr);
+                workspace $workspace:tt
+                navigate $navigate:tt
+                actions $actions:tt
+                pane_cycle $pane_cycle:tt
+                last_pane $last_pane:tt
+                pane_controls $pane_controls:tt
             ) => {
-                if field_source!($field) == $source {
-                    if $source == BindingSource::Default && !$legacy_config.trim().is_empty() {
-                        // A legacy [keys.indexed] entry is user configuration for
-                        // this target and should displace the modern default.
-                    } else {
-                        $target = parse_indexed_bindings(
-                            concat!("keys.", stringify!($field)),
-                            &self.keys.$field,
-                            &mut registry,
-                            &mut diagnostics,
-                            $source,
-                        );
-                    }
-                }
+                apply_key_fields!(@section $source; $navigate $workspace $actions $last_pane $pane_cycle $pane_controls);
             };
-        }
-        macro_rules! apply_navigate {
-            ($target:expr, $field:ident, $source:expr) => {
-                if field_source!($field) == $source {
-                    $target = parse_navigate_bindings(
-                        concat!("keys.", stringify!($field)),
-                        &self.keys.$field,
-                        &mut navigate_registry,
-                        &mut diagnostics,
-                        $source,
-                    );
-                }
+            (@section $source:expr; $( {
+                $( $(#[$attr:meta])* $field:ident: $ty:ty = $default:expr => $kind:ident $(($target:ident))?; )*
+            } )*) => {
+                $($( apply_key_field!($kind $(($target))?, $field, $source); )*)*
             };
         }
 
         for source in [BindingSource::User, BindingSource::Default] {
-            apply_navigate!(
-                keybinds.navigate.workspace_up,
-                navigate_workspace_up,
-                source
-            );
-            apply_navigate!(
-                keybinds.navigate.workspace_down,
-                navigate_workspace_down,
-                source
-            );
-            apply_navigate!(keybinds.navigate.pane_left, navigate_pane_left, source);
-            apply_navigate!(keybinds.navigate.pane_down, navigate_pane_down, source);
-            apply_navigate!(keybinds.navigate.pane_up, navigate_pane_up, source);
-            apply_navigate!(keybinds.navigate.pane_right, navigate_pane_right, source);
-            apply_action!(keybinds.help, help, source);
-            apply_action!(keybinds.new_workspace, new_workspace, source);
-            apply_action!(keybinds.rename_workspace, rename_workspace, source);
-            apply_action!(keybinds.close_workspace, close_workspace, source);
-            apply_action!(keybinds.workspace_picker, workspace_picker, source);
-            apply_action!(keybinds.goto, goto, source);
-            apply_action!(keybinds.detach, detach, source);
-            apply_action!(keybinds.reload_config, reload_config, source);
-            apply_action!(
-                keybinds.open_notification_target,
-                open_notification_target,
-                source
-            );
-            apply_action!(keybinds.previous_workspace, previous_workspace, source);
-            apply_action!(keybinds.next_workspace, next_workspace, source);
-            apply_action!(keybinds.previous_agent, previous_agent, source);
-            apply_action!(keybinds.next_agent, next_agent, source);
-            apply_indexed!(
-                keybinds.focus_agent,
-                focus_agent,
-                &self.keys.indexed.agents,
-                source
-            );
-            apply_action!(keybinds.new_tab, new_tab, source);
-            apply_action!(keybinds.rename_tab, rename_tab, source);
-            apply_action!(keybinds.previous_tab, previous_tab, source);
-            apply_action!(keybinds.next_tab, next_tab, source);
-            apply_action!(keybinds.move_tab_previous, move_tab_previous, source);
-            apply_action!(keybinds.move_tab_next, move_tab_next, source);
-            apply_indexed!(
-                keybinds.switch_tab,
-                switch_tab,
-                &self.keys.indexed.tabs,
-                source
-            );
-            apply_indexed!(
-                keybinds.switch_workspace,
-                switch_workspace,
-                &self.keys.indexed.workspaces,
-                source
-            );
-            apply_action!(keybinds.close_tab, close_tab, source);
-            apply_action!(keybinds.rename_pane, rename_pane, source);
-            apply_action!(keybinds.edit_scrollback, edit_scrollback, source);
-            apply_action!(keybinds.clear_pane, clear_pane, source);
-            apply_action!(keybinds.copy_mode, copy_mode, source);
-            apply_action!(keybinds.focus_pane_left, focus_pane_left, source);
-            apply_action!(keybinds.focus_pane_down, focus_pane_down, source);
-            apply_action!(keybinds.focus_pane_up, focus_pane_up, source);
-            apply_action!(keybinds.focus_pane_right, focus_pane_right, source);
-            apply_action!(keybinds.swap_pane_left, swap_pane_left, source);
-            apply_action!(keybinds.swap_pane_down, swap_pane_down, source);
-            apply_action!(keybinds.swap_pane_up, swap_pane_up, source);
-            apply_action!(keybinds.swap_pane_right, swap_pane_right, source);
-            apply_action!(keybinds.last_pane, last_pane, source);
-            apply_action!(keybinds.cycle_pane_next, cycle_pane_next, source);
-            apply_action!(keybinds.cycle_pane_previous, cycle_pane_previous, source);
-            apply_action!(keybinds.split_vertical, split_vertical, source);
-            apply_action!(keybinds.split_horizontal, split_horizontal, source);
-            apply_action!(keybinds.close_pane, close_pane, source);
-            apply_action!(keybinds.zoom, zoom, source);
-            apply_action!(keybinds.resize_mode, resize_mode, source);
-            apply_action!(keybinds.resize_pane_left, resize_pane_left, source);
-            apply_action!(keybinds.resize_pane_down, resize_pane_down, source);
-            apply_action!(keybinds.resize_pane_up, resize_pane_up, source);
-            apply_action!(keybinds.resize_pane_right, resize_pane_right, source);
+            key_fields!(apply_key_fields source);
 
             if source == field_source!(indexed) {
                 append_legacy_indexed_bindings(
@@ -684,8 +577,6 @@ fn reserve_navigate_runtime_keys(registry: &mut BindingRegistry) {
         (KeyCode::Tab, KeyModifiers::empty()),
         (KeyCode::BackTab, KeyModifiers::empty()),
         (KeyCode::Tab, KeyModifiers::SHIFT),
-        (KeyCode::Left, KeyModifiers::empty()),
-        (KeyCode::Right, KeyModifiers::empty()),
     ] {
         registry.reserve_direct(combo, "navigate reserved keys", BindingSource::Default);
     }
@@ -1443,6 +1334,55 @@ prefix = "ö"
     }
 
     #[test]
+    fn key_fields_keep_conflict_precedence_and_diagnostic_order() {
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+cycle_pane_next = "prefix+tab"
+last_pane = "prefix+tab"
+previous_workspace = "prefix+5"
+switch_tab = "prefix+5"
+new_tab = "prefix+4"
+focus_agent = "prefix+4"
+help = "alt+"
+navigate_workspace_up = "ctrl+"
+"#,
+        )
+        .unwrap();
+        let (live, diagnostics) = config.live_keybinds_with_diagnostics().unwrap();
+        assert_eq!(
+            diagnostics,
+            [
+                "invalid keybinding: keys.navigate_workspace_up = \"ctrl+\"; disabling binding",
+                "invalid keybinding: keys.help = \"alt+\"; disabling binding",
+                "prefix+4: kept keys.focus_agent, disabled keys.new_tab",
+                "prefix+5: kept keys.previous_workspace, disabled keys.switch_tab",
+                "prefix+tab: kept keys.last_pane, disabled keys.cycle_pane_next",
+            ]
+        );
+        assert_eq!(live.keybinds.focus_agent.len(), 1);
+        assert!(live.keybinds.switch_tab.is_empty());
+        assert_eq!(live.keybinds.last_pane.labels(), ["prefix+tab"]);
+        assert!(live.keybinds.cycle_pane_next.bindings.is_empty());
+    }
+
+    #[test]
+    fn retired_fullscreen_alias_preserves_config_without_claiming_shortcuts() {
+        let config: Config = toml::from_str("[keys]\nfullscreen = []").unwrap();
+        assert!(config.keys.key_field_is_user_configured("zoom"));
+        assert_eq!(config.keys.zoom, BindingConfig::Many(Vec::new()));
+        assert!(config.collect_diagnostics().is_empty());
+        let config: Config =
+            toml::from_str("[keys]\nfullscreen = 'f3'\nresize_mode = 'f3'\nnew_tab = 'f3'")
+                .unwrap();
+        assert!(config.collect_diagnostics().is_empty());
+        assert_eq!(config.keybinds().new_tab.labels(), ["f3"]);
+
+        let duplicate = toml::from_str::<Config>("[keys]\nfullscreen = []\nzoom = []").unwrap_err();
+        assert_eq!(duplicate.message(), "duplicate field `zoom`");
+    }
+
+    #[test]
     fn array_bindings_allow_prefix_and_modified_direct() {
         let config: Config = toml::from_str(
             r#"
@@ -1471,23 +1411,24 @@ next_tab = ["prefix+n", "ctrl+alt+]"]
             r#"
 [keys]
 new_tab = "c"
-close_tab = "X"
+rename_tab = "X"
 "#,
         )
         .unwrap();
         let diagnostics = config.collect_diagnostics();
         let keybinds = config.keybinds();
         assert!(keybinds.new_tab.bindings.is_empty());
-        assert!(keybinds.close_tab.bindings.is_empty());
+        assert!(keybinds.rename_tab.bindings.is_empty());
         assert!(
             diagnostics
                 .iter()
                 .any(|diag| diag.contains("unsafe direct keybinding")
                     && diag.contains("keys.new_tab"))
         );
-        assert!(diagnostics.iter().any(
-            |diag| diag.contains("unsafe direct keybinding") && diag.contains("keys.close_tab")
-        ));
+        assert!(diagnostics
+            .iter()
+            .any(|diag| diag.contains("unsafe direct keybinding")
+                && diag.contains("keys.rename_tab")));
     }
 
     #[test]
@@ -1771,7 +1712,7 @@ prefix = []
         let config: Config = toml::from_str(
             r#"
 [keys]
-navigate_pane_down = "ctrl+w"
+navigate_workspace_down = "ctrl+w"
 "#,
         )
         .unwrap();
@@ -1779,11 +1720,11 @@ navigate_pane_down = "ctrl+w"
 
         // Russian layout: "\u{0446}" on the physical `w` key, Ctrl held.
         let key = crate::input::parse_terminal_key_sequence("\x1b[1094::119;5u").unwrap();
-        assert!(keybinds.navigate.pane_down.matches_direct_key(&key));
+        assert!(keybinds.navigate.workspace_down.matches_direct_key(&key));
         let without_base = crate::input::parse_terminal_key_sequence("\x1b[1094;5u").unwrap();
         assert!(!keybinds
             .navigate
-            .pane_down
+            .workspace_down
             .matches_direct_key(&without_base));
     }
 
@@ -1792,7 +1733,7 @@ navigate_pane_down = "ctrl+w"
         let config: Config = toml::from_str(
             r#"
 [keys]
-navigate_pane_down = "ctrl+\u00f6"
+navigate_workspace_down = "ctrl+\u00f6"
 "#,
         )
         .unwrap();
@@ -1800,7 +1741,7 @@ navigate_pane_down = "ctrl+\u00f6"
 
         // German layout: "\u{f6}" on the physical `;` key.
         let key = crate::input::parse_terminal_key_sequence("\x1b[246::59;5u").unwrap();
-        assert!(keybinds.navigate.pane_down.matches_direct_key(&key));
+        assert!(keybinds.navigate.workspace_down.matches_direct_key(&key));
     }
 
     #[test]
@@ -1809,8 +1750,7 @@ navigate_pane_down = "ctrl+\u00f6"
             r#"
 [keys]
 navigate_workspace_up = "j"
-navigate_workspace_down = "j"
-navigate_pane_down = "ctrl+j"
+navigate_workspace_down = ["j", "ctrl+j"]
 "#,
         )
         .unwrap();
@@ -1821,10 +1761,9 @@ navigate_pane_down = "ctrl+j"
             .navigate
             .workspace_up
             .matches_direct_key(&TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty())));
-        assert!(keybinds.navigate.workspace_down.bindings.is_empty());
         assert!(keybinds
             .navigate
-            .pane_down
+            .workspace_down
             .matches_direct_key(&TerminalKey::new(KeyCode::Char('j'), KeyModifiers::CONTROL)));
         assert!(diagnostics.iter().any(|diag| {
             diag.contains("kept keys.navigate_workspace_up")
@@ -1837,7 +1776,7 @@ navigate_pane_down = "ctrl+j"
         let config: Config = toml::from_str(
             r#"
 [keys]
-navigate_workspace_up = ["esc", "alt+esc", "enter", "1", "tab", "shift+tab", "left", "right"]
+navigate_workspace_up = ["esc", "alt+esc", "enter", "1", "tab", "shift+tab"]
 "#,
         )
         .unwrap();
@@ -1854,7 +1793,7 @@ navigate_workspace_up = ["esc", "alt+esc", "enter", "1", "tab", "shift+tab", "le
                         && diag.contains("keys.navigate_workspace_up")
                 })
                 .count(),
-            8
+            6
         );
     }
 
@@ -1884,19 +1823,26 @@ navigate_workspace_down = ["n", "f"]
     }
 
     #[test]
-    fn navigate_bindings_do_not_conflict_with_general_focus_pane_bindings() {
+    fn retired_native_bindings_remain_readable_but_do_not_reserve_keys() {
         let config: Config = toml::from_str(
             r#"
 [keys]
+split_vertical = "f3"
+close_tab = "f3"
+focus_pane_left = "f3"
+swap_pane_right = "f3"
 navigate_pane_down = "j"
+navigate_workspace_down = "j"
+new_tab = "f3"
 "#,
         )
         .unwrap();
+        assert!(config.collect_diagnostics().is_empty());
         let keybinds = config.keybinds();
-
+        assert_eq!(keybinds.new_tab.labels(), ["f3"]);
         assert!(keybinds
             .navigate
-            .pane_down
+            .workspace_down
             .matches_direct_key(&TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty())));
     }
 
@@ -2036,7 +1982,7 @@ new_workspace = "prefix+n"
         let config: Config = toml::from_str(
             r#"
 [keys]
-previous_workspace = "prefix+shift+l"
+previous_workspace = "prefix+shift+w"
 "#,
         )
         .unwrap();
@@ -2048,11 +1994,11 @@ previous_workspace = "prefix+shift+l"
         assert_eq!(
             binding_triggers(&kb.previous_workspace),
             vec![BindingTrigger::Prefix((
-                KeyCode::Char('l'),
+                KeyCode::Char('w'),
                 KeyModifiers::SHIFT
             ))]
         );
-        assert!(kb.swap_pane_right.bindings.is_empty());
+        assert!(kb.rename_workspace.bindings.is_empty());
     }
 
     #[test]
@@ -2078,7 +2024,7 @@ prefix = "n"
             r#"
 [keys]
 previous_workspace = "prefix+shift+l"
-swap_pane_right = "prefix+shift+l"
+next_workspace = "prefix+shift+l"
 "#,
         )
         .unwrap();
@@ -2093,10 +2039,10 @@ swap_pane_right = "prefix+shift+l"
                 KeyModifiers::SHIFT
             ))]
         );
-        assert!(kb.swap_pane_right.bindings.is_empty());
+        assert!(kb.next_workspace.bindings.is_empty());
         assert!(diagnostics.iter().any(|diag| {
             diag.contains("kept keys.previous_workspace")
-                && diag.contains("disabled keys.swap_pane_right")
+                && diag.contains("disabled keys.next_workspace")
         }));
     }
 }

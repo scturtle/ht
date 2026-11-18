@@ -16,25 +16,18 @@ impl ClientContextMenuOverlay {
             ClientContextMenuTarget::Tab { .. } => vec![
                 item("New tab", Action::NewTab),
                 item("Rename", Action::Rename),
-                item("Close", Action::Close),
             ],
             ClientContextMenuTarget::Pane {
-                source_pane_id,
                 has_manual_label,
                 right_click_passthrough,
+                tab_group,
                 ..
             } => {
                 let mut items = vec![item("Rename pane", Action::RenamePane)];
                 if *has_manual_label {
                     items.push(item("Clear pane name", Action::ClearPaneName));
                 }
-                if source_pane_id.is_some() {
-                    items.push(item("Swap with focused pane", Action::SwapWithFocusedPane));
-                }
                 items.extend([
-                    item("Split right", Action::SplitRight),
-                    item("Split down", Action::SplitDown),
-                    item("Zoom", Action::Zoom),
                     item(
                         if *right_click_passthrough {
                             "Use Herdr right-click menu"
@@ -45,25 +38,23 @@ impl ClientContextMenuOverlay {
                     ),
                     item("Close pane", Action::ClosePane),
                 ]);
+                if tab_group.is_some() {
+                    items.push(item("Rename tab", Action::RenameTab));
+                }
                 items
             }
         };
         items.retain(|item| {
             let method = match item.action {
                 Action::RenamePane | Action::ClearPaneName => "pane.rename",
-                Action::SwapWithFocusedPane => "pane.swap",
-                Action::SplitRight | Action::SplitDown => "pane.split",
-                Action::Zoom => "pane.zoom",
                 Action::ClosePane => "pane.close",
+                Action::RenameTab => "tab.rename",
                 Action::NewTab => "tab.create",
                 Action::Rename => match self.target {
                     ClientContextMenuTarget::Workspace { .. } => "workspace.rename",
                     _ => "tab.rename",
                 },
-                Action::Close => match self.target {
-                    ClientContextMenuTarget::Workspace { .. } => "workspace.close",
-                    _ => "tab.close",
-                },
+                Action::Close => "workspace.close",
                 Action::ToggleRightClickPassthrough => return true,
             };
             self.methods
@@ -149,22 +140,26 @@ impl ClientShellState {
     }
 
     pub(super) fn open_pane_context_menu(&mut self, pane_id: String, x: u16, y: u16) {
+        self.open_pane_menu(pane_id, false, x, y);
+    }
+
+    pub(super) fn open_tab_pane_context_menu(&mut self, pane_id: String, x: u16, y: u16) {
+        self.open_pane_menu(pane_id, true, x, y);
+    }
+
+    fn open_pane_menu(&mut self, pane_id: String, from_tab_bar: bool, x: u16, y: u16) {
         let Some(snapshot) = self.endpoint.snapshot.as_deref() else {
             return;
         };
         let Some(pane) = snapshot.panes.iter().find(|pane| pane.pane_id == pane_id) else {
             return;
         };
-        let source_pane_id = snapshot
-            .focused_pane_id
-            .clone()
-            .filter(|focused| focused != &pane_id);
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             methods: self.endpoint.methods.clone(),
             target: ClientContextMenuTarget::Pane {
                 pane_id,
                 workspace_id: pane.workspace_id.clone(),
-                source_pane_id,
+                tab_group: from_tab_bar.then(|| pane.tab_id.clone()),
                 has_manual_label: pane.label.is_some(),
                 right_click_passthrough: pane.right_click_passthrough,
             },
@@ -211,17 +206,35 @@ impl ClientShellState {
             ClientContextMenuTarget::Pane {
                 pane_id,
                 workspace_id,
-                source_pane_id,
                 right_click_passthrough,
+                tab_group,
                 ..
-            } => self.activate_pane_context_action(
-                pane_id,
-                workspace_id,
-                source_pane_id,
-                right_click_passthrough,
-                action,
-                outcome,
-            ),
+            } => {
+                if action == ClientContextMenuAction::RenameTab {
+                    if let Some(tab_id) = tab_group.filter(|tab_id| {
+                        self.endpoint.snapshot.as_deref().is_some_and(|snapshot| {
+                            snapshot
+                                .panes
+                                .iter()
+                                .any(|pane| pane.pane_id == pane_id && &pane.tab_id == tab_id)
+                        })
+                    }) {
+                        self.activate_tab_context_action(
+                            tab_id,
+                            workspace_id,
+                            ClientContextMenuAction::Rename,
+                            outcome,
+                        );
+                    }
+                } else {
+                    self.activate_pane_context_action(
+                        pane_id,
+                        right_click_passthrough,
+                        action,
+                        outcome,
+                    );
+                }
+            }
         }
         outcome.repaint = true;
     }
@@ -307,9 +320,6 @@ impl ClientShellState {
                     }));
                 }
             }
-            ClientContextMenuAction::Close => {
-                self.request_tab_close(tab_id, outcome);
-            }
             _ => {}
         }
     }
@@ -317,16 +327,11 @@ impl ClientShellState {
     fn activate_pane_context_action(
         &mut self,
         pane_id: String,
-        workspace_id: String,
-        source_pane_id: Option<String>,
         right_click_passthrough: bool,
         action: ClientContextMenuAction,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::actions::{
-            Action, PaneInputSetParams, PaneRenameParams, PaneRightClickTarget, PaneSplitParams,
-            PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
-        };
+        use crate::actions::{Action, PaneInputSetParams, PaneRenameParams, PaneRightClickTarget};
 
         match action {
             ClientContextMenuAction::RenamePane => {
@@ -347,51 +352,6 @@ impl ClientShellState {
                 Action::PaneRename(PaneRenameParams {
                     pane_id,
                     label: None,
-                }),
-                outcome,
-            ),
-            ClientContextMenuAction::SwapWithFocusedPane => {
-                if let Some(source_pane_id) = source_pane_id {
-                    self.push_endpoint_method(
-                        Action::PaneSwap(PaneSwapParams {
-                            pane_id: None,
-                            direction: None,
-                            source_pane_id: Some(source_pane_id.clone()),
-                            target_pane_id: Some(pane_id),
-                        }),
-                        outcome,
-                    );
-                    self.push_endpoint_method(
-                        Action::PaneFocus(PaneTarget {
-                            pane_id: source_pane_id,
-                        }),
-                        outcome,
-                    );
-                }
-            }
-            ClientContextMenuAction::SplitRight | ClientContextMenuAction::SplitDown => {
-                self.push_endpoint_method(
-                    Action::PaneSplit(PaneSplitParams {
-                        workspace_id: Some(workspace_id),
-                        target_pane_id: Some(pane_id),
-                        direction: if action == ClientContextMenuAction::SplitRight {
-                            SplitDirection::Right
-                        } else {
-                            SplitDirection::Down
-                        },
-                        ratio: None,
-                        cwd: None,
-                        focus: true,
-                        right_click: Default::default(),
-                        env: Default::default(),
-                    }),
-                    outcome,
-                );
-            }
-            ClientContextMenuAction::Zoom => self.push_endpoint_method(
-                Action::PaneZoom(PaneZoomParams {
-                    pane_id: Some(pane_id),
-                    mode: PaneZoomMode::Toggle,
                 }),
                 outcome,
             ),

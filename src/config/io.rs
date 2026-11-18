@@ -865,13 +865,10 @@ claude = [["terminal_title"]]
             loaded.config.ui.toast.delivery,
             super::super::ToastDelivery::Herdr
         );
-        assert!(loaded
-            .config
-            .keybinds()
-            .zoom
-            .bindings
-            .iter()
-            .any(|binding| binding.label == "prefix+z"));
+        assert_eq!(
+            loaded.config.keys.zoom,
+            super::super::keybinds::BindingConfig::one("prefix+z")
+        );
     }
 
     #[test]
@@ -1042,11 +1039,7 @@ mobile_width_threshold = 32
             .bindings
             .iter()
             .any(|binding| binding.label == "prefix+shift+n"));
-        assert!(keys
-            .close_workspace
-            .bindings
-            .iter()
-            .any(|binding| binding.label == "prefix+shift+d"));
+        assert!(keys.close_workspace.bindings.is_empty());
     }
 
     #[test]

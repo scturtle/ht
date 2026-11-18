@@ -1,8 +1,7 @@
 use super::*;
 
 fn hover_state() -> ClientShellState {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_endpoint_methods(Some(vec!["pane.link.resolve".into()]));
     state.set_pane_surface(surface());
     state.compose(106, 20).unwrap();

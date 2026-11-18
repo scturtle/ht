@@ -38,81 +38,16 @@ test-core:
 oracle:
     cargo build --locked --manifest-path tests/core-tui/Cargo.toml --bin screen-oracle
 
-# Focused real-TUI copy-mode gate; not full Core-only migration acceptance.
+# Run all private Core/TUI smoke gates, or only the named cases (e.g. smoke keyboard copy).
 [unix]
-core-copy-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/copy-ui-smoke.py
-
-# Local private-PTY worker idle/output/input-latency gate; optional CORE_UI_BASELINE A/B.
-[unix]
-core-scheduling-smoke: build build-core
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/scheduling-ui-smoke.py
-
-# Completed-host-frame synchronized output atomicity and bounded paint timeout.
-[unix]
-core-synchronized-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/synchronized-ui-smoke.py
-
-# Private userspace RTT/jitter/fragmentation/slow-read plus relay-recovery gate.
-[unix]
-core-network-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/network-ui-smoke.py
-
-# Real-TUI shared organization/CAS lifecycle; not full migration acceptance.
-[unix]
-core-organization-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/organization-ui-smoke.py
-
-# First attach uses the existing root shell cwd, not its launch/client cwd.
-[unix]
-core-cwd-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/cwd-ui-smoke.py
-
-# Two real clients, authoritative resize ordering, leadership and copy-mode.
-[unix]
-core-multiclient-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/multiclient-ui-smoke.py
-
-# Semantic Kitty input and stack replay across intentional client replacement.
-[unix]
-core-keyboard-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/keyboard-ui-smoke.py
-
-# Actual Kitty/X11 -> SSH -> private Core, continuous mouse/wheel across exit.
-# Requires kitty, kitten, Xvfb, libXtst and OpenSSH server/client.
-[unix]
-core-kitty-exit-smoke: build build-core
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/kitty-exit-ui-smoke.py
-
-# Delayed host palette replies must not leak into the shell after client exit.
-[unix]
-core-terminal-restore-smoke: build build-core
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/terminal-restore-ui-smoke.py
+[positional-arguments]
+smoke *cases: build build-core oracle
+    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/smoke.py "$@"
 
 # The launcher script must retain the caller's stdin and never retarget its Core.
 [unix]
 core-launcher-test:
     {{python}} tests/core-tui/test-launcher.py
-
-# A lost Core connection must recover; an explicit stop must never be undone.
-[unix]
-core-reconnect-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/reconnect-ui-smoke.py
-
-# A program's Kitty image must reach the host terminal through the real TUI.
-[unix]
-core-graphics-smoke: build build-core oracle
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/graphics-ui-smoke.py
-
-# Real icat must read PTY pixels and display an image (requires kitten).
-[unix]
-core-icat-smoke: build build-core
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/icat-ui-smoke.py
-
-# One timely image-probe answer per program, even with multiple real clients.
-[unix]
-core-image-answers-smoke: build build-core
-    CORE_TUI_HC="$PWD/.local/hc/bin/herdr-core" {{python}} tests/core-tui/image-answers-ui-smoke.py
 
 # Formatting and clippy without tests
 [unix]
@@ -138,7 +73,7 @@ install: build build-core
     @echo "herdr-core -> {{justfile_directory()}}/.local/hc/bin/herdr-core"
     @echo "hc         -> herdr-core (existing alias)"
 
-# Non-gating full-render scaling profile for background workspaces and active panes
+# Profile one visible pane as active-tab membership and background tabs scale
 bench-render-scale:
     cargo test --release --locked --bin ht render_scale_profile -- --ignored --nocapture --test-threads=1
 
@@ -149,10 +84,6 @@ bench-render-stages:
 # Profile terminal target name resolution at increasing pane counts.
 bench-terminal-targets:
     cargo test --release --locked --bin ht terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
-
-# Profile BSP split collection and construction with balanced and skewed trees.
-bench-bsp-layout:
-    cargo test --release --locked --bin ht bsp_layout_profile -- --ignored --nocapture --test-threads=1
 
 # Profile full and retained text, static-image, and unchanged-image updates.
 bench-retained-graphics:

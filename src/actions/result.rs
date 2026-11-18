@@ -1,7 +1,4 @@
-use super::panes::{
-    LayoutDescription, PaneFocusDirectionResult, PaneInfo, PaneResizeResult, PaneSwapResult,
-    PaneTextPoint, PaneTextRange, PaneZoomResult,
-};
+use super::panes::{PaneInfo, PaneTextPoint, PaneTextRange};
 use super::tabs::TabInfo;
 use super::workspaces::WorkspaceInfo;
 
@@ -25,21 +22,6 @@ pub(crate) enum ActionResult {
     },
     PaneInfo {
         pane: PaneInfo,
-    },
-    PaneSwap {
-        swap: PaneSwapResult,
-    },
-    PaneZoom {
-        zoom: PaneZoomResult,
-    },
-    LayoutSplitRatioSet {
-        layout: LayoutDescription,
-    },
-    PaneFocusDirection {
-        focus: PaneFocusDirectionResult,
-    },
-    PaneResize {
-        resize: PaneResizeResult,
     },
     PaneSelection {
         pane_id: String,

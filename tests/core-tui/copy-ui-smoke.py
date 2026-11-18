@@ -53,7 +53,7 @@ detach = "f10"
             'shell = ["/bin/bash", "--noprofile", "--norc"]\nnotes = false\n'
         )
         if not ORACLE.is_file():
-            raise RuntimeError("screen-oracle missing; run just core-copy-smoke")
+            raise RuntimeError("screen-oracle missing; run just smoke copy")
         viewer = None
 
         def hc(*args):

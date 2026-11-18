@@ -212,16 +212,21 @@ mod tests {
     fn closed_target_continuations_are_noops_but_new_input_is_not_redirected() {
         use crate::protocol::{ClientKeyKind, ClientMouseButton, ClientMouseKind};
         let mut model = super::super::model::Model::new("cleanup".into());
-        let old = model.insert(serde_json::json!({"address":"old"})).unwrap();
-        let survivor = model
-            .insert(serde_json::json!({"address":"survivor"}))
-            .unwrap();
+        let ids = model.add_test_tab(
+            "space",
+            "tab",
+            [
+                serde_json::json!({"address":"old"}),
+                serde_json::json!({"address":"survivor"}),
+            ],
+        );
+        let (old, survivor) = (ids[0], ids[1]);
         let mut views = std::collections::HashMap::new();
         let live = View::new(80, 24, 22).unwrap();
         live.terminal
             .process_pty_bytes(survivor, b"\x1b[>31u\x1b[?1000h\x1b[?1006h");
         views.insert(survivor, live);
-        model.retire(old).unwrap();
+        model.remove(old);
         let key = ClientPaneInputEvent::from_terminal_key(
             crate::input::TerminalKey::new(KeyCode::Enter, KeyModifiers::empty())
                 .with_kind(KeyEventKind::Release),

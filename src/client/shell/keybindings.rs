@@ -34,30 +34,15 @@ pub(in crate::client) enum KeybindAction {
     RenameTab,
     PreviousTab,
     NextTab,
+    PreviousPaneInBar,
+    NextPaneInBar,
     MoveTabPrevious,
     MoveTabNext,
-    CloseTab,
     RenamePane,
-    FocusPaneLeft,
-    FocusPaneDown,
-    FocusPaneUp,
-    FocusPaneRight,
-    SwapPaneLeft,
-    SwapPaneDown,
-    SwapPaneUp,
-    SwapPaneRight,
-    SplitVertical,
-    SplitHorizontal,
     ClosePane,
     EditScrollback,
     ClearPane,
     CopyMode,
-    Zoom,
-    EnterResizeMode,
-    ResizePaneLeft,
-    ResizePaneDown,
-    ResizePaneUp,
-    ResizePaneRight,
     CyclePaneNext,
     CyclePanePrevious,
     LastPane,
@@ -106,38 +91,21 @@ pub(super) fn resolve_non_indexed_action(
         (&keybinds.next_agent, KeybindAction::NextAgent),
         (&keybinds.new_tab, KeybindAction::NewTab),
         (&keybinds.rename_tab, KeybindAction::RenameTab),
-        (&keybinds.previous_tab, KeybindAction::PreviousTab),
-        (&keybinds.next_tab, KeybindAction::NextTab),
+        (&keybinds.previous_tab, KeybindAction::PreviousPaneInBar),
+        (&keybinds.next_tab, KeybindAction::NextPaneInBar),
         (&keybinds.move_tab_previous, KeybindAction::MoveTabPrevious),
         (&keybinds.move_tab_next, KeybindAction::MoveTabNext),
-        (&keybinds.close_tab, KeybindAction::CloseTab),
         (&keybinds.rename_pane, KeybindAction::RenamePane),
         (&keybinds.edit_scrollback, KeybindAction::EditScrollback),
         (&keybinds.clear_pane, KeybindAction::ClearPane),
         (&keybinds.copy_mode, KeybindAction::CopyMode),
-        (&keybinds.focus_pane_left, KeybindAction::FocusPaneLeft),
-        (&keybinds.focus_pane_down, KeybindAction::FocusPaneDown),
-        (&keybinds.focus_pane_up, KeybindAction::FocusPaneUp),
-        (&keybinds.focus_pane_right, KeybindAction::FocusPaneRight),
-        (&keybinds.swap_pane_left, KeybindAction::SwapPaneLeft),
-        (&keybinds.swap_pane_down, KeybindAction::SwapPaneDown),
-        (&keybinds.swap_pane_up, KeybindAction::SwapPaneUp),
-        (&keybinds.swap_pane_right, KeybindAction::SwapPaneRight),
         (&keybinds.last_pane, KeybindAction::LastPane),
         (&keybinds.cycle_pane_next, KeybindAction::CyclePaneNext),
         (
             &keybinds.cycle_pane_previous,
             KeybindAction::CyclePanePrevious,
         ),
-        (&keybinds.split_vertical, KeybindAction::SplitVertical),
-        (&keybinds.split_horizontal, KeybindAction::SplitHorizontal),
         (&keybinds.close_pane, KeybindAction::ClosePane),
-        (&keybinds.zoom, KeybindAction::Zoom),
-        (&keybinds.resize_mode, KeybindAction::EnterResizeMode),
-        (&keybinds.resize_pane_left, KeybindAction::ResizePaneLeft),
-        (&keybinds.resize_pane_down, KeybindAction::ResizePaneDown),
-        (&keybinds.resize_pane_up, KeybindAction::ResizePaneUp),
-        (&keybinds.resize_pane_right, KeybindAction::ResizePaneRight),
         (&keybinds.reload_config, KeybindAction::ReloadConfig),
         (
             &keybinds.open_notification_target,
@@ -236,6 +204,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn close_workspace_has_no_default_shortcut() {
+        let key = TerminalKey::new(KeyCode::Char('d'), KeyModifiers::SHIFT);
+        assert!(resolve_prefix_binding(&Keybinds::default(), &key).is_none());
+
+        let config: crate::config::Config =
+            toml::from_str("[keys]\nclose_workspace = \"prefix+shift+d\"").unwrap();
+        assert!(matches!(
+            resolve_prefix_binding(&config.keybinds(), &key),
+            Some(KeybindMatch::Action(KeybindAction::CloseWorkspace))
+        ));
+    }
+
+    #[test]
     fn clear_pane_is_unbound_by_default_and_configurable() {
         assert!(crate::config::Config::default()
             .keybinds()
@@ -260,13 +241,11 @@ mod tests {
             ),
             Some(KeybindMatch::Action(KeybindAction::ClearPane))
         ));
-        assert!(matches!(
-            resolve_prefix_binding(
-                &keybinds,
-                &TerminalKey::new(KeyCode::Char('k'), KeyModifiers::SHIFT)
-            ),
-            Some(KeybindMatch::Action(KeybindAction::SwapPaneUp))
-        ));
+        assert!(resolve_prefix_binding(
+            &keybinds,
+            &TerminalKey::new(KeyCode::Char('k'), KeyModifiers::SHIFT)
+        )
+        .is_none());
     }
 
     #[test]
@@ -279,7 +258,7 @@ mod tests {
         let direct = TerminalKey::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
         assert!(matches!(
             resolve_direct_binding(&keybinds, &direct),
-            Some(KeybindMatch::Action(KeybindAction::NextTab))
+            Some(KeybindMatch::Action(KeybindAction::NextPaneInBar))
         ));
 
         let help = TerminalKey::new(KeyCode::Char('?'), KeyModifiers::empty());

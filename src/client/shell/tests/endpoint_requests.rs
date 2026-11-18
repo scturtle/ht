@@ -25,8 +25,7 @@ fn a_new_projection_epoch_accepts_restarted_revisions_but_its_stale_updates_do_n
 
 #[test]
 fn core_config_reload_and_context_menu_only_offer_implemented_actions() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_endpoint_methods(Some(vec![]));
     let mut outcome = ClientShellInput::default();
     state.record_binding(
@@ -42,7 +41,7 @@ fn core_config_reload_and_context_menu_only_offer_implemented_actions() {
         target: ClientContextMenuTarget::Pane {
             pane_id: "p".into(),
             workspace_id: "w".into(),
-            source_pane_id: None,
+            tab_group: None,
             has_manual_label: true,
             right_click_passthrough: false,
         },
@@ -65,8 +64,7 @@ fn request_id(actions: &[ClientShellAction]) -> &str {
 
 #[test]
 fn capability_refresh_preserves_pending_request_boot_fences() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.set_endpoint_methods(Some(vec!["pane.focus".into()]));
     let boot_id = state.endpoint.snapshot.as_ref().unwrap().boot_id.clone();
@@ -97,25 +95,19 @@ fn capability_refresh_preserves_pending_request_boot_fences() {
 
 #[test]
 fn capability_refresh_regates_an_open_pane_context_menu() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
-    state.set_endpoint_methods(Some(vec![
-        "pane.rename".into(),
-        "pane.split".into(),
-        "pane.zoom".into(),
-        "pane.close".into(),
-    ]));
+    state.set_endpoint_methods(Some(vec!["pane.rename".into(), "pane.close".into()]));
     state.open_pane_context_menu("pane_1".into(), 0, 0);
     let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_mut() else {
         panic!("pane context menu");
     };
-    let split_right = menu
+    let close = menu
         .items()
         .iter()
-        .position(|item| item.action == ClientContextMenuAction::SplitRight)
-        .expect("split right item");
-    menu.highlighted = split_right;
+        .position(|item| item.action == ClientContextMenuAction::ClosePane)
+        .expect("close pane item");
+    menu.highlighted = close;
     assert!(menu
         .items()
         .iter()
@@ -125,11 +117,7 @@ fn capability_refresh_regates_an_open_pane_context_menu() {
 
     // The replacement Core lost the optional pane.rename ability that Core only
     // advertises while it reports terminal.label support.
-    assert!(state.set_endpoint_methods(Some(vec![
-        "pane.split".into(),
-        "pane.zoom".into(),
-        "pane.close".into(),
-    ])));
+    assert!(state.set_endpoint_methods(Some(vec!["pane.close".into(),])));
 
     let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
         panic!("the open context menu survives a capability refresh");
@@ -145,7 +133,7 @@ fn capability_refresh_regates_an_open_pane_context_menu() {
     );
     assert_eq!(
         actions[menu.highlighted],
-        ClientContextMenuAction::SplitRight
+        ClientContextMenuAction::ClosePane
     );
     assert!(
         state.hits.context_menu_rows.is_empty(),
@@ -157,21 +145,19 @@ fn capability_refresh_regates_an_open_pane_context_menu() {
     state.activate_context_menu_item(highlighted, &mut outcome);
 
     let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
-        panic!("split request: {:?}", outcome.actions);
+        panic!("close request: {:?}", outcome.actions);
     };
     assert!(matches!(
         &request.action,
-        crate::actions::Action::PaneSplit(params)
-            if params.direction == crate::actions::SplitDirection::Right
+        crate::actions::Action::PaneClose(params) if params.pane_id == "pane_1"
     ));
 }
 
 #[test]
 fn capability_refresh_does_not_replace_a_removed_highlight_or_forward_enter() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
-    state.set_endpoint_methods(Some(vec!["pane.rename".into(), "pane.split".into()]));
+    state.set_endpoint_methods(Some(vec!["pane.rename".into(), "pane.close".into()]));
     state.open_pane_context_menu("pane_1".into(), 0, 0);
     let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
         panic!("pane context menu");
@@ -204,25 +190,19 @@ fn capability_refresh_does_not_replace_a_removed_highlight_or_forward_enter() {
 
 #[test]
 fn capability_refresh_preserves_an_open_context_menu_for_an_equivalent_set() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
-    state.set_endpoint_methods(Some(vec![
-        "pane.rename".into(),
-        "pane.split".into(),
-        "pane.zoom".into(),
-        "pane.close".into(),
-    ]));
+    state.set_endpoint_methods(Some(vec!["pane.rename".into(), "pane.close".into()]));
     state.open_pane_context_menu("pane_1".into(), 0, 0);
     let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_mut() else {
         panic!("pane context menu");
     };
-    let split_down = menu
+    let close = menu
         .items()
         .iter()
-        .position(|item| item.action == ClientContextMenuAction::SplitDown)
-        .expect("split down item");
-    menu.highlighted = split_down;
+        .position(|item| item.action == ClientContextMenuAction::ClosePane)
+        .expect("close pane item");
+    menu.highlighted = close;
     let before = menu
         .items()
         .iter()
@@ -230,17 +210,10 @@ fn capability_refresh_preserves_an_open_context_menu_for_an_equivalent_set() {
         .collect::<Vec<_>>();
 
     // Same set in another order: nothing to re-gate, so nothing may reset.
-    assert!(!state.set_endpoint_methods(Some(vec![
-        "pane.close".into(),
-        "pane.zoom".into(),
-        "pane.rename".into(),
-        "pane.split".into(),
-    ])));
+    assert!(!state.set_endpoint_methods(Some(vec!["pane.close".into(), "pane.rename".into(),])));
     // A different set that still gates exactly the same items.
     assert!(state.set_endpoint_methods(Some(vec![
         "pane.rename".into(),
-        "pane.split".into(),
-        "pane.zoom".into(),
         "pane.close".into(),
         "workspace.list".into(),
     ])));
@@ -255,13 +228,12 @@ fn capability_refresh_preserves_an_open_context_menu_for_an_equivalent_set() {
             .collect::<Vec<_>>(),
         before
     );
-    assert_eq!(menu.highlighted, split_down);
+    assert_eq!(menu.highlighted, close);
 }
 
 #[test]
 fn local_selection_does_not_need_an_endpoint_activation_event() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     tx.try_send(crate::client::ClientLoopEvent::Timer).unwrap();
     let mut outcome = ClientShellInput::default();
@@ -286,8 +258,7 @@ fn dispatcher_cancels_requests_when_the_endpoint_worker_fails() {
     use crate::client::endpoint_commands::EndpointCommands;
 
     {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot(Box::new(snapshot()));
+        let mut state = state_with_snapshot(snapshot());
         state.set_pane_surface(surface());
         let actions = workspace_focus_actions(&mut state, "ws_1");
         let (handle, probe) = crate::client::core::test_support::endpoint();
@@ -318,8 +289,7 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
     use crate::client::connection::EndpointConnection;
     use crate::client::endpoint_commands::EndpointCommands;
 
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     let actions = workspace_focus_actions(&mut state, "ws_stale");
     let stale_id = request_id(&actions).to_owned();
@@ -348,8 +318,7 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
 
 #[test]
 fn failed_selection_copy_does_not_send_terminal_input() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.selection = Some(crate::selection::Selection::absolute_range(
         "pane_1".into(),
@@ -381,8 +350,7 @@ fn failed_selection_copy_does_not_send_terminal_input() {
 
 #[test]
 fn cancelled_link_activation_does_not_replay_mouse_input() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(100, 28).unwrap();
     let pane_id = state.hits.panes[0].pane_id.clone();

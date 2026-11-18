@@ -214,42 +214,26 @@ impl ClientShellState {
                     if self.prepare_committed_text(&text, &mut outcome) {
                         continue;
                     }
-                    if let Some(target) = self.popup_input_target() {
-                        super::push_target_event(
-                            target,
+                    if self.insert_overlay_text(&text) {
+                        outcome.repaint = true;
+                    } else if self.overlay.is_none() && self.mode == ClientShellMode::Terminal {
+                        self.push_focused_pane_event(
                             ClientPaneInputEvent::TextCommit(text),
                             &mut outcome,
                         );
-                    } else {
-                        if self.insert_overlay_text(&text) {
-                            outcome.repaint = true;
-                        } else if self.overlay.is_none() && self.mode == ClientShellMode::Terminal {
-                            self.push_focused_pane_event(
-                                ClientPaneInputEvent::TextCommit(text),
-                                &mut outcome,
-                            );
-                        }
                     }
                 }
                 RawInputEvent::Paste(text) => {
                     if self.prepare_committed_text(&text, &mut outcome) {
                         continue;
                     }
-                    if let Some(target) = self.popup_input_target() {
-                        super::push_target_event(
-                            target,
+                    if self.insert_overlay_text(&text) {
+                        outcome.repaint = true;
+                    } else if self.overlay.is_none() && self.mode == ClientShellMode::Terminal {
+                        self.push_focused_pane_event(
                             ClientPaneInputEvent::Paste(text),
                             &mut outcome,
                         );
-                    } else {
-                        if self.insert_overlay_text(&text) {
-                            outcome.repaint = true;
-                        } else if self.overlay.is_none() && self.mode == ClientShellMode::Terminal {
-                            self.push_focused_pane_event(
-                                ClientPaneInputEvent::Paste(text),
-                                &mut outcome,
-                            );
-                        }
                     }
                 }
                 RawInputEvent::Mouse(mouse) => self.handle_mouse(mouse, &mut outcome),
@@ -404,9 +388,8 @@ impl ClientShellState {
                 width_px: gesture.hit.pixel_width,
                 height_px: gesture.hit.pixel_height,
             });
-            let target = ClientInputTarget::Pane(gesture.hit.pane_id);
-            super::push_target_event(
-                target,
+            super::push_pane_event(
+                gesture.hit.pane_id,
                 ClientPaneInputEvent::Mouse {
                     kind: crate::protocol::ClientMouseKind::Up(
                         crate::protocol::ClientMouseButton::from_crossterm(gesture.button),
@@ -426,7 +409,7 @@ impl ClientShellState {
         &mut self,
         lease_key: crate::input::InputLeaseKey<u8>,
         key: crate::input::TerminalKey,
-        plan: crate::input::RepeatPlan<ClientInputContext, ClientInputTarget>,
+        plan: crate::input::RepeatPlan<ClientInputContext, String>,
         outcome: &mut ClientShellInput,
     ) {
         match plan {
@@ -465,10 +448,7 @@ impl ClientShellState {
         &mut self,
         key: &crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
-    ) -> Option<ClientInputTarget> {
-        if let Some(target) = self.popup_input_target() {
-            return Some(target);
-        }
+    ) -> Option<String> {
         if self.overlay.is_some() {
             self.route_overlay_key(key, outcome);
             return None;
@@ -499,7 +479,7 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return None;
                 }
-                self.focused_pane_id().map(ClientInputTarget::Pane)
+                self.focused_pane_id()
             }
             ClientShellMode::Prefix => {
                 let return_mode = if self.copy_mode.as_ref().is_some_and(|copy_mode| {
@@ -512,7 +492,7 @@ impl ClientShellState {
                 if self.config.keybinds.matches_prefix(key) {
                     self.mode = return_mode;
                     outcome.repaint = true;
-                    return self.focused_pane_id().map(ClientInputTarget::Pane);
+                    return self.focused_pane_id();
                 }
                 if key.code == KeyCode::Esc {
                     self.mode = return_mode;
@@ -533,10 +513,6 @@ impl ClientShellState {
             }
             ClientShellMode::Navigate => {
                 self.route_navigate_key(key, outcome);
-                None
-            }
-            ClientShellMode::Resize => {
-                self.route_resize_key(key, outcome);
                 None
             }
             ClientShellMode::Copy => {
@@ -654,7 +630,6 @@ impl ClientShellState {
                 KeyCode::Tab => {
                     self.record_navigate_binding(
                         KeybindMatch::Action(KeybindAction::CyclePaneNext),
-                        false,
                         outcome,
                     );
                     return;
@@ -662,23 +637,6 @@ impl ClientShellState {
                 KeyCode::BackTab => {
                     self.record_navigate_binding(
                         KeybindMatch::Action(KeybindAction::CyclePanePrevious),
-                        false,
-                        outcome,
-                    );
-                    return;
-                }
-                KeyCode::Left => {
-                    self.record_navigate_binding(
-                        KeybindMatch::Action(KeybindAction::FocusPaneLeft),
-                        true,
-                        outcome,
-                    );
-                    return;
-                }
-                KeyCode::Right => {
-                    self.record_navigate_binding(
-                        KeybindMatch::Action(KeybindAction::FocusPaneRight),
-                        true,
                         outcome,
                     );
                     return;
@@ -687,45 +645,11 @@ impl ClientShellState {
             }
         }
 
-        let pane_action = [
-            (
-                &self.config.keybinds.keybinds.navigate.pane_left,
-                KeybindAction::FocusPaneLeft,
-            ),
-            (
-                &self.config.keybinds.keybinds.navigate.pane_down,
-                KeybindAction::FocusPaneDown,
-            ),
-            (
-                &self.config.keybinds.keybinds.navigate.pane_up,
-                KeybindAction::FocusPaneUp,
-            ),
-            (
-                &self.config.keybinds.keybinds.navigate.pane_right,
-                KeybindAction::FocusPaneRight,
-            ),
-        ]
-        .into_iter()
-        .find_map(|(bindings, action)| bindings.matches_direct_key(key).then_some(action));
-        if let Some(action) = pane_action {
-            self.record_navigate_binding(KeybindMatch::Action(action), true, outcome);
-            return;
-        }
-
         let binding = keybindings::resolve_non_indexed_action(
             &self.config.keybinds.keybinds,
             key,
             KeybindDispatch::Prefix,
         )
-        .filter(|action| {
-            !matches!(
-                action,
-                KeybindAction::FocusPaneLeft
-                    | KeybindAction::FocusPaneDown
-                    | KeybindAction::FocusPaneUp
-                    | KeybindAction::FocusPaneRight
-            )
-        })
         .map(KeybindMatch::Action)
         .or_else(|| {
             keybindings::resolve_indexed_action(
@@ -736,7 +660,7 @@ impl ClientShellState {
             .map(KeybindMatch::Action)
         });
         if let Some(binding) = binding {
-            self.record_navigate_binding(binding, false, outcome);
+            self.record_navigate_binding(binding, outcome);
         } else if is_ctrl_bracket_key(key) {
             self.cancel_navigate(outcome);
         }
@@ -751,7 +675,6 @@ impl ClientShellState {
     fn record_navigate_binding(
         &mut self,
         binding: keybindings::KeybindMatch,
-        preserve_navigate: bool,
         outcome: &mut ClientShellInput,
     ) {
         use keybindings::{KeybindAction, KeybindMatch};
@@ -764,17 +687,13 @@ impl ClientShellState {
         } else if let KeybindMatch::Action(KeybindAction::CyclePanePrevious) = binding {
             self.cycle_pane(true, outcome);
         } else {
-            if !preserve_navigate {
-                self.mode = ClientShellMode::Terminal;
-            }
+            self.mode = ClientShellMode::Terminal;
             self.record_binding(binding, outcome);
         }
-        if !preserve_navigate {
-            if self.mode == ClientShellMode::Navigate {
-                self.mode = self.copy_or_terminal_mode();
-            }
-            self.navigate_workspace_id = None;
+        if self.mode == ClientShellMode::Navigate {
+            self.mode = self.copy_or_terminal_mode();
         }
+        self.navigate_workspace_id = None;
         outcome.repaint = true;
     }
 
@@ -851,36 +770,6 @@ impl ClientShellState {
         );
     }
 
-    fn route_resize_key(
-        &mut self,
-        key: &crate::input::TerminalKey,
-        outcome: &mut ClientShellInput,
-    ) {
-        let resize_bindings = &self.config.keybinds.keybinds.resize_mode;
-        if key.code == KeyCode::Esc
-            || key.code == KeyCode::Enter
-            || resize_bindings.matches_prefix_key(key)
-            || resize_bindings.matches_direct_key(key)
-        {
-            self.mode = self.copy_or_terminal_mode();
-            outcome.repaint = true;
-            return;
-        }
-
-        let action = match key.code {
-            KeyCode::Char('h') | KeyCode::Left => Some(keybindings::KeybindAction::ResizePaneLeft),
-            KeyCode::Char('j') | KeyCode::Down => Some(keybindings::KeybindAction::ResizePaneDown),
-            KeyCode::Char('k') | KeyCode::Up => Some(keybindings::KeybindAction::ResizePaneUp),
-            KeyCode::Char('l') | KeyCode::Right => {
-                Some(keybindings::KeybindAction::ResizePaneRight)
-            }
-            _ => None,
-        };
-        if let Some(action) = action {
-            self.record_binding(keybindings::KeybindMatch::Action(action), outcome);
-        }
-    }
-
     fn input_context(&self) -> ClientInputContext {
         ClientInputContext {
             mode: self.mode,
@@ -907,7 +796,7 @@ impl ClientShellState {
         &mut self,
         lease_key: &crate::input::InputLeaseKey<u8>,
         key: &crate::input::TerminalKey,
-    ) -> Option<crate::input::InputLease<ClientInputContext, ClientInputTarget>> {
+    ) -> Option<crate::input::InputLease<ClientInputContext, String>> {
         if let Some(lease) = self.input_leases.remove(lease_key) {
             return Some(lease);
         }
@@ -941,24 +830,20 @@ impl ClientShellState {
             .or_else(|| self.input_leases.remove_sole_text_press(LOCAL_INPUT_SOURCE))
     }
 
-    fn popup_input_target(&self) -> Option<ClientInputTarget> {
-        None
-    }
-
     fn push_pane_key(
         &self,
-        target: ClientInputTarget,
+        pane_id: String,
         key: crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
     ) {
         if let Some(event) = ClientPaneInputEvent::from_terminal_key(key) {
-            super::push_target_event(target, event, outcome);
+            super::push_pane_event(pane_id, event, outcome);
         }
     }
 
     fn push_focused_pane_event(&self, event: ClientPaneInputEvent, outcome: &mut ClientShellInput) {
         if let Some(pane_id) = self.focused_pane_id() {
-            super::push_target_event(ClientInputTarget::Pane(pane_id), event, outcome);
+            super::push_pane_event(pane_id, event, outcome);
         }
     }
 }

@@ -202,15 +202,15 @@ fn help_frames_keep_existing_search_wrapping_scroll_cursor_and_hits() {
         }
     }
     // 144 frames including wrapping, clamped scroll, Unicode filter and rejection.
-    // Intentionally refreshed when removing the retired settings help row;
+    // Fingerprints reflect the retirement of native-only split/close/focus keys;
     // the shared dialog painting/layout is unchanged.
     assert_eq!(
         hashes,
         [
-            1579827255080369540,
-            6055496276783940774,
-            2493187073004634665,
-            13827640207218450969,
+            17264778224359894023,
+            437149325322712572,
+            6649644799887520418,
+            18085470340868109852,
         ]
     );
 }

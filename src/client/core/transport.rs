@@ -225,6 +225,20 @@ impl CoreRelay {
             Err(err) => {
                 let _ = child.kill();
                 let _ = child.wait();
+                if err.kind() == io::ErrorKind::UnexpectedEof {
+                    let hint = if existing {
+                        "check that HC_SOCKET points to a running Core; connect --existing does not start it"
+                    } else {
+                        "check the Core socket and the relay's stderr"
+                    };
+                    return Err(io::Error::new(
+                        err.kind(),
+                        format!(
+                            "Core relay closed before the handshake on {}: {hint}",
+                            socket.display()
+                        ),
+                    ));
+                }
                 return Err(err);
             }
         };

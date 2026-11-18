@@ -61,7 +61,7 @@ def main():
     HOME = BASE / "h"
     HOME.mkdir(exist_ok=True)
     ENV = H.isolated_env(HOME, HOME / "c")
-    (HOME / "config.toml").write_text('[keys]\ndetach="f10"\n')
+    (HOME / "config.toml").write_text('[keys]\ndetach="f10"\nnew_tab="f3"\n')
     RUNS = int(os.environ.get("CORE_TUI_KITTY_EXIT_RUNS", "12"))
     DELAY = float(os.environ.get("CORE_TUI_SSH_DELAY_SECONDS", "0.3"))
     KITTY = os.environ.get("CORE_TUI_KITTY") or shutil.which("kitty")
@@ -335,6 +335,13 @@ def main():
         xlib.XSetInputFocus(display, children[count.value - 1], 1, 0)
         xlib.XFlush(display)
         xlib.XFree(children)
+        def kitty(*args):
+            return S.run([KITTEN, "@", "--to", kittysock, *args], env=gui_env,
+                         text=True, capture_output=True, check=True, timeout=10).stdout
+
+        def tab_row():
+            return (kitty("get-text") + "\n").splitlines()[0].strip()
+
         results = []
         for n in range(RUNS):
             H.until(
@@ -345,6 +352,12 @@ def main():
                 "ht launch " + str(n),
             )
             H.until(lambda: H.private_socket(ENV).exists(), "private Core")
+            if n:
+                # Only an unused private Core is auto-seeded. Reopen the
+                # existing layout and explicitly create the next test shell.
+                H.until(lambda: tab_row() == "+", "reopened empty layout")
+                kitty("send-key", "f3")
+                H.until(lambda: tab_row().split() == ["1", "+"], "new tab visible")
             time.sleep(0.05 if n % 2 == 0 else 0.6)
             end = time.monotonic() + 0.2
             i = 0

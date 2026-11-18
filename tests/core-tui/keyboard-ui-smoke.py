@@ -60,12 +60,14 @@ def main():
     try:
         rpc = ORG.Rpc(env, existing=False)  # Explicit private fixture bootstrap.
         reply = rpc.request("terminal.run", {"argv": [sys.executable, str(HERE / "keyboard-program.py"), str(control), str(records)],
-                                               "cwd": str(private), "labels": {"herdr": "tui"},
+                                               "cwd": str(private),
                                                "no_parent": True, "cols": 100, "rows": 27,
                                                "env": {"TERM": "xterm-ghostty"}})
         assert "error" not in reply, reply
         record = reply["result"]
         address, pid = record["address"], record["pid"]
+        rpc.put_doc({"spaces": [{"id": "keyboard", "tabs": [{"id": "test",
+            "root": {"id": "program", "type": "block", "content": {"terminal": address}}}]}]})
         current = UI.Viewer(env)
         viewers.append(current)
         UI.until(lambda: "KEY_PHASE_0_READY" in screen(current), "initial full Kitty mode replay")

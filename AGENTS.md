@@ -7,13 +7,15 @@ upstream merge path. This file describes what still matters when changing code.
 ## Runtime shape
 
 - Core owns PTYs, screens and the shared session document. The client owns
-  rendering, input translation, focus, zoom and presentation preferences.
+  rendering, input translation, focus and presentation preferences.
 - `src/client/core/` is the adapter: one `hc connect` relay per client, ordered
   attach per pane, snapshot + surface frames into the original shell UI.
 - The original UI in `src/client/shell/` and `src/ui/` is reused unchanged. Do
   not add a second chrome renderer.
 - Only advertise what the adapter actually implements
   (`src/client/core/methods.rs`).
+- `herdr-app` is the only layout document. Use scoped CAS edits without
+  discarding unrelated fields or changing App geometry.
 - Wire kinds: DATA=0, CREDIT=1, CLOSE=2, RESIZE=3, FOCUS=4, FACTS=5,
   AUTOMATIC_INPUT=6. Ordered attach sends an authoritative RESIZE before every
   first/replacement paint.
@@ -101,12 +103,9 @@ just check    # fmt + clippy -D warnings + the above
 Real-TUI gates drive the actual launcher against a private Core/PTY:
 
 ```bash
-just core-multiclient-smoke
-just core-organization-smoke  just core-copy-smoke
-just core-keyboard-smoke      just core-graphics-smoke
-just core-reconnect-smoke     just core-launcher-test
-just core-diagnostics-smoke    just core-scheduling-smoke
-just core-network-smoke
+just smoke                    # all smoke gates, serially
+just smoke keyboard graphics  # selected gates only
+just core-launcher-test
 ```
 
 Build the pinned Core runtime with `just build-core`; `source.json` lists

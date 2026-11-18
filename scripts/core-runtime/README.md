@@ -92,7 +92,7 @@ leaking after a pop. New tests cover fresh/dirty viewers, overflow, later pops,
 inactive-screen transitions and binary snapshot round trips. With the current
 upstream hidden-primary replay, the alternate stack is restored after its DECSTR,
 and tests compare both screens' contents as well as later keyboard pops. Existing
-screen/cursor/mode tests pass. `just core-keyboard-smoke` verifies real semantic
+screen/cursor/mode tests pass. `just smoke keyboard` verifies real semantic
 press/repeat/release, client replacement, nested pops and eventual legacy input.
 
 Removal condition: the pinned Core/Ghostty offers equivalent complete bounded
@@ -116,7 +116,7 @@ Retired on 2026-11-10 because nothing consumed it; reintroduced on the same day
 together with the reconnect state machine that does.
 
 Verification: the patch test above, the full Core suite, and
-`just core-reconnect-smoke`, which stops a private Core and asserts that no
+`just smoke reconnect`, which stops a private Core and asserts that no
 socket reappears.
 
 Removal condition: the pinned upstream Core advertises `existing_connect` with
@@ -153,7 +153,7 @@ new tests cover both winner orders, all response splits, interleaved human keys,
 probe expiry, delayed old replies after ID reuse, late real-upload ACKs, absent/
 preceding/following DA1 barriers including one-chunk boundaries, unknown and
 malformed replies, bounded framing/history, paste and unchanged leadership.
-`just core-image-answers-smoke` uses the actual ht/Core/PTY and Emacs's PNG probe,
+`just smoke image-answers` uses the actual ht/Core/PTY and Emacs's PNG probe,
 including a deliberately delayed **owned** client. It requires no model or Emacs
 installation. Full Core tests and existing graphics/keyboard/multiclient gates
 must continue to pass.
@@ -187,7 +187,7 @@ or plan an explicit Core/holder upgrade; do not kill holders with live programs.
 
 Verification: `pty_ioctl_pixels_follow_only_the_size_leader` reads the real PTY
 ioctl across attach, same-grid focus/typing, leader/passive FACTS, resize,
-observer, detach, unknown geometry and overflow. `just core-icat-smoke` runs
+observer, detach, unknown geometry and overflow. `just smoke icat` runs
 the real kitten without a window-size override and checks both PTY pixels and
 host image upload/placement; requires kitten (`CORE_TUI_KITTEN` overrides its
 path). The existing graphics and image-answer gates remain separate.

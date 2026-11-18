@@ -33,13 +33,11 @@ mod tests;
 #[cfg(test)]
 pub(crate) use tests::test_encode_key_for_app;
 
-use super::cursor::{CursorPositionSettleState, DecscusrTracker};
+use super::cursor::DecscusrTracker;
 use super::{
     input::configure_key_encoder,
     kitty_keyboard::KittyKeyboardTracker,
-    osc::{
-        AgentOscStateTracker, DefaultColorEventTracker, DefaultColorOscTracker, OscDebugTracker,
-    },
+    osc::{AgentOscStateTracker, DefaultColorEventTracker, OscDebugTracker},
     xtgettcap::C1XtgettcapQueryTracker,
 };
 
@@ -96,13 +94,11 @@ pub(crate) struct GhosttyPaneCore {
     pub render_state: crate::ghostty::RenderState,
     pub kitty_keyboard: KittyKeyboardTracker,
     theme: ThemeState,
-    pub default_color_tracker: DefaultColorOscTracker,
     pub default_color_event_tracker: DefaultColorEventTracker,
     c1_xtgettcap_tracker: C1XtgettcapQueryTracker,
     pub osc_debug_tracker: OscDebugTracker,
     pub agent_osc_state: AgentOscStateTracker,
     decscusr_tracker: DecscusrTracker,
-    cursor_settle_state: CursorPositionSettleState,
 }
 
 pub(crate) struct PaneTerminal {
@@ -303,13 +299,11 @@ impl GhosttyPaneTerminal {
                     initial_background: initial_default_background,
                     ..ThemeState::default()
                 },
-                default_color_tracker: DefaultColorOscTracker::default(),
                 default_color_event_tracker: DefaultColorEventTracker::default(),
                 c1_xtgettcap_tracker: C1XtgettcapQueryTracker::default(),
                 osc_debug_tracker: OscDebugTracker::default(),
                 agent_osc_state: AgentOscStateTracker::default(),
                 decscusr_tracker: DecscusrTracker::default(),
-                cursor_settle_state: CursorPositionSettleState::default(),
             }),
             key_encoder: Mutex::new(key_encoder),
             pending_pty_responses,

@@ -1,11 +1,10 @@
 //! Live PTY stream processing, synchronized-output timeout and terminal effects.
 //! Keep tracker/write/reply order and the core -> key-encoder lock order intact.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tracing::{debug, error};
 
-use super::viewport::{current_cursor_state, CURSOR_POSITION_SETTLE_ENABLED};
 use super::{GhosttyPaneTerminal, ProcessBytesResult};
 use crate::layout::PaneId;
 use crate::pane::input::configure_key_encoder;
@@ -22,7 +21,6 @@ impl GhosttyPaneTerminal {
         };
 
         discard_terminal_effects(&mut core.terminal);
-        core.default_color_tracker.observe(bytes);
 
         core.osc_debug_tracker.observe(bytes);
         for event in core.osc_debug_tracker.drain_pending() {
@@ -77,22 +75,9 @@ impl GhosttyPaneTerminal {
         if synchronized_output != synchronized_output_before {
             core.synchronized_output_epoch = core.synchronized_output_epoch.wrapping_add(1);
         }
-        // Intermediate synchronized-frame positions must not become settled cursors.
-        if CURSOR_POSITION_SETTLE_ENABLED && !synchronized_output {
-            let cursor_started = crate::render_prof::timer();
-            let cursor_after_write = current_cursor_state(&mut core);
-            crate::render_prof::duration_since("pty.cursor_state_update", cursor_started);
-            core.cursor_settle_state
-                .observe(cursor_after_write, Instant::now());
-        }
-
         let request_render = !synchronized_output;
-        let render_delay = render_delay_after_pty_write(
-            synchronized_output,
-            has_kitty_graphics_sequence,
-            core.cursor_settle_state.render_delay(),
-            CURSOR_POSITION_SETTLE_ENABLED,
-        );
+        let render_delay =
+            (request_render && has_kitty_graphics_sequence).then_some(KITTY_GRAPHICS_REDRAW_SETTLE);
         if request_render {
             crate::render_prof::event("pty.request_render");
         }
@@ -136,22 +121,6 @@ impl GhosttyPaneTerminal {
                 Err(error) => tracing::warn!(%error, "could not expire synchronized output"),
             }
         }
-    }
-}
-
-pub(super) fn render_delay_after_pty_write(
-    synchronized_output: bool,
-    has_kitty_graphics_sequence: bool,
-    cursor_position_settle_delay: Option<Duration>,
-    cursor_position_settle_enabled: bool,
-) -> Option<Duration> {
-    if synchronized_output {
-        None
-    } else {
-        let cursor_delay = cursor_position_settle_enabled
-            .then_some(cursor_position_settle_delay)
-            .flatten();
-        cursor_delay.max(has_kitty_graphics_sequence.then_some(KITTY_GRAPHICS_REDRAW_SETTLE))
     }
 }
 

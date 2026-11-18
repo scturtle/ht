@@ -56,38 +56,21 @@ use crate::protocol::{
 use crate::raw_input::RawInputEvent;
 use crate::ui::{panel_contrast_fg, Palette};
 
-fn target_event_message(target: ClientInputTarget, event: ClientPaneInputEvent) -> ClientMessage {
-    match target {
-        ClientInputTarget::Pane(pane_id) => ClientMessage::ClientShellPaneInput {
-            pane_id,
-            events: vec![event],
-        },
-    }
-}
-
-fn push_target_event(
-    target: ClientInputTarget,
-    event: ClientPaneInputEvent,
-    outcome: &mut ClientShellInput,
-) {
-    match target {
-        ClientInputTarget::Pane(pane_id) => {
-            if let Some(ClientMessage::ClientShellPaneInput {
-                pane_id: pending_pane,
-                events,
-            }) = outcome.requests.last_mut()
-            {
-                if *pending_pane == pane_id {
-                    events.push(event);
-                    return;
-                }
-            }
-            outcome.requests.push(target_event_message(
-                ClientInputTarget::Pane(pane_id),
-                event,
-            ));
+fn push_pane_event(pane_id: String, event: ClientPaneInputEvent, outcome: &mut ClientShellInput) {
+    if let Some(ClientMessage::ClientShellPaneInput {
+        pane_id: pending_pane,
+        events,
+    }) = outcome.requests.last_mut()
+    {
+        if *pending_pane == pane_id {
+            events.push(event);
+            return;
         }
     }
+    outcome.requests.push(ClientMessage::ClientShellPaneInput {
+        pane_id,
+        events: vec![event],
+    });
 }
 
 fn contains(rect: Rect, point: (u16, u16)) -> bool {
@@ -97,51 +80,6 @@ fn contains(rect: Rect, point: (u16, u16)) -> bool {
         && point.0 < rect.right()
         && point.1 >= rect.y
         && point.1 < rect.bottom()
-}
-
-fn pane_surface_topology_signature(surface: &PaneSurfaceFrame) -> u64 {
-    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
-
-    fn write(hash: &mut u64, bytes: &[u8]) {
-        for byte in bytes {
-            *hash ^= u64::from(*byte);
-            *hash = hash.wrapping_mul(PRIME);
-        }
-        *hash ^= 0xff;
-        *hash = hash.wrapping_mul(PRIME);
-    }
-
-    let mut pane_ids = surface
-        .panes
-        .iter()
-        .map(|pane| pane.pane_id.as_bytes())
-        .collect::<Vec<_>>();
-    pane_ids.sort_unstable();
-    let mut hash = OFFSET;
-    for pane_id in pane_ids {
-        write(&mut hash, pane_id);
-    }
-    let mut splits = surface.splits.iter().collect::<Vec<_>>();
-    splits.sort_by(|left, right| left.path.cmp(&right.path));
-    for split in splits {
-        write(
-            &mut hash,
-            &[match split.direction {
-                crate::protocol::PaneSurfaceSplitDirection::Horizontal => 0,
-                crate::protocol::PaneSurfaceSplitDirection::Vertical => 1,
-            }],
-        );
-        write(
-            &mut hash,
-            &split
-                .path
-                .iter()
-                .map(|right| u8::from(*right))
-                .collect::<Vec<_>>(),
-        );
-    }
-    hash
 }
 
 fn status_icon(

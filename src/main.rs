@@ -67,7 +67,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # goto = "prefix+g"
 # new_workspace = "prefix+shift+n"
 # rename_workspace = "prefix+shift+w"
-# close_workspace = "prefix+shift+d"
+# close_workspace = ""  # unbound; use the workspace context menu
 # previous_workspace = "" # optional, unset by default
 # next_workspace = ""     # optional, unset by default
 # previous_agent = ""     # optional, unset by default
@@ -76,41 +76,24 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # remote_image_paste = "ctrl+v" # only active in herdr --remote; empty disables raw-key image paste
 # new_tab = "prefix+c"
 # rename_tab = "prefix+shift+t"
-# previous_tab = "prefix+p"
-# next_tab = "prefix+n"
+# previous_tab = "prefix+p" # previous pane in tab-bar order
+# next_tab = "prefix+n"     # next pane in tab-bar order
 # move_tab_previous = ""   # optional, e.g. "alt+shift+left" moves the tab toward the front
 # move_tab_next = ""       # optional, e.g. "alt+shift+right" moves the tab toward the back
 # switch_tab = "prefix+1..9"
 # switch_workspace = ""   # optional indexed binding, e.g. "prefix+shift+1..9"
-# close_tab = "prefix+shift+x"
 # rename_pane = "prefix+shift+p"
 # edit_scrollback = "prefix+e"
 # clear_pane = ""                  # unbound; e.g. "prefix+ctrl+k"
-# focus_pane_left = "prefix+h"
-# focus_pane_down = "prefix+j"
-# focus_pane_up = "prefix+k"
-# focus_pane_right = "prefix+l"
 # cycle_pane_next = "prefix+tab"
 # cycle_pane_previous = "prefix+shift+tab"
 # last_pane = ""          # optional, unset by default; bind e.g. "prefix+tab" for global back-and-forth
-# split_vertical = "prefix+v"
-# split_horizontal = "prefix+minus"
 # close_pane = "prefix+x"
-# zoom = "prefix+z"       # legacy alias: fullscreen
-# resize_mode = "prefix+r"
-# resize_pane_left = ""   # optional, e.g. "ctrl+shift+alt+left" resizes without entering resize mode
-# resize_pane_down = ""   # optional, e.g. "ctrl+shift+alt+down"
-# resize_pane_up = ""     # optional, e.g. "ctrl+shift+alt+up"
-# resize_pane_right = ""  # optional, e.g. "ctrl+shift+alt+right"
 
 # Navigate-mode movement. These local shortcuts win while navigate mode is open.
 # They are independent from focus_pane_*. Do not include prefix+, esc, enter, tab, or 1..9 here.
 # navigate_workspace_up = "up"
 # navigate_workspace_down = "down"
-# navigate_pane_left = "h"      # left arrow always focuses the pane to the left
-# navigate_pane_down = "j"
-# navigate_pane_up = "k"
-# navigate_pane_right = "l"     # right arrow always focuses the pane to the right
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, and focus_agent for new configs.
@@ -122,7 +105,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 [ui]
 # Mouse capture and automatic selection copying are always enabled.
 # The cursor is native. Creation and closing are immediate, without prompts.
-# Panes share inner dividers only: no outer frame, gaps, or scrollbars.
+# Show one pane at a time. Panes in the same tab sit together in the tab bar.
 # The desktop tab bar stays visible even with a single tab.
 
 # Terminal width at or below which Herdr uses the mobile single-column layout.
@@ -266,7 +249,7 @@ fn main() -> io::Result<()> {
         [] => {}
         [flag] if flag == "--core" => {}
         [flag] if flag == "--help" || flag == "-h" || flag == "help" => {
-            println!("ht — existing TUI, powered exclusively by herdr-core\n\nUsage: ht [--core] [--core-home <dir>] [--core-session <name>]\n       ht --version | --default-config\n       ht config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nCore home (client state): --core-home <dir>\nCore session: --core-session <name> (default: default, the session hc uses)\nCore socket: HC_SOCKET overrides the default socket (cannot combine with --core-session)\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
+            println!("ht — existing TUI, powered exclusively by herdr-core\n\nUsage: ht [--core] [--core-home <dir>] [--core-session <name>]\n       ht --version | --default-config\n       ht config check | config reset-keys\n\nCore executable: HERDR_CORE_BIN (default: herdr-core)\nCore home (client state): --core-home <dir>\nCore session: --core-session <name> (default: default, the session hc uses)\nCore socket: HC_SOCKET overrides the default socket (cannot combine with --core-session)\nLayout: herdr-app\nState source: OSC 7501 only; unreported programs have no agent state.\n\nLegacy server, --remote, --machine, --session, direct attach, integration installers, and socket CLI commands are unavailable. There is no old-runtime fallback.");
             return Ok(());
         }
         [flag] if flag == "--version" || flag == "-V" => {

@@ -193,14 +193,14 @@ mod tests {
         let mut state = ClientState::test_new();
         assert!(install_client_shell_methods(
             &mut state,
-            vec!["pane.focus".into(), "tab.close".into()]
+            vec!["pane.focus".into(), "tab.rename".into()]
         ));
         assert!(state.repaint_pending);
 
         state.repaint_pending = false;
         assert!(!install_client_shell_methods(
             &mut state,
-            vec!["tab.close".into(), "pane.focus".into()]
+            vec!["tab.rename".into(), "pane.focus".into()]
         ));
         assert!(
             !state.repaint_pending,

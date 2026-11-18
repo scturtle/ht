@@ -6,30 +6,12 @@ use std::time::Instant;
 mod synchronized;
 use synchronized::{FrozenPane, RetainedPane};
 
-use ratatui::{
-    backend::TestBackend,
-    layout::{Direction, Rect},
-    style::Style,
-    widgets::Block,
-    Terminal,
-};
+use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
 use super::model::Model;
-use crate::layout::{PaneId, PaneInfo};
+use crate::layout::PaneId;
 use crate::pane::{GhosttyPaneTerminal, PaneTerminal};
 use crate::protocol::*;
-
-#[derive(Clone)]
-pub(super) struct ChromeConfig {
-    pub palette: crate::ui::Palette,
-}
-impl ChromeConfig {
-    pub fn from_config(config: &crate::config::Config) -> Self {
-        Self {
-            palette: crate::ui::palette_from_config(config),
-        }
-    }
-}
 
 pub(in crate::client) struct View {
     pub terminal: PaneTerminal,
@@ -203,63 +185,8 @@ pub(super) fn apply_frame(
     }
 }
 
-/// The leftmost leaf of a layout: the pane that occupied the root position.
-pub(super) fn first_leaf(node: &crate::layout::Node) -> Option<PaneId> {
-    match node {
-        crate::layout::Node::Pane(id) => Some(*id),
-        crate::layout::Node::Split { first, .. } => first_leaf(first),
-    }
-}
-
-pub(super) fn pane_infos(model: &Model, area: Rect) -> Vec<PaneInfo> {
-    let Some(layout) = model.layout() else {
-        return Vec::new();
-    };
-    if model.active_zoomed() {
-        vec![zoomed_info(layout, area)]
-    } else {
-        layout_infos(layout, area)
-    }
-}
-
-/// Same full-area geometry as the original zoom path; hidden BSP leaves remain
-/// available for navigation but must not receive a competing resize.
-pub(super) fn zoomed_info(layout: &crate::layout::TileLayout, area: Rect) -> PaneInfo {
-    crate::ui::zoomed_pane_info(layout.focused(), area)
-}
-
-pub(super) fn layout_infos(layout: &crate::layout::TileLayout, area: Rect) -> Vec<PaneInfo> {
-    crate::ui::apply_pane_chrome(layout.panes(area))
-}
-
-/// Original public layout replies retain the hidden BSP while zoomed and apply
-/// the same pane chrome as the native API (not the full-screen surface geometry).
-pub(super) fn api_layout_snapshot(
-    model: &Model,
-    tab: &str,
-    area: Rect,
-) -> io::Result<crate::actions::PaneLayoutSnapshot> {
-    let mut snapshot = if model.active_tab() == Some(tab) {
-        model.layout_snapshot(area)?
-    } else {
-        model.layout_snapshot_for(tab, area)?
-    };
-    if let Some(layout) = model.layouts.get(tab) {
-        snapshot.panes = layout_infos(layout, area)
-            .into_iter()
-            .map(|pane| crate::actions::PaneLayoutPane {
-                pane_id: model.records[&pane.id].address.clone(),
-                focused: pane.is_focused,
-                rect: pane.rect.into(),
-            })
-            .collect();
-    }
-    Ok(snapshot)
-}
-
 struct RetainedSurface {
-    panes: Vec<RetainedPane>,
-    splits: Vec<PaneSurfaceSplit>,
+    pane: Option<RetainedPane>,
     cursor: Option<CursorState>,
     hyperlinks: Vec<((u16, u16), String, String)>,
     /// Committed graphics scene. A metadata-only projection must keep the images
@@ -275,7 +202,7 @@ pub(super) struct Renderer {
     pub profile_ns: [u128; 5],
     revision: u64,
     retained: Option<RetainedSurface>,
-    frozen: Vec<FrozenPane>,
+    frozen: Option<FrozenPane>,
     /// Host cell pixels; the graphics collector scales placements with it.
     cell_size: crate::kitty_graphics::HostCellSize,
     /// One delivery record per client connection, exactly like the server's.
@@ -293,7 +220,7 @@ impl Renderer {
     /// not re-transmit them, and drop the stale frame/pane geometry.
     pub fn resume_connection(&mut self) {
         self.retained = None;
-        self.frozen.clear();
+        self.frozen = None;
     }
 
     /// Host cell pixels come from the client surface, like the server's grid.
@@ -311,7 +238,7 @@ impl Renderer {
             profile_ns: [0; 5],
             revision: 0,
             retained: None,
-            frozen: Vec::new(),
+            frozen: None,
             cell_size: crate::kitty_graphics::HostCellSize::default(),
             delivery: crate::kitty_graphics::surface::DeliveryCache::default(),
         })
@@ -331,8 +258,7 @@ impl Renderer {
                 retained.cursor.clone(),
                 &retained.hyperlinks,
             ),
-            panes: retained.panes.iter().map(|p| p.pane.clone()).collect(),
-            splits: retained.splits.clone(),
+            panes: retained.pane.iter().map(|p| p.pane.clone()).collect(),
             graphics: retained.graphics.clone(),
         })
     }
@@ -342,38 +268,33 @@ impl Renderer {
         model: &Model,
         views: &HashMap<PaneId, View>,
         size: ClientSurfaceSize,
-        config: &ChromeConfig,
     ) -> io::Result<PaneSurfaceFrame> {
         #[cfg(test)]
         let mut stage = std::time::Instant::now();
         let area = Rect::new(0, 0, size.cols.max(1), size.rows.max(1));
-        let infos = pane_infos(model, area);
-        self.frozen.retain(|pane| {
-            views
-                .get(&pane.id)
-                .is_some_and(|v| v.visible && v.channel == pane.channel && v.synchronized_held())
-        });
-        for p in &infos {
-            let Some(view) = views.get(&p.id).filter(|v| v.synchronized_held()) else {
-                continue;
-            };
-            if self.frozen.iter().any(|f| f.id == p.id) {
-                continue;
+        let current = model.focused().and_then(|id| Some((id, views.get(&id)?)));
+        let held = current.filter(|(_, view)| view.synchronized_held());
+        match held {
+            Some((id, view)) => {
+                if !self
+                    .frozen
+                    .as_ref()
+                    .is_some_and(|pane| pane.id == id && pane.channel == view.channel)
+                {
+                    let previous = self.retained.as_ref().and_then(|surface| {
+                        let pane = surface.pane.as_ref()?;
+                        (pane.id == id && pane.channel == view.channel).then_some((pane, surface))
+                    });
+                    self.frozen = Some(FrozenPane::capture(
+                        id,
+                        view.channel,
+                        previous,
+                        self.terminal.current_buffer_mut(),
+                        &self.delivery,
+                    ));
+                }
             }
-            let previous = self.retained.as_ref().and_then(|surface| {
-                surface
-                    .panes
-                    .iter()
-                    .find(|old| old.id == p.id && old.channel == view.channel)
-                    .map(|old| (old, surface))
-            });
-            self.frozen.push(FrozenPane::capture(
-                p.id,
-                view.channel,
-                previous,
-                self.terminal.current_buffer_mut(),
-                &self.delivery,
-            ));
+            None => self.frozen = None,
         }
         // Capture held regions before replacing the canvas on a geometry change.
         if self.terminal.size().map_err(io::Error::other)? != area.as_size() {
@@ -385,26 +306,19 @@ impl Renderer {
             self.profile_ns[0] += stage.elapsed().as_nanos();
             stage = std::time::Instant::now();
         }
-        let mut cursor = None;
-        let mut hyperlinks = Vec::new();
-        for p in &infos {
-            if let Some(frozen) = self.frozen.iter().find(|f| f.id == p.id) {
-                hyperlinks.extend(frozen.links(p.inner_rect));
-                if p.is_focused {
-                    cursor = frozen.cursor(p.inner_rect);
-                }
-            } else if let Some(view) = views.get(&p.id) {
-                hyperlinks.extend(view.terminal.visible_hyperlinks(p.inner_rect));
-                if p.is_focused {
-                    cursor = view.terminal.cursor_state().map(|c| CursorState {
-                        x: p.inner_rect.x.saturating_add(c.x),
-                        y: p.inner_rect.y.saturating_add(c.y),
-                        visible: c.visible && c.x < p.inner_rect.width && c.y < p.inner_rect.height,
-                        shape: c.shape,
-                    });
-                }
-            }
-        }
+        let (cursor, hyperlinks) = if let Some(frozen) = &self.frozen {
+            (frozen.cursor(area), frozen.links(area).collect())
+        } else if let Some((_, view)) = current {
+            let cursor = view.terminal.cursor_state().map(|c| CursorState {
+                x: c.x,
+                y: c.y,
+                visible: c.visible && c.x < area.width && c.y < area.height,
+                shape: c.shape,
+            });
+            (cursor, view.terminal.visible_hyperlinks(area))
+        } else {
+            (None, Vec::new())
+        };
         #[cfg(test)]
         {
             self.profile_ns[1] += stage.elapsed().as_nanos();
@@ -412,23 +326,10 @@ impl Renderer {
         }
         let mut canvas = self.terminal.get_frame();
         canvas.buffer_mut().reset();
-        for p in &infos {
-            canvas.render_widget(
-                Block::default()
-                    .borders(p.borders)
-                    .border_style(Style::default().fg(if p.is_focused {
-                        config.palette.accent
-                    } else {
-                        config.palette.overlay0
-                    })),
-                p.rect,
-            );
-            if let Some(frozen) = self.frozen.iter().find(|f| f.id == p.id) {
-                frozen.paint(canvas.buffer_mut(), p.inner_rect);
-            } else if let Some(view) = views.get(&p.id) {
-                view.terminal
-                    .render(&mut canvas, p.inner_rect, p.is_focused);
-            }
+        if let Some(frozen) = &self.frozen {
+            frozen.paint(canvas.buffer_mut(), area);
+        } else if let Some((_, view)) = current {
+            view.terminal.render(&mut canvas, area, true);
         }
         #[cfg(test)]
         {
@@ -445,86 +346,43 @@ impl Renderer {
             self.profile_ns[3] += stage.elapsed().as_nanos();
             stage = std::time::Instant::now();
         }
-        let panes: Vec<_> = infos
-            .iter()
-            .filter_map(|p| {
-                let view = views.get(&p.id)?;
-                let record = model.records.get(&p.id)?;
-                let frozen = self.frozen.iter().find(|f| f.id == p.id);
-                let scroll = if let Some(frozen) = frozen {
-                    frozen.scroll
-                } else {
-                    view.terminal
-                        .scroll_metrics()
-                        .map(|s| PaneSurfaceScrollMetrics {
-                            offset_from_bottom: s.offset_from_bottom as u64,
-                            max_offset_from_bottom: s.max_offset_from_bottom as u64,
-                            viewport_rows: s.viewport_rows as u64,
-                        })
-                };
-                Some(RetainedPane {
-                    id: p.id,
-                    channel: view.channel,
-                    pane: PaneSurfacePane {
-                        pane_id: record.address.clone(),
-                        content_revision: frozen.map_or(view.revision, |f| f.revision),
-                        rect: p.rect.into(),
-                        inner_rect: p.inner_rect.into(),
-                        scrollbar_rect: None,
-                        scroll,
-                        focused: p.is_focused,
-                        mouse_reporting: !view.closed && view.terminal.mouse_reporting_enabled(),
-                        sgr_pixel_mouse: !view.closed && view.terminal.sgr_pixel_mouse_enabled(),
-                        alternate_screen_active: view.terminal.alternate_screen_active(),
-                        pixel_width: view.size.2.saturating_mul(u32::from(view.size.0)),
-                        pixel_height: view.size.3.saturating_mul(u32::from(view.size.1)),
-                    },
-                })
-            })
-            .collect();
-        let splits: Vec<_> = model
-            .layout()
-            .filter(|_| !model.active_zoomed())
-            .map(|l| {
-                l.splits(area)
-                    .into_iter()
-                    .map(|s| {
-                        let horizontal = s.direction == Direction::Horizontal;
-                        let hit = if horizontal {
-                            Rect::new(
-                                s.pos.saturating_sub(1),
-                                s.area.y,
-                                2.min(s.area.width),
-                                s.area.height,
-                            )
-                        } else {
-                            Rect::new(
-                                s.area.x,
-                                s.pos.saturating_sub(1),
-                                s.area.width,
-                                2.min(s.area.height),
-                            )
-                        };
-                        PaneSurfaceSplit {
-                            direction: if horizontal {
-                                PaneSurfaceSplitDirection::Horizontal
-                            } else {
-                                PaneSurfaceSplitDirection::Vertical
-                            },
-                            pos: s.pos,
-                            area: s.area.into(),
-                            hit_rect: hit.into(),
-                            path: s.path,
-                        }
+        let pane = current.and_then(|(id, view)| {
+            let record = model.records.get(&id)?;
+            let frozen = self.frozen.as_ref();
+            let scroll = if let Some(frozen) = frozen {
+                frozen.scroll
+            } else {
+                view.terminal
+                    .scroll_metrics()
+                    .map(|s| PaneSurfaceScrollMetrics {
+                        offset_from_bottom: s.offset_from_bottom as u64,
+                        max_offset_from_bottom: s.max_offset_from_bottom as u64,
+                        viewport_rows: s.viewport_rows as u64,
                     })
-                    .collect()
+            };
+            Some(RetainedPane {
+                id,
+                channel: view.channel,
+                pane: PaneSurfacePane {
+                    pane_id: record.address.clone(),
+                    content_revision: frozen.map_or(view.revision, |f| f.revision),
+                    rect: area.into(),
+                    inner_rect: area.into(),
+                    scrollbar_rect: None,
+                    scroll,
+                    focused: true,
+                    mouse_reporting: !view.closed && view.terminal.mouse_reporting_enabled(),
+                    sgr_pixel_mouse: !view.closed && view.terminal.sgr_pixel_mouse_enabled(),
+                    alternate_screen_active: view.terminal.alternate_screen_active(),
+                    pixel_width: view.size.2.saturating_mul(u32::from(view.size.0)),
+                    pixel_height: view.size.3.saturating_mul(u32::from(view.size.1)),
+                },
             })
-            .unwrap_or_default();
-        let graphics = self.compose_graphics(model, views, &infos);
-        let public_panes = panes.iter().map(|p| p.pane.clone()).collect();
+        });
+        let graphics = self.compose_graphics(model, views, current.map(|(id, _)| id), area);
+        let public_panes = pane.iter().map(|p| p.pane.clone()).collect();
         self.retained = Some(RetainedSurface {
-            panes,
-            splits: splits.clone(),
+            pane,
             cursor: cursor.clone(),
             hyperlinks,
             graphics: graphics.clone(),
@@ -540,78 +398,68 @@ impl Renderer {
             surface_revision: self.revision,
             frame,
             panes: public_panes,
-            splits,
             graphics,
         })
     }
 
-    /// Same collector the retired server used: visible panes of the composed
-    /// surface plus retained (hidden) panes for offscreen asset retention.
+    /// The visible pane supplies the scene; hidden panes only retain already
+    /// delivered offscreen assets.
     fn compose_graphics(
         &mut self,
         model: &Model,
         views: &HashMap<PaneId, View>,
-        infos: &[PaneInfo],
+        visible: Option<PaneId>,
+        area: Rect,
     ) -> SurfaceGraphicsScene {
         if !self.cell_size.is_known() {
             self.delivery = Default::default();
             return SurfaceGraphicsScene::default();
         }
-        let pane = |info: &PaneInfo| {
-            if self.frozen.iter().any(|f| f.id == info.id) {
-                return None;
-            }
-            let view = views.get(&info.id)?;
-            let record = model.records.get(&info.id)?;
-            Some(crate::kitty_graphics::surface::ScenePane {
-                id: info.id,
-                public_id: record.address.clone(),
-                inner_rect: info.inner_rect,
-                terminal: &view.terminal,
+        use crate::kitty_graphics::surface::ScenePane;
+        let surface = visible.filter(|_| self.frozen.is_none()).and_then(|id| {
+            Some(ScenePane {
+                id,
+                public_id: model.records.get(&id)?.address.clone(),
+                inner_rect: area,
+                terminal: &views.get(&id)?.terminal,
             })
-        };
-        let surface = infos.iter().filter_map(pane).collect::<Vec<_>>();
+        });
         let retained = model
             .records
             .iter()
-            .filter(|(id, _)| {
-                !infos.iter().any(|info| info.id == **id)
-                    && !self.frozen.iter().any(|f| f.id == **id)
-            })
+            .filter(|(id, _)| visible != Some(**id))
             .filter_map(|(id, record)| {
-                views
-                    .get(id)
-                    .map(|view| crate::kitty_graphics::surface::ScenePane {
-                        id: *id,
-                        public_id: record.address.clone(),
-                        inner_rect: Rect::default(),
-                        terminal: &view.terminal,
-                    })
+                views.get(id).map(|view| ScenePane {
+                    id: *id,
+                    public_id: record.address.clone(),
+                    inner_rect: Rect::default(),
+                    terminal: &view.terminal,
+                })
             })
             .collect::<Vec<_>>();
-        let placement_limit = crate::kitty_graphics::surface::MAX_SURFACE_GRAPHICS_PLACEMENTS
-            .saturating_sub(self.frozen.iter().map(FrozenPane::placement_count).sum());
-        let (mut scene, mut delivery, _sources) = if self.frozen.is_empty() {
-            crate::kitty_graphics::surface::collect_scene(
-                &surface,
-                &retained,
-                self.cell_size,
-                &self.delivery,
-            )
+        let surface = surface.as_slice();
+        let (scene, delivery) = if let Some(frozen) = &self.frozen {
+            let limit = crate::kitty_graphics::surface::MAX_SURFACE_GRAPHICS_PLACEMENTS
+                .saturating_sub(frozen.placement_count());
+            let (mut scene, mut delivery, _) =
+                crate::kitty_graphics::surface::collect_scene_with_limit(
+                    surface,
+                    &retained,
+                    self.cell_size,
+                    &self.delivery,
+                    limit,
+                );
+            frozen.graphics(area, &mut scene, &mut delivery);
+            (scene, delivery)
         } else {
-            crate::kitty_graphics::surface::collect_scene_with_limit(
-                &surface,
+            let (scene, delivery, _) = crate::kitty_graphics::surface::collect_scene(
+                surface,
                 &retained,
                 self.cell_size,
                 &self.delivery,
-                placement_limit,
-            )
+            );
+            (scene, delivery)
         };
-        for frozen in &self.frozen {
-            if let Some(info) = infos.iter().find(|p| p.id == frozen.id) {
-                frozen.graphics(info.inner_rect, &mut scene, &mut delivery);
-            }
-        }
         self.delivery = delivery;
         scene
     }

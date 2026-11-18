@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
 mod io;
+mod key_fields;
 mod keybinds;
 mod model;
 mod theme;
@@ -121,12 +122,12 @@ mod tests {
 
     #[test]
     fn local_user_bindings_keep_displaced_defaults_disabled() {
-        let config: Config = toml::from_str("[keys]\nzoom = \"prefix+?\"").unwrap();
-        assert!(config.keys.key_field_is_user_configured("zoom"));
+        let config: Config = toml::from_str("[keys]\nrename_pane = \"prefix+?\"").unwrap();
+        assert!(config.keys.key_field_is_user_configured("rename_pane"));
         assert!(!config.keys.key_field_is_user_configured("help"));
         assert!(config
             .keybinds()
-            .zoom
+            .rename_pane
             .bindings
             .iter()
             .any(|b| b.label == "prefix+?"));

@@ -9,7 +9,6 @@ fn tab_overflow_controls_scroll_the_client_owned_tab_bar() {
         number,
         label: number.to_string(),
         custom_label: false,
-        zoomed: false,
         focused: false,
         agent_status: AgentStatus::Idle,
     }));
@@ -73,7 +72,6 @@ fn focused_last_overflow_tab_shows_its_full_label() {
             number: index + 1,
             label: (*label).into(),
             custom_label: index > 0,
-            zoomed: false,
             focused: index == 7,
             agent_status: AgentStatus::Idle,
         })
@@ -151,8 +149,7 @@ fn focused_last_overflow_tab_shows_its_full_label() {
 
 #[test]
 fn context_menus_capture_stable_targets_and_route_actions() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("composed frame");
 
@@ -217,37 +214,34 @@ fn context_menus_capture_stable_targets_and_route_actions() {
         modifiers: KeyModifiers::empty(),
     })]);
     state.compose(106, 20).expect("pane context menu");
-    let split_index = match state.overlay.as_ref() {
+    let close_index = match state.overlay.as_ref() {
         Some(ClientShellOverlay::ContextMenu(menu)) => menu
             .items()
             .iter()
-            .position(|item| item.action == ClientContextMenuAction::SplitRight)
-            .expect("split right item"),
+            .position(|item| item.action == ClientContextMenuAction::ClosePane)
+            .expect("close pane item"),
         _ => panic!("pane context menu"),
     };
-    let split = state.hits.context_menu_rows[split_index].0;
+    let close = state.hits.context_menu_rows[close_index].0;
     let outcome =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: split.x + 1,
-            row: split.y,
+            column: close.x + 1,
+            row: close.y,
             modifiers: KeyModifiers::empty(),
         })]);
     let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
-        panic!("pane split context action should use endpoint API");
+        panic!("pane close context action should use endpoint API");
     };
     assert!(matches!(
         &request.action,
-        crate::actions::Action::PaneSplit(params)
-            if params.target_pane_id.as_deref() == Some("pane_1")
-                && params.direction == crate::actions::SplitDirection::Right
+        crate::actions::Action::PaneClose(params) if params.pane_id == "pane_1"
     ));
 }
 
 #[test]
 fn client_action_shortcuts_work_without_chooser_menu_or_tab_buttons() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(106, 30).expect("shell frame");
     assert!(state.hits.global_launcher.is_empty());

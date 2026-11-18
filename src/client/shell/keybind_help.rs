@@ -75,16 +75,6 @@ pub(super) fn keybind_help_groups(
                     ),
                     "workspace list",
                 ),
-                entry(
-                    format!(
-                        "{} / {} / {} / {} / left / right",
-                        binding_label(&keybinds.navigate.pane_left),
-                        binding_label(&keybinds.navigate.pane_down),
-                        binding_label(&keybinds.navigate.pane_up),
-                        binding_label(&keybinds.navigate.pane_right)
-                    ),
-                    "move focus",
-                ),
                 entry("tab / shift+tab", "cycle pane"),
                 entry("enter", "open workspace"),
                 entry("1..9", "switch workspace"),
@@ -118,49 +108,24 @@ pub(super) fn keybind_help_groups(
                 entry(indexed_label(&keybinds.focus_agent), "focus agent 1-9"),
                 entry(binding_label(&keybinds.new_tab), "new tab"),
                 entry(binding_label(&keybinds.rename_tab), "rename tab"),
-                entry(binding_label(&keybinds.previous_tab), "previous tab"),
-                entry(binding_label(&keybinds.next_tab), "next tab"),
+                entry(
+                    binding_label(&keybinds.previous_tab),
+                    "previous pane in tab bar",
+                ),
+                entry(binding_label(&keybinds.next_tab), "next pane in tab bar"),
                 entry(binding_label(&keybinds.move_tab_previous), "move tab left"),
                 entry(binding_label(&keybinds.move_tab_next), "move tab right"),
                 entry(indexed_label(&keybinds.switch_tab), "switch tab 1-9"),
-                entry(binding_label(&keybinds.close_tab), "close tab"),
             ],
         ),
         (
             "panes",
             vec![
-                entry(binding_label(&keybinds.split_vertical), "split vertical"),
-                entry(
-                    binding_label(&keybinds.split_horizontal),
-                    "split horizontal",
-                ),
                 entry(binding_label(&keybinds.close_pane), "close pane"),
                 entry(binding_label(&keybinds.rename_pane), "rename pane"),
                 entry(binding_label(&keybinds.edit_scrollback), "edit scrollback"),
                 entry(binding_label(&keybinds.clear_pane), "clear pane"),
                 entry(binding_label(&keybinds.copy_mode), "copy mode"),
-                entry(binding_label(&keybinds.zoom), "zoom pane"),
-                entry(binding_label(&keybinds.resize_mode), "resize mode"),
-                entry(
-                    binding_label(&keybinds.resize_pane_left),
-                    "resize pane left",
-                ),
-                entry(
-                    binding_label(&keybinds.resize_pane_down),
-                    "resize pane down",
-                ),
-                entry(binding_label(&keybinds.resize_pane_up), "resize pane up"),
-                entry(
-                    binding_label(&keybinds.resize_pane_right),
-                    "resize pane right",
-                ),
-                entry(binding_label(&keybinds.focus_pane_left), "focus pane left"),
-                entry(binding_label(&keybinds.focus_pane_down), "focus pane down"),
-                entry(binding_label(&keybinds.focus_pane_up), "focus pane up"),
-                entry(
-                    binding_label(&keybinds.focus_pane_right),
-                    "focus pane right",
-                ),
                 entry(binding_label(&keybinds.cycle_pane_next), "cycle pane next"),
                 entry(
                     binding_label(&keybinds.cycle_pane_previous),

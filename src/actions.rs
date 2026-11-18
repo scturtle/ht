@@ -59,13 +59,6 @@ actions! {
     TabFocus(TabTarget) => "tab.focus";
     TabRename(TabRenameParams) => "tab.rename";
     TabMove(TabMoveParams) => "tab.move";
-    TabClose(TabTarget) => "tab.close";
-    PaneSplit(PaneSplitParams) => "pane.split";
-    PaneSwap(PaneSwapParams) => "pane.swap";
-    PaneZoom(PaneZoomParams) => "pane.zoom";
-    LayoutSetSplitRatio(LayoutSetSplitRatioParams) => "layout.set_split_ratio";
-    PaneFocusDirection(PaneFocusDirectionParams) => "pane.focus_direction";
-    PaneResize(PaneResizeParams) => "pane.resize";
     PaneScroll(PaneScrollParams) => "pane.scroll";
     PaneClear(PaneTarget) => "pane.clear";
     PaneEditScrollback(PaneTarget) => "pane.edit_scrollback";

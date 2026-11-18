@@ -1,11 +1,8 @@
 use super::session::replay_lines;
 use super::view::View;
 use super::*;
-use crate::{
-    layout::{Node, PaneId, TileLayout},
-    protocol::ClientSurfaceSize,
-};
-use ratatui::layout::{Direction, Rect};
+use crate::{layout::PaneId, protocol::ClientSurfaceSize};
+use ratatui::layout::Rect;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -105,15 +102,49 @@ fn optional_core_labels_disable_only_pane_rename_not_the_connection_or_other_act
 }
 
 #[test]
-fn original_pane_zoom_and_swap_actions_are_available_in_the_core_client() {
-    for action in ["pane.zoom", "pane.swap"] {
-        assert!(
-            methods::advertised(&json!({}))
-                .iter()
-                .any(|method| method == action),
-            "{action}"
-        );
+fn client_does_not_advertise_unsupported_layout_actions() {
+    for name in [
+        "pane.split",
+        "pane.swap",
+        "pane.focus_direction",
+        "tab.close",
+        "pane.zoom",
+        "pane.resize",
+        "layout.set_split_ratio",
+    ] {
+        assert!(!methods::METHODS.contains(&name));
     }
+}
+
+#[test]
+fn revealing_a_passive_pane_announces_its_grid_without_resizing_hidden_programs() {
+    let mut view = view::View::new(50, 27, 1).unwrap();
+    assert_eq!(
+        view.request_visible_size(true, (50, 27, 0, 0)),
+        Some((false, false))
+    );
+    assert_eq!(view.request_visible_size(false, (100, 27, 8, 16)), None);
+    assert_eq!(
+        view.requested,
+        (50, 27, 0, 0),
+        "hidden panes must not overwrite remembered requests"
+    );
+    view.authoritative_size((100, 27, 0, 0));
+    assert_eq!(
+        view.request_visible_size(true, (50, 27, 0, 0)),
+        Some((true, false)),
+        "revealing after another client resized must send RESIZE even for an unchanged request"
+    );
+    assert_eq!(
+        view.size,
+        (100, 27, 0, 0),
+        "only Core's ordered RESIZE updates the parser grid"
+    );
+    assert_eq!(
+        view.request_visible_size(true, (50, 27, 0, 0)),
+        Some((false, false)),
+        "ordinary snapshots must not fight the geometry leader"
+    );
 }
 
 #[test]
@@ -374,82 +405,43 @@ fn core_directory_can_reopen_but_not_replace_a_file() {
     std::fs::remove_dir_all(path).unwrap();
 }
 
-fn fixture(
-    count: usize,
-) -> (
-    model::Model,
-    HashMap<PaneId, view::View>,
-    view::ChromeConfig,
-) {
-    fn balanced(ids: &[PaneId], depth: usize) -> Node {
-        if ids.len() == 1 {
-            return Node::Pane(ids[0]);
-        }
-        let middle = ids.len() / 2;
-        Node::Split {
-            direction: if depth.is_multiple_of(2) {
-                Direction::Horizontal
-            } else {
-                Direction::Vertical
-            },
-            ratio: 0.5,
-            first: Box::new(balanced(&ids[..middle], depth + 1)),
-            second: Box::new(balanced(&ids[middle..], depth + 1)),
-        }
-    }
+fn fixture(count: usize) -> (model::Model, HashMap<PaneId, view::View>) {
     let mut model = model::Model::new("core-test".into());
-    let ids = (0..count)
-        .map(|i| {
-            model
-                .insert(json!({"address":format!("opaque/t{i}"),"state":"live"}))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    model.layouts.insert(
-        model::TAB.into(),
-        TileLayout::from_saved(balanced(&ids, 0), ids[0]),
+    let ids = model.add_test_tab(
+        "space",
+        "main",
+        (0..count).map(|i| json!({"address":format!("opaque/t{i}"),"state":"live"})),
     );
-    let chrome = view::ChromeConfig::from_config(&crate::config::Config::default());
     let mut views = HashMap::new();
-    for (i, info) in view::pane_infos(&model, Rect::new(0, 0, 120, 40))
-        .into_iter()
-        .enumerate()
-    {
-        let view = view::View::new(
-            info.inner_rect.width.max(1),
-            info.inner_rect.height.max(1),
-            i as u32 + 2,
-        )
-        .unwrap();
+    for (i, id) in ids.into_iter().enumerate() {
+        let mut view = view::View::new(120, 40, i as u32 + 2).unwrap();
+        view.visible = i == 0;
         for n in 0..30 {
             view.terminal.process_pty_bytes(
-                info.id,
+                id,
                 format!("\x1b[32mpane {i} populated {n}\x1b[0m\r\n").as_bytes(),
             );
         }
-        views.insert(info.id, view);
+        views.insert(id, view);
     }
-    (model, views, chrome)
+    (model, views)
 }
 
 #[test]
 fn retained_projection_keeps_hidden_status_updates_from_freezing_client_overlays() {
     use crate::client::shell::{ClientShellConfig, ClientShellState};
-    let (mut model, views, chrome) = fixture(1);
-    let (_, hidden) = model
-        .create_tab(
-            model::WORKSPACE,
-            json!({"address":"hidden","state":"live"}),
-            None,
-            false,
-        )
-        .unwrap();
+    let (mut model, views) = fixture(1);
+    let hidden = model.add_test_tab(
+        "space",
+        "hidden",
+        [json!({"address":"hidden","state":"live"})],
+    )[0];
     let mut renderer = view::Renderer::new().unwrap();
     let size = ClientSurfaceSize {
         cols: 120,
         rows: 40,
     };
-    let first = renderer.compose(&model, &views, size, &chrome).unwrap();
+    let first = renderer.compose(&model, &views, size).unwrap();
     let config = toml::from_str("[keys]\nrename_workspace = 'f8'\n").unwrap();
     let mut shell = ClientShellState::new(ClientShellConfig::from_config(&config));
     shell.set_snapshot(Box::new(model.snapshot()));
@@ -484,7 +476,7 @@ fn retained_projection_keeps_hidden_status_updates_from_freezing_client_overlays
 #[test]
 fn pane_name_updates_reuse_retained_surface_and_original_rename_dialog() {
     use crate::client::shell::{ClientShellConfig, ClientShellState};
-    let (mut model, views, chrome) = fixture(1);
+    let (mut model, views) = fixture(1);
     let id = model.focused().unwrap();
     let mut renderer = view::Renderer::new().unwrap();
     let first = renderer
@@ -495,7 +487,6 @@ fn pane_name_updates_reuse_retained_surface_and_original_rename_dialog() {
                 cols: 120,
                 rows: 40,
             },
-            &chrome,
         )
         .unwrap();
     model.records.get_mut(&id).unwrap().facts["labels"]["herdr.display_name"] =
@@ -521,7 +512,7 @@ fn pane_name_updates_reuse_retained_surface_and_original_rename_dialog() {
 
 #[test]
 fn reused_renderer_retains_semantic_cells_not_backend_diff_residue() {
-    let (model, mut views, chrome) = fixture(1);
+    let (model, mut views) = fixture(1);
     let id = model.focused().unwrap();
     let size = ClientSurfaceSize {
         cols: 120,
@@ -533,10 +524,10 @@ fn reused_renderer_retains_semantic_cells_not_backend_diff_residue() {
             .get_mut(&id)
             .unwrap()
             .process_output(id, format!("\x1b[2J\x1b[H{text}").as_bytes());
-        let surface = renderer.compose(&model, &views, size, &chrome).unwrap();
+        let surface = renderer.compose(&model, &views, size).unwrap();
         let fresh = view::Renderer::new()
             .unwrap()
-            .compose(&model, &views, size, &chrome)
+            .compose(&model, &views, size)
             .unwrap();
         assert_eq!(surface.frame, fresh.frame, "{text}");
         let retained = renderer.retain_projection(&model).unwrap();
@@ -546,7 +537,7 @@ fn reused_renderer_retains_semantic_cells_not_backend_diff_residue() {
 
 #[test]
 fn hidden_output_updates_parser_without_presentation_invalidation() {
-    let (model, mut views, _) = fixture(1);
+    let (model, mut views) = fixture(1);
     let id = model.focused().unwrap();
     let view = views.get_mut(&id).unwrap();
     view.visible = false;
@@ -561,22 +552,22 @@ fn hidden_output_updates_parser_without_presentation_invalidation() {
 
 #[test]
 fn presentation_surface_preserves_geometry_and_cannot_infer_agent_status() {
-    let (model, views, chrome) = fixture(15);
+    let (model, views) = fixture(15);
     let mut renderer = view::Renderer::new().unwrap();
     let size = ClientSurfaceSize {
         cols: 120,
         rows: 40,
     };
-    let first = renderer.compose(&model, &views, size, &chrome).unwrap();
+    let first = renderer.compose(&model, &views, size).unwrap();
     assert_eq!(first.frame.cells.len(), 4800);
-    assert_eq!(first.panes.len(), 15);
-    assert_eq!(first.splits.len(), 14);
-    assert!(first
-        .panes
-        .iter()
-        .all(|p| p.rect.width > 0 && p.rect.height > 0));
+    let [pane] = first.panes.as_slice() else {
+        panic!("expected one presented pane")
+    };
+    assert_eq!(pane.pane_id, "opaque/t0");
+    assert_eq!(pane.inner_rect, Rect::new(0, 0, 120, 40).into());
+    assert!(pane.focused);
     assert!(first.frame.cells.iter().any(|cell| cell.symbol == "p"));
-    let second = renderer.compose(&model, &views, size, &chrome).unwrap();
+    let second = renderer.compose(&model, &views, size).unwrap();
     assert_eq!(first.frame, second.frame);
     assert_eq!(first.projection_revision, second.projection_revision);
     assert!(second.surface_revision > first.surface_revision);
@@ -589,30 +580,23 @@ fn presentation_surface_preserves_geometry_and_cannot_infer_agent_status() {
 #[test]
 #[ignore = "manual fixed-geometry scaling profile; run just bench-render-scale"]
 fn render_scale_profile_core() {
-    for (count, hidden_tabs, named, zoom_requested) in [
-        (1, 0, false, false),
-        (15, 0, false, false),
-        (1, 14, false, false),
-        (15, 14, false, false),
-        (1, 0, true, false),
-        (15, 0, true, false),
-        (1, 14, true, false),
-        (15, 14, true, false),
-        (1, 0, false, true),
-        (15, 0, false, true),
-        (1, 14, false, true),
-        (15, 14, false, true),
+    for (count, hidden_tabs, named) in [
+        (1, 0, false),
+        (15, 0, false),
+        (1, 14, false),
+        (15, 14, false),
+        (1, 0, true),
+        (15, 0, true),
+        (1, 14, true),
+        (15, 14, true),
     ] {
-        let (mut model, mut views, chrome) = fixture(count);
+        let (mut model, mut views) = fixture(count);
         for index in 0..hidden_tabs {
-            let (_, id) = model
-                .create_tab(
-                    model::WORKSPACE,
-                    json!({"address":format!("background/{index}"),"state":"live"}),
-                    None,
-                    false,
-                )
-                .unwrap();
+            let id = model.add_test_tab(
+                "space",
+                &format!("tab-{index}"),
+                [json!({"address":format!("background/{index}"),"state":"live"})],
+            )[0];
             let mut view = view::View::new(120, 40, 200 + index).unwrap();
             view.visible = false;
             for row in 0..30 {
@@ -629,33 +613,27 @@ fn render_scale_profile_core() {
                     json!({"herdr":"tui", "herdr.display_name":format!("pane {}",record.address)});
             }
         }
-        if zoom_requested {
-            model
-                .zoom_pane(model.focused().unwrap(), crate::actions::PaneZoomMode::On)
-                .unwrap();
-        }
-        let zoomed = model.active_zoomed();
         let mut renderer = view::Renderer::new().unwrap();
         let size = ClientSurfaceSize {
             cols: 120,
             rows: 40,
         };
         for _ in 0..20 {
-            std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+            std::hint::black_box(renderer.compose(&model, &views, size).unwrap());
         }
         let start = Instant::now();
         for _ in 0..200 {
-            std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+            std::hint::black_box(renderer.compose(&model, &views, size).unwrap());
         }
         eprintln!(
-            "core_render_scale panes={count} hidden_tabs={hidden_tabs} named={named} zoom_requested={zoom_requested} zoomed={zoomed} geometry=120x40 mean_us={:.2}",
+            "core_render_scale panes={count} hidden_tabs={hidden_tabs} named={named} geometry=120x40 mean_us={:.2}",
             start.elapsed().as_secs_f64() * 1e6 / 200.0
         );
         let start = Instant::now();
         for _ in 0..200 {
             std::hint::black_box(renderer.retain_projection(&model).unwrap());
         }
-        eprintln!("core_retained_projection panes={count} hidden_tabs={hidden_tabs} named={named} zoom_requested={zoom_requested} zoomed={zoomed} geometry=120x40 mean_us={:.2}", start.elapsed().as_secs_f64() * 1e6 / 200.0);
+        eprintln!("core_retained_projection panes={count} hidden_tabs={hidden_tabs} named={named} geometry=120x40 mean_us={:.2}", start.elapsed().as_secs_f64() * 1e6 / 200.0);
     }
 }
 
@@ -663,20 +641,19 @@ fn render_scale_profile_core() {
 #[ignore = "explicit render-stage profiling, no production instrumentation"]
 fn render_stage_profile() {
     for count in [1, 15] {
-        let (model, views, chrome) = fixture(count);
+        let (model, views) = fixture(count);
         let mut renderer = view::Renderer::new().unwrap();
         let size = ClientSurfaceSize {
             cols: 120,
             rows: 40,
         };
         for _ in 0..20 {
-            std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+            std::hint::black_box(renderer.compose(&model, &views, size).unwrap());
         }
         renderer.profile_ns = [0; 5];
         let mut drop_ns = 0;
         for _ in 0..1000 {
-            let frame =
-                std::hint::black_box(renderer.compose(&model, &views, size, &chrome).unwrap());
+            let frame = std::hint::black_box(renderer.compose(&model, &views, size).unwrap());
             let start = std::time::Instant::now();
             drop(frame);
             drop_ns += start.elapsed().as_nanos();

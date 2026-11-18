@@ -49,34 +49,36 @@ def isolated_env(home, core):
     return env
 
 
-def private_socket(env):
+def private_socket(env, *, shared=False):
     core = Path(env["CORE_TUI_HOME"])
-    assert env["HC_SESSION"] == core_session(core), "not a gate-owned session"
+    session = "default" if shared else core_session(core)
+    assert env["HC_SESSION"] == session, "not a gate-owned session"
     assert Path(env["XDG_RUNTIME_DIR"]) == core / "run"
-    socket = core / "run/herdr-core" / (core_session(core) + ".sock")
+    socket = core / "run/herdr-core" / (session + ".sock")
     assert not env.get("HC_SOCKET") or Path(env["HC_SOCKET"]) == socket
     return socket
 
 
-def stop_private_core(env):
-    socket = private_socket(env)
+def stop_private_core(env, *, shared=False):
+    socket = private_socket(env, shared=shared)
     if socket.exists():
         subprocess.run([str(HC), "server", "stop"], env=env, capture_output=True,
                        text=True, timeout=15, check=True)
         until(lambda: not socket.exists(), "owned Core socket removed")
 
 
-def argv(env):
-    private_socket(env)  # Never let a test fall back to the human's default.
-    home=env["CORE_TUI_HOME"]
-    return [str(HERDR), "--core-home", home, "--core-session", core_session(home)]
+def argv(env, *, shared=False):
+    private_socket(env, shared=shared)  # Even "default" uses the gate's runtime dir.
+    home = env["CORE_TUI_HOME"]
+    args = [str(HERDR), "--core-home", home]
+    return args if shared else args + ["--core-session", core_session(home)]
 
 
 class Viewer:
-    def __init__(self, env, binary=None, cols=100, rows=28):
+    def __init__(self, env, binary=None, cols=100, rows=28, *, shared=False):
         self.output = bytearray()
         self.resizes = [(0, cols, rows)]
-        args=argv(env)
+        args = argv(env, shared=shared)
         self.pid, self.fd = pty.fork()
         if not self.pid:
             # Set geometry before exec: a parent-side ioctl races terminal setup.

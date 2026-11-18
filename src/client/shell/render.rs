@@ -6,7 +6,7 @@ mod overlays;
 mod tabs;
 
 pub(super) use overlays::{render_client_overlay, render_context_menu, render_global_menu};
-pub(super) use tabs::render_tab_bar;
+pub(super) use tabs::{render_tab_bar, TabBarEntries};
 
 pub(super) fn render_mode_bar(
     buffer: &mut Buffer,
@@ -41,11 +41,7 @@ pub(super) fn render_mode_bar(
             ratatui::style::Color::Reset => palette.surface_dim,
             color => color,
         })
-        .bg(if mode == ClientShellMode::Resize {
-            palette.mauve
-        } else {
-            palette.accent
-        })
+        .bg(palette.accent)
         .add_modifier(Modifier::BOLD);
     let prefix = keybinds.primary_prefix_label();
     let prefix_rhs = |bindings: &crate::config::ActionKeybinds| {
@@ -86,18 +82,6 @@ pub(super) fn render_mode_bar(
                     (" pane  ".to_owned(), base),
                     (prefix_rhs(&keybinds.keybinds.help), key),
                     (" keybinds".to_owned(), base),
-                ]);
-            }
-            ClientShellMode::Resize => {
-                segments.extend([
-                    (" RESIZE ".to_owned(), mode_style),
-                    ("  ".to_owned(), base),
-                    ("h/l".to_owned(), key),
-                    (" width  ".to_owned(), base),
-                    ("j/k".to_owned(), key),
-                    (" height  ".to_owned(), base),
-                    ("esc".to_owned(), key),
-                    (" done".to_owned(), base),
                 ]);
             }
             ClientShellMode::Copy => {
@@ -207,6 +191,8 @@ pub(super) fn render_shell(
     state: ShellRenderState<'_>,
 ) -> ShellHitMap {
     let mut hits = ShellHitMap::default();
+    let bar = TabBarEntries::new(snapshot);
+    let mobile_pane_bar = layout.mobile_header.height > 1;
     if layout.mobile_header.height > 0 {
         super::mobile::render_mobile_header(
             buffer,
@@ -216,12 +202,24 @@ pub(super) fn render_shell(
             &mut hits,
         );
     }
-    if layout.tab_bar.height > 0 {
+    let mut tab_area = layout.tab_bar;
+    if mobile_pane_bar {
+        // Keep the switch button beside the same tab and pane targets as
+        // desktop, without shrinking the PTY.
+        tab_area = Rect::new(
+            layout.mobile_header.x,
+            layout.mobile_header.y + 1,
+            hits.mobile_switch.x.saturating_sub(layout.mobile_header.x),
+            1,
+        );
+    }
+    if !tab_area.is_empty() {
         render_tab_bar(
             buffer,
-            layout.tab_bar,
-            snapshot,
+            tab_area,
+            &bar,
             config,
+            mobile_pane_bar,
             state.tab_scroll,
             state.reveal_focused_tab,
             state.tab_drag_insert_index,

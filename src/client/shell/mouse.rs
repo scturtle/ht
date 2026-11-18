@@ -395,28 +395,11 @@ impl ClientShellState {
         outcome
     }
 
-    fn pane_split_target_is_current(&self, hit: &PaneSplitHit, tab_id: &str) -> Option<bool> {
-        let snapshot = self.endpoint.snapshot.as_deref()?;
-        let surface = self.pane_surface.as_ref()?;
-        if snapshot.revision != surface.projection_revision {
-            return None;
-        }
-        Some(
-            snapshot.focused_tab_id.as_deref() == Some(tab_id)
-                && pane_surface_topology_signature(surface) == hit.topology_signature,
-        )
-    }
-
-    fn pane_split_ratio(hit: &PaneSplitHit, grab_offset: i32, point: (u16, u16)) -> f32 {
-        let (pointer, origin, length) = match hit.direction {
-            crate::protocol::PaneSurfaceSplitDirection::Horizontal => {
-                (i32::from(point.0), i32::from(hit.area.x), hit.area.width)
-            }
-            crate::protocol::PaneSurfaceSplitDirection::Vertical => {
-                (i32::from(point.1), i32::from(hit.area.y), hit.area.height)
-            }
-        };
-        ((pointer + grab_offset - origin) as f32 / f32::from(length.max(1))).clamp(0.1, 0.9)
+    fn tab_bar_pane_at(&self, point: (u16, u16)) -> Option<&str> {
+        self.hits
+            .tab_panes
+            .iter()
+            .find_map(|(rect, id)| super::contains(*rect, point).then_some(id.as_str()))
     }
 
     fn tab_drop_index_at(&self, point: (u16, u16)) -> Option<usize> {
@@ -680,55 +663,6 @@ impl ClientShellState {
                     }
                     return;
                 }
-                Some(ClientChromeDrag::PaneSplit {
-                    hit,
-                    tab_id,
-                    grab_offset,
-                    last_sent_at,
-                    ..
-                }) => {
-                    let hit = hit.clone();
-                    let tab_id = tab_id.clone();
-                    let grab_offset = *grab_offset;
-                    match self.pane_split_target_is_current(&hit, &tab_id) {
-                        Some(true) => {}
-                        Some(false) => {
-                            self.chrome_drag = None;
-                            return;
-                        }
-                        None => return,
-                    }
-                    let ratio = Self::pane_split_ratio(&hit, grab_offset, point);
-                    let now = std::time::Instant::now();
-                    let should_send = last_sent_at.is_none_or(|last| {
-                        now.duration_since(last) >= std::time::Duration::from_millis(33)
-                    });
-                    if let Some(ClientChromeDrag::PaneSplit {
-                        last_sent_ratio,
-                        last_sent_at,
-                        ..
-                    }) = self.chrome_drag.as_mut()
-                    {
-                        if should_send {
-                            *last_sent_ratio = Some(ratio);
-                            *last_sent_at = Some(now);
-                        }
-                    }
-                    if should_send {
-                        self.push_endpoint_method(
-                            crate::actions::Action::LayoutSetSplitRatio(
-                                crate::actions::LayoutSetSplitRatioParams {
-                                    tab_id: Some(tab_id),
-                                    pane_id: None,
-                                    path: hit.path,
-                                    ratio,
-                                },
-                            ),
-                            outcome,
-                        );
-                    }
-                    return;
-                }
                 Some(ClientChromeDrag::Tab { .. }) => {
                     let insert_index = self.tab_drop_index_at(point);
                     if let Some(ClientChromeDrag::Tab {
@@ -821,44 +755,30 @@ impl ClientShellState {
                             }
                         }
                     }
-                    ClientChromeDrag::PaneSplit {
-                        hit,
-                        tab_id,
-                        grab_offset,
-                        last_sent_ratio,
-                        ..
-                    } => {
-                        let target_is_current =
-                            self.pane_split_target_is_current(&hit, &tab_id) == Some(true);
-                        let ratio = Self::pane_split_ratio(&hit, grab_offset, point);
-                        if target_is_current
-                            && last_sent_ratio
-                                .is_none_or(|sent| (sent - ratio).abs() > f32::EPSILON)
-                        {
-                            self.push_endpoint_method(
-                                crate::actions::Action::LayoutSetSplitRatio(
-                                    crate::actions::LayoutSetSplitRatioParams {
-                                        tab_id: Some(tab_id),
-                                        pane_id: None,
-                                        path: hit.path,
-                                        ratio,
-                                    },
-                                ),
-                                outcome,
-                            );
-                        }
-                    }
                     ClientChromeDrag::LocalScrollbar { .. } => {}
                 }
                 return;
             }
             if let Some(press) = self.tab_press.take() {
-                self.push_endpoint_method(
-                    crate::actions::Action::TabFocus(crate::actions::TabTarget {
+                use crate::actions::{Action, PaneTarget, TabTarget};
+                let action = if let Some(pane_id) = press.pane_id {
+                    // A concurrent edit can renumber or remove a pane between
+                    // press and release. Never resolve a click by its ordinal.
+                    if !self
+                        .hits
+                        .tab_panes
+                        .iter()
+                        .any(|(rect, id)| *id == pane_id && super::contains(*rect, point))
+                    {
+                        return;
+                    }
+                    Action::PaneFocus(PaneTarget { pane_id })
+                } else {
+                    Action::TabFocus(TabTarget {
                         tab_id: press.tab_id,
-                    }),
-                    outcome,
-                );
+                    })
+                };
+                self.push_endpoint_method(action, outcome);
                 return;
             }
         }
@@ -1135,6 +1055,11 @@ impl ClientShellState {
                         return;
                     }
                 }
+                if let Some(pane_id) = self.tab_bar_pane_at(point).map(str::to_owned) {
+                    self.open_tab_pane_context_menu(pane_id, mouse.column, mouse.row);
+                    outcome.repaint = true;
+                    return;
+                }
                 let tab_id = self
                     .hits
                     .tabs
@@ -1215,24 +1140,8 @@ impl ClientShellState {
                     return;
                 }
                 if super::contains(self.hits.tab_scroll_right, point) {
-                    let tab_count = self
-                        .endpoint
-                        .snapshot
-                        .as_deref()
-                        .and_then(|snapshot| {
-                            snapshot.focused_workspace_id.as_deref().map(|id| {
-                                snapshot
-                                    .tabs
-                                    .iter()
-                                    .filter(|tab| tab.workspace_id == id)
-                                    .count()
-                            })
-                        })
-                        .unwrap_or(0);
-                    self.tab_scroll = self
-                        .tab_scroll
-                        .saturating_add(1)
-                        .min(tab_count.saturating_sub(1));
+                    // Composition clamps to the last visible group entry.
+                    self.tab_scroll = self.tab_scroll.saturating_add(1);
                     outcome.repaint = true;
                     return;
                 }
@@ -1251,6 +1160,7 @@ impl ClientShellState {
                             .find(|tab| tab.tab_id == *tab_id)?;
                         Some(ClientTabPress {
                             tab_id: tab.tab_id.clone(),
+                            pane_id: self.tab_bar_pane_at(point).map(str::to_owned),
                             workspace_id: tab.workspace_id.clone(),
                             start_column: mouse.column,
                             start_row: mouse.row,
@@ -1296,34 +1206,6 @@ impl ClientShellState {
                     {
                         self.push_pane_scroll_offset(hit.pane_id, offset, outcome);
                     }
-                    return;
-                }
-                let split_hit = self
-                    .hits
-                    .pane_splits
-                    .iter()
-                    .find(|hit| super::contains(hit.hit_rect, point))
-                    .cloned();
-                if let Some(hit) = split_hit {
-                    let Some(tab_id) = self
-                        .endpoint
-                        .snapshot
-                        .as_deref()
-                        .and_then(|snapshot| snapshot.focused_tab_id.clone())
-                    else {
-                        return;
-                    };
-                    let pointer = match hit.direction {
-                        crate::protocol::PaneSurfaceSplitDirection::Horizontal => mouse.column,
-                        crate::protocol::PaneSurfaceSplitDirection::Vertical => mouse.row,
-                    };
-                    self.chrome_drag = Some(ClientChromeDrag::PaneSplit {
-                        grab_offset: i32::from(hit.pos) - i32::from(pointer),
-                        last_sent_ratio: None,
-                        last_sent_at: None,
-                        hit,
-                        tab_id,
-                    });
                     return;
                 }
                 let pane_hit = self
@@ -1484,9 +1366,8 @@ impl ClientShellState {
                 height_px: hit.pixel_height,
             },
         );
-        let target = ClientInputTarget::Pane(hit.pane_id.clone());
-        push_target_event(
-            target,
+        push_pane_event(
+            hit.pane_id.clone(),
             ClientPaneInputEvent::Mouse {
                 kind,
                 position,

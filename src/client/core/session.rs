@@ -1,4 +1,3 @@
-use ratatui::layout::Rect;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -10,6 +9,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use super::{
+    app_layout,
     model::{invalid, Model},
     transport::{CoreRelay, Frame, CLOSE, RESIZE},
     view::{self, Renderer, View},
@@ -69,9 +69,9 @@ pub(in crate::client) struct Session {
     pub(super) views: HashMap<PaneId, View>,
     channels: HashMap<u32, PaneId>,
     pub(super) document_version: u64,
+    exit_when_empty: bool,
     pub size: ClientSurfaceSize,
     pub cells: (u32, u32),
-    pub(super) ui: view::ChromeConfig,
     renderer: Renderer,
     pub dirty: bool,
     pub snapshot_dirty: bool,
@@ -123,12 +123,11 @@ impl Session {
         ensure_private_directory(&options.home)?;
         ensure_private_directory(&options.home.join("run"))?;
         let preferences = client_preferences(&options.home, options.client_id.as_deref())?;
-        let (mut core, subscription) = Self::open_core(&options, false)?;
+        let (mut core, subscription) = Self::open_core(&options, !options.isolate)?;
         let shell = configured_shell(config);
-        let (mut model, document_version) =
-            super::shared::bootstrap(&mut core, &subscription, size, &options.home, &shell)?;
+        let (mut model, document_version) = app_layout::bootstrap(&mut core, &subscription)?;
         if let Some((home, _)) = &preferences {
-            super::shared::restore_preferences(home, &mut model)?;
+            super::shared::restore_preferences(&home.join("app-preferences.json"), &mut model)?;
         }
         let (home, lock) = match preferences {
             Some((home, lock)) => (Some(home), Some(lock)),
@@ -138,6 +137,7 @@ impl Session {
         renderer.set_cell_size(cells);
         let mut session = Self {
             core,
+            exit_when_empty: options.isolate && !model.records.is_empty(),
             options: Some(options),
             model,
             shell,
@@ -147,7 +147,6 @@ impl Session {
             document_version,
             size,
             cells,
-            ui: view::ChromeConfig::from_config(config),
             renderer,
             dirty: true,
             snapshot_dirty: true,
@@ -161,9 +160,7 @@ impl Session {
             theme: Default::default(),
             display: json!({}),
         };
-        session.retire_completed_programs()?;
         session.sync_views()?;
-        session.recover_retirements(&subscription);
         session.resize(size, cells.0, cells.1)?;
         session.save()?;
         Ok(session)
@@ -191,6 +188,28 @@ impl Session {
         Ok((core, subscription))
     }
 
+    pub(super) fn is_closed(&self) -> bool {
+        self.exit_when_empty && self.model.records.is_empty()
+    }
+
+    pub(super) fn seed_private_layout(&mut self) -> io::Result<()> {
+        if self.document_version != 0
+            || !self.options.as_ref().is_some_and(|options| options.isolate)
+        {
+            return Ok(());
+        }
+        self.seed_app_layout()?;
+        self.sync_views()?;
+        self.save()
+    }
+
+    pub(super) fn refresh_shared(&mut self) -> io::Result<bool> {
+        let changed =
+            app_layout::refresh(&mut self.core, &mut self.model, &mut self.document_version)?;
+        self.snapshot_dirty |= changed;
+        Ok(changed)
+    }
+
     fn subscription_seq(subscription: &Value) -> io::Result<u64> {
         subscription["seq"]
             .as_u64()
@@ -209,18 +228,12 @@ impl Session {
             .clone()
             .ok_or_else(|| io::Error::other("Core session cannot resume without launch options"))?;
         let (mut core, subscription) = Self::open_core(&options, true)?;
-        let (mut model, document_version) = super::shared::bootstrap(
-            &mut core,
-            &subscription,
-            self.size,
-            &options.home,
-            &self.shell,
-        )?;
+        let (mut model, document_version) = app_layout::bootstrap(&mut core, &subscription)?;
         // Presentation preferences are client-local, so they survive the Core
         // connection. `save` wrote them, and restoring them here is the same path
         // a fresh attach uses.
         if let Some(home) = &self.home {
-            super::shared::restore_preferences(home, &mut model)?;
+            super::shared::restore_preferences(&home.join("app-preferences.json"), &mut model)?;
         }
         // Commit only after every fallible step has succeeded.
         self.core = core;
@@ -237,9 +250,7 @@ impl Session {
         self.last_focus = None;
         self.dirty = true;
         self.snapshot_dirty = true;
-        self.retire_completed_programs()?;
         self.sync_views()?;
-        self.recover_retirements(&subscription);
         self.resize(self.size, self.cells.0, self.cells.1)?;
         self.save()?;
         Ok(())
@@ -250,26 +261,6 @@ impl Session {
             .as_ref()
             .map(|options| options.socket.clone())
             .unwrap_or_default()
-    }
-
-    /// Recover close intents Core committed but did not finish.
-    fn recover_retirements(&mut self, subscription: &Value) {
-        let retiring = subscription["terminals"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|t| t["state"] == "live" && t["labels"]["herdr"] == "tui")
-            .filter_map(|t| t["address"].as_str())
-            .filter(|a| self.model.organization.retiring.contains(*a))
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        if let Err(error) = self.finish_retirements(&retiring) {
-            tracing::warn!(%error, "recovering committed Core close intents");
-        }
-    }
-
-    pub fn area(&self) -> Rect {
-        Rect::new(0, 0, self.size.cols.max(1), self.size.rows.max(1))
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -287,21 +278,19 @@ impl Session {
                     .map(|r| (key.to_owned(), r.address.clone()))
             })
             .collect::<std::collections::BTreeMap<_, _>>();
-        let zoomed = self
-            .model
-            .zoomed_tabs
-            .iter()
-            .collect::<std::collections::BTreeSet<_>>();
-        let preferences = json!({"active_workspace":self.model.active_workspace,"active_tabs":self.model.active_tabs,"focus":focus,"zoomed_tabs":zoomed});
-        let temporary = home.join("preferences.pending");
+        let preferences = json!({"active_workspace":self.model.active_workspace,"active_tabs":self.model.active_tabs,"focus":focus});
+        let path = home.join("app-preferences.json");
+        let temporary = path.with_extension("pending");
         let mut file = crate::platform::create_private_state_file(&temporary)?;
         file.write_all(&serde_json::to_vec(&preferences)?)?;
         file.sync_all()?;
         drop(file);
-        crate::platform::replace_file(&temporary, &home.join("preferences.json"))
+        crate::platform::replace_file(&temporary, &path)
     }
 
     pub(super) fn sync_views(&mut self) -> io::Result<()> {
+        self.exit_when_empty |= !self.model.records.is_empty()
+            && self.options.as_ref().is_some_and(|options| options.isolate);
         let gone = self
             .views
             .keys()
@@ -318,38 +307,18 @@ impl Session {
             .filter(|id| !self.views.contains_key(id))
             .copied()
             .collect::<Vec<_>>();
+        let focused = self.model.focused();
         for id in added {
-            self.attach(id)?;
+            self.attach(id, focused == Some(id))?;
         }
         self.resize(self.size, self.cells.0, self.cells.1)?;
         self.focus()
     }
 
-    pub fn attach(&mut self, id: PaneId) -> io::Result<()> {
-        // First paint is serialized for the requested grid. Never replay it into
-        // a full-canvas terminal and immediately shrink it before consumption.
-        let tab = self
-            .model
-            .context(id)
-            .map(|(_, t)| t.id.as_str())
-            .ok_or_else(|| invalid("Core pane has no tab"))?;
-        let layout = self
-            .model
-            .layouts
-            .get(tab)
-            .ok_or_else(|| invalid("Core tab has no layout"))?;
-        let zoomed = self.model.zoomed_tabs.contains(tab);
-        let visible = self.model.active_tab() == Some(tab) && (!zoomed || layout.focused() == id);
-        let info = if zoomed && layout.focused() == id {
-            view::zoomed_info(layout, self.area())
-        } else {
-            view::layout_infos(layout, self.area())
-                .into_iter()
-                .find(|p| p.id == id)
-                .ok_or_else(|| invalid("Core pane geometry missing"))?
-        };
-        let cols = info.inner_rect.width.max(crate::pane::MIN_PANE_COLS);
-        let rows = info.inner_rect.height.max(crate::pane::MIN_PANE_ROWS);
+    pub fn attach(&mut self, id: PaneId, visible: bool) -> io::Result<()> {
+        // Passive attaches follow Core's grid without changing it. When
+        // revealed, every pane claims the same full client area.
+        let (cols, rows) = self.desired_grid();
         let address = &self
             .model
             .records
@@ -424,6 +393,13 @@ impl Session {
         Ok(())
     }
 
+    fn desired_grid(&self) -> (u16, u16) {
+        (
+            self.size.cols.max(crate::pane::MIN_PANE_COLS),
+            self.size.rows.max(crate::pane::MIN_PANE_ROWS),
+        )
+    }
+
     pub fn resize(&mut self, size: ClientSurfaceSize, width: u32, height: u32) -> io::Result<()> {
         self.size = size;
         self.cells = (width, height);
@@ -431,47 +407,21 @@ impl Session {
         if width > 0 && height > 0 {
             self.display["cell"] = json!([width, height]);
         }
-        let infos = self
-            .model
-            .all_layouts()
-            .flat_map(|(tab, layout)| {
-                let visible = self.model.active_tab() == Some(tab);
-                let zoomed = self.model.zoomed_tabs.contains(tab);
-                let zoom_info = zoomed.then(|| view::zoomed_info(layout, self.area()));
-                view::layout_infos(layout, self.area())
-                    .into_iter()
-                    .map(move |info| {
-                        let visible = visible && (!zoomed || info.is_focused);
-                        let info = if info.is_focused {
-                            zoom_info.clone().unwrap_or(info)
-                        } else {
-                            info
-                        };
-                        (visible, info)
-                    })
-            })
-            .collect::<Vec<_>>();
-        for (visible, info) in infos {
-            let Some(view) = self.views.get_mut(&info.id) else {
-                continue;
-            };
-            let cols = info.inner_rect.width.max(crate::pane::MIN_PANE_COLS);
-            let rows = info.inner_rect.height.max(crate::pane::MIN_PANE_ROWS);
-            let Some((grid_changed, display_changed)) = view.request_visible_size(
-                visible && info.inner_rect.width > 0 && info.inner_rect.height > 0,
-                (cols, rows, width, height),
-            ) else {
+        // Unmapped views stay attached and follow Core without sending RESIZE.
+        let focused = self.model.focused();
+        let (cols, rows) = self.desired_grid();
+        for (id, view) in &mut self.views {
+            let Some((grid_changed, display_changed)) =
+                view.request_visible_size(focused == Some(*id), (cols, rows, width, height))
+            else {
                 continue;
             };
             if view.closed {
                 view.authoritative_size((cols, rows, width, height));
             } else {
                 if grid_changed {
-                    self.core.send(
-                        view.channel,
-                        RESIZE,
-                        &[cols.to_le_bytes(), rows.to_le_bytes()].concat(),
-                    )?;
+                    self.core
+                        .send(view.channel, RESIZE, &view.resize_request())?;
                 }
                 if display_changed {
                     self.core
@@ -596,9 +546,7 @@ impl Session {
             self.snapshot_dirty = false;
         }
         if self.dirty {
-            let surface = self
-                .renderer
-                .compose(&self.model, &self.views, self.size, &self.ui)?;
+            let surface = self.renderer.compose(&self.model, &self.views, self.size)?;
             out.push(ServerMessage::PaneSurface(surface));
             let view = self
                 .model

@@ -3,8 +3,7 @@ use super::*;
 use crate::input::{TerminalKey, TextCommit};
 
 fn shell(field: usize) -> ClientShellState {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut frame = surface();
     frame.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,

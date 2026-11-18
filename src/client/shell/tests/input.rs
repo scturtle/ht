@@ -95,8 +95,7 @@ fn host_bracketed_paste_inserts_text_through_overlay_text_path() {
 
 #[test]
 fn client_shell_graphics_follow_final_shell_origin_and_local_overlay_visibility() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut pane_surface = surface();
     let key = crate::protocol::SurfaceGraphicsAssetKey {
         source: crate::protocol::SurfaceGraphicsSource::Terminal {
@@ -431,8 +430,7 @@ fn unmatched_release_never_takes_a_held_key_while_herdr_owns_another_press() {
 
 #[test]
 fn physical_release_uses_the_leased_press_code_with_current_modifiers() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     let press = crate::input::TerminalKey::new(KeyCode::Char('x'), KeyModifiers::empty())
         .with_windows_record(crate::input::WindowsKeyRecord {
@@ -475,8 +473,7 @@ fn physical_release_uses_the_leased_press_code_with_current_modifiers() {
 
 #[test]
 fn highlighted_search_match_copies_after_in_flight_repeat() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut pane_surface = surface();
     pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
@@ -567,8 +564,7 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
 
 #[test]
 fn pixel_host_reports_use_cells_without_target_pixel_mode_and_release_outside() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut pane_surface = surface();
     pane_surface.panes[0].mouse_reporting = true;
     state.set_pane_surface(pane_surface);
@@ -669,8 +665,7 @@ fn shell_targets_unconsumed_input_and_keeps_prefix_local() {
 
 #[test]
 fn pane_key_release_keeps_the_press_target() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
 
     let press = state.handle_input_bytes(b"\x1b[99;5u");
     let release = state.handle_input_bytes(b"\x1b[99;5:3u");
@@ -700,8 +695,7 @@ fn pane_key_release_keeps_the_press_target() {
 
 #[test]
 fn help_overlay_uses_live_keymap_and_owns_filter_state() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     let mut open = ClientShellInput::default();
     state.record_binding(
@@ -777,8 +771,7 @@ fn styled_client_composition_preserves_pane_hyperlinks() {
         "https://example.test",
         "obsidian://open?vault=meta&file=note.md",
     ] {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot(Box::new(snapshot()));
+        let mut state = state_with_snapshot(snapshot());
         let mut pane_surface = surface();
         let linked = Buffer::with_lines(["LIVE", "PANE"]);
         pane_surface.frame = FrameData::from_ratatui_buffer_with_hyperlinks(

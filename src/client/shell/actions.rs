@@ -89,17 +89,6 @@ impl ClientShellState {
                     }
                     return;
                 }
-                if action == keybindings::KeybindAction::CloseTab {
-                    if let Some(tab_id) = self
-                        .endpoint
-                        .snapshot
-                        .as_deref()
-                        .and_then(|snapshot| snapshot.focused_tab_id.clone())
-                    {
-                        self.request_tab_close(tab_id, outcome);
-                    }
-                    return;
-                }
                 if action == keybindings::KeybindAction::RenameTab {
                     self.open_rename_tab_overlay();
                     outcome.repaint = true;
@@ -116,11 +105,6 @@ impl ClientShellState {
                     self.reveal_mobile_workspace = false;
                     self.mode = ClientShellMode::Navigate;
                     self.navigate_workspace_id = self.focused_navigation_target();
-                    outcome.repaint = true;
-                    return;
-                }
-                if action == keybindings::KeybindAction::EnterResizeMode {
-                    self.mode = ClientShellMode::Resize;
                     outcome.repaint = true;
                     return;
                 }
@@ -231,11 +215,9 @@ impl ClientShellState {
         let changes_focus = match &method {
             crate::actions::Action::WorkspaceFocus(_)
             | crate::actions::Action::TabFocus(_)
-            | crate::actions::Action::PaneFocus(_)
-            | crate::actions::Action::PaneFocusDirection(_) => true,
+            | crate::actions::Action::PaneFocus(_) => true,
             crate::actions::Action::WorkspaceCreate(params) => params.focus,
             crate::actions::Action::TabCreate(params) => params.focus,
-            crate::actions::Action::PaneSplit(params) => params.focus,
             _ => false,
         };
         if changes_focus {
@@ -592,32 +574,23 @@ impl ClientShellState {
         action: keybindings::KeybindAction,
     ) -> Option<crate::actions::Action> {
         use crate::actions::{
-            Action, PaneDirection, PaneFocusDirectionParams, PaneResizeParams, PaneSplitParams,
-            PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
-            TabCreateParams, TabMoveParams, TabTarget, WorkspaceTarget,
+            Action, PaneTarget, TabCreateParams, TabMoveParams, TabTarget, WorkspaceTarget,
         };
         use keybindings::KeybindAction;
 
         let snapshot = self.endpoint.snapshot.as_deref()?;
+        if action == KeybindAction::NewTab {
+            return Some(Action::TabCreate(TabCreateParams {
+                workspace_id: snapshot.focused_workspace_id.clone(),
+                cwd: None,
+                focus: true,
+                label: None,
+                env: Default::default(),
+            }));
+        }
         let focused_workspace = snapshot.focused_workspace_id.clone()?;
         let focused_tab = snapshot.focused_tab_id.clone();
         let focused_pane = snapshot.focused_pane_id.clone();
-        let direction = |action| match action {
-            KeybindAction::FocusPaneLeft
-            | KeybindAction::SwapPaneLeft
-            | KeybindAction::ResizePaneLeft => Some(PaneDirection::Left),
-            KeybindAction::FocusPaneDown
-            | KeybindAction::SwapPaneDown
-            | KeybindAction::ResizePaneDown => Some(PaneDirection::Down),
-            KeybindAction::FocusPaneUp
-            | KeybindAction::SwapPaneUp
-            | KeybindAction::ResizePaneUp => Some(PaneDirection::Up),
-            KeybindAction::FocusPaneRight
-            | KeybindAction::SwapPaneRight
-            | KeybindAction::ResizePaneRight => Some(PaneDirection::Right),
-            _ => None,
-        };
-
         match action {
             KeybindAction::FocusAgent(index) => {
                 let agents = super::navigation_rows::ordered_agent_pane_ids(
@@ -693,6 +666,7 @@ impl ClientShellState {
                 }))
             }
             KeybindAction::PreviousTab | KeybindAction::NextTab => {
+                // Wheel over the bar still steps through whole tabs.
                 let tabs = snapshot
                     .tabs
                     .iter()
@@ -700,14 +674,32 @@ impl ClientShellState {
                     .collect::<Vec<_>>();
                 let focused_tab = focused_tab?;
                 let current = tabs.iter().position(|tab| tab.tab_id == focused_tab)?;
-                let delta = if action == KeybindAction::PreviousTab {
-                    -1
+                let next = if action == KeybindAction::PreviousTab {
+                    (current + tabs.len() - 1) % tabs.len()
                 } else {
-                    1
+                    (current + 1) % tabs.len()
                 };
-                let next = (current as isize + delta).rem_euclid(tabs.len() as isize) as usize;
                 Some(Action::TabFocus(TabTarget {
                     tab_id: tabs[next].tab_id.clone(),
+                }))
+            }
+            KeybindAction::PreviousPaneInBar | KeybindAction::NextPaneInBar => {
+                // The snapshot lists panes in tab-bar order. Keep the legacy
+                // binding names, but step through the entries the user sees.
+                let panes = snapshot
+                    .panes
+                    .iter()
+                    .filter(|pane| pane.workspace_id == focused_workspace)
+                    .collect::<Vec<_>>();
+                let focused = focused_pane?;
+                let current = panes.iter().position(|pane| pane.pane_id == focused)?;
+                let next = if action == KeybindAction::PreviousPaneInBar {
+                    (current + panes.len() - 1) % panes.len()
+                } else {
+                    (current + 1) % panes.len()
+                };
+                Some(Action::PaneFocus(PaneTarget {
+                    pane_id: panes[next].pane_id.clone(),
                 }))
             }
             KeybindAction::MoveTabPrevious | KeybindAction::MoveTabNext => {
@@ -735,47 +727,6 @@ impl ClientShellState {
                 Some(Action::TabMove(TabMoveParams {
                     tab_id: focused_tab,
                     insert_index,
-                }))
-            }
-            KeybindAction::NewTab => Some(Action::TabCreate(TabCreateParams {
-                workspace_id: Some(focused_workspace),
-                cwd: None,
-                focus: true,
-                label: None,
-                env: Default::default(),
-            })),
-            KeybindAction::FocusPaneLeft
-            | KeybindAction::FocusPaneDown
-            | KeybindAction::FocusPaneUp
-            | KeybindAction::FocusPaneRight => {
-                Some(Action::PaneFocusDirection(PaneFocusDirectionParams {
-                    pane_id: focused_pane,
-                    direction: direction(action)?,
-                }))
-            }
-            KeybindAction::SwapPaneLeft
-            | KeybindAction::SwapPaneDown
-            | KeybindAction::SwapPaneUp
-            | KeybindAction::SwapPaneRight => Some(Action::PaneSwap(PaneSwapParams {
-                pane_id: focused_pane,
-                direction: Some(direction(action)?),
-                source_pane_id: None,
-                target_pane_id: None,
-            })),
-            KeybindAction::SplitVertical | KeybindAction::SplitHorizontal => {
-                Some(Action::PaneSplit(PaneSplitParams {
-                    workspace_id: Some(focused_workspace),
-                    target_pane_id: focused_pane,
-                    direction: if action == KeybindAction::SplitVertical {
-                        SplitDirection::Right
-                    } else {
-                        SplitDirection::Down
-                    },
-                    ratio: None,
-                    cwd: None,
-                    focus: true,
-                    right_click: Default::default(),
-                    env: Default::default(),
                 }))
             }
             KeybindAction::CyclePaneNext | KeybindAction::CyclePanePrevious => {
@@ -813,23 +764,11 @@ impl ClientShellState {
                     pane_id: pane_id.clone(),
                 }))
             }
-            KeybindAction::Zoom => Some(Action::PaneZoom(PaneZoomParams {
-                pane_id: focused_pane,
-                mode: PaneZoomMode::Toggle,
-            })),
             KeybindAction::ClearPane => Some(Action::PaneClear(PaneTarget {
                 pane_id: focused_pane?,
             })),
             KeybindAction::EditScrollback => Some(Action::PaneEditScrollback(PaneTarget {
                 pane_id: focused_pane?,
-            })),
-            KeybindAction::ResizePaneLeft
-            | KeybindAction::ResizePaneDown
-            | KeybindAction::ResizePaneUp
-            | KeybindAction::ResizePaneRight => Some(Action::PaneResize(PaneResizeParams {
-                pane_id: focused_pane,
-                direction: direction(action)?,
-                amount: None,
             })),
             _ => None,
         }

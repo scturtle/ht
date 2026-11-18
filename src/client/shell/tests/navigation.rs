@@ -35,8 +35,7 @@ fn agents() -> ClientShellSnapshot {
 #[test]
 fn workspace_chooser_omits_the_menu_on_desktop_and_mobile() {
     for width in [106, 44] {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot(Box::new(snapshot()));
+        let mut state = state_with_snapshot(snapshot());
         state.set_pane_surface(surface());
         let open = state.handle_input_bytes(b"\x02w");
         assert!(open.actions.is_empty() && open.requests.is_empty());
@@ -166,8 +165,7 @@ fn disconnected_navigator_keeps_cached_rows_without_focus_requests() {
 #[test]
 fn unsupported_navigator_focus_preserves_its_existing_dismissal_policy() {
     for workspace in [false, true] {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot(Box::new(snapshot()));
+        let mut state = state_with_snapshot(snapshot());
         state.set_endpoint_methods(Some(Vec::new()));
         state.open_navigator_overlay();
         let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() else {

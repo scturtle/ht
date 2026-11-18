@@ -11,25 +11,34 @@ Pinned Core sources and patch documentation are in
 Run from the repository root:
 
 ```sh
-just core-copy-smoke
-just core-organization-smoke
-just core-multiclient-smoke
-just core-keyboard-smoke
-just core-terminal-restore-smoke
+just smoke                # all smoke gates, serially
+just smoke keyboard copy  # selected gates only
 just core-launcher-test
-just core-graphics-smoke
-just core-reconnect-smoke
 ```
 
-The recipes build Herdr, the pinned Core, and the test-only `screen-oracle`.
+`just smoke organization` also checks direct pane selection in wide and narrow
+clients sharing the same tab: the device-local focus changes without modifying
+the shared layout or restarting either program.
+
+`just smoke app-layout` starts `ht` with its default socket and layout selectors
+in a private runtime, with an App-format fixture writer and real Core PTYs.
+It checks Tab creation, rename and keyboard/mouse reorder, Space creation,
+rename and close, Tab number vs Pane cycling, independent focus, and that
+scoped edits preserve unrelated PTYs and plugin data.
+It does not launch the desktop GUI or a native mobile app.
+
+Add new gates as `<name>-ui-smoke.py`; the runner discovers them automatically and
+returns a nonzero status if any gate fails. The compatibility alias `existing-ui-smoke.py`
+is not a separate gate.
+
+The smoke recipe builds Herdr, the pinned Core, and the test-only `screen-oracle`.
 Its isolated Cargo package depends only on `vt100` and `serde_json`; it decodes
 captured PTY output, including host resize boundaries. It owns no application
 PTY, Core connection or runtime state.
 
 The Unix tests use private HOME/config/runtime/socket/PTY directories and clean
 up only their own processes. Desktop clipboard access is disabled; OSC 52 is
-captured instead. None of the individual gates constitutes full migration or
-server-handoff acceptance.
+captured instead.
 
 The client attaches with `terminal.attach_ordered`: every first and replacement
 paint is preceded by an authoritative RESIZE. There is no paint-completion
@@ -63,7 +72,7 @@ completion. Late replies beyond that limit remain possible. This tests SSH-like
 reply timing, not an actual SSH connection or WAN latency.
 
 `kitty-exit-ui-smoke.py` is the separate **actual Kitty + SSH** gate. Run
-`just core-kitty-exit-smoke`; it requires Kitty/kitten, Xvfb, libX11/libXtst and
+`just smoke kitty-exit`; it requires Kitty/kitten, Xvfb, libX11/libXtst and
 OpenSSH server/client. `CORE_TUI_KITTY`, `CORE_TUI_KITTEN` and `CORE_TUI_XVFB`
 override executable paths. It creates its own virtual X display and loopback
 SSH listener/keys, never connects to the user's display, SSH service or Core.
@@ -94,7 +103,7 @@ images are correctly skipped.
 `icat-ui-smoke.py` adds the real application's prerequisite: `TIOCGWINSZ`
 must report the pane's pixel dimensions, and ordinary `kitten icat` (without
 `--use-window-size`) must exit successfully and emit an upload and placement.
-Run `just core-icat-smoke`; requires kitten (`CORE_TUI_KITTEN` overrides its path).
+Run `just smoke icat`; requires kitten (`CORE_TUI_KITTEN` overrides its path).
 For a specific image, run `python3 tests/core-tui/icat-ui-smoke.py --image /path/to/image.png`.
 Like the graphics gate it uses only a private Core and a pixel-aware host PTY.
 

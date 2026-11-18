@@ -46,7 +46,7 @@ def main():
         H.until(lambda: "cwd$" in screen(), "initial shell")
         rpc = ORG.Rpc(env)
         before = rpc.doc()
-        address = ORG.leaves(before["value"]["workspaces"][0]["tabs"][0]["root"])[0]
+        address = ORG.leaves(before["value"]["spaces"][0]["tabs"][0]["root"])[0]
         initial = hc("get", address)
         pid, grid = initial["pid"], (initial["cols"], initial["rows"])
         assert initial["cwd"] == str(home)

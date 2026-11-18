@@ -27,7 +27,7 @@ def main():
                    HERDR_CLIENT_SOCKET_PATH=str(home / "forbidden-client.sock"))
         (home / "config.toml").write_text('''[keys]
 new_tab = "f3"
-close_tab = "f4"
+close_pane = "f4"
 next_tab = "f5"
 copy_mode = "f7"
 rename_pane = "f8"
@@ -89,7 +89,7 @@ detach = "f10"
             UI.until(lambda: "rename pane" in screen(b,(72,19)) and pane_name in screen(b,(72,19)), "second client receives shared name")
             b.send(b"\r")
             UI.until(lambda: "rename pane" not in screen(b,(72,19)), "second client original submit")
-            assert grid() == b_grid and rpc.doc()["version"] == version, "metadata must not steal geometry or write BSP document"
+            assert grid() == b_grid and rpc.doc()["version"] == version, "metadata must not steal geometry or write the App document"
             assert hc("get",address)["pid"] == pid and hc("get",address).get("status") is None
             pattern(b,b_grid,"B","WRAP_B")
             UI.until(lambda: wrapped(b,(72,19),"B","WRAP_B"), "leader wraps at its Core grid")
@@ -122,10 +122,11 @@ detach = "f10"
             assert grid() == b_small, "copy and automatic replies must not claim size leadership"
             assert rpc.doc()["version"] == version, "geometry/copy must not write organization"
             a.send(b"\x1bOR")  # F3: shared new tab, local focus only.
-            UI.until(lambda: len(rpc.doc()["value"]["workspaces"][0]["tabs"]) == 2, "shared tab creation")
+            UI.until(lambda: len(rpc.doc()["value"]["spaces"][0]["tabs"]) == 2, "shared tab creation")
             UI.until(lambda: re.search(r"\b2\b", screen(a,(100,28)).splitlines()[0]) and "WRAP_RESIZED" not in screen(a,(100,28)), "creator focuses new tab")
             UI.until(lambda: re.search(r"\b2\b", screen(b,(90,25)).splitlines()[0]) and "WRAP_RESIZED" in screen(b,(90,25)), "other client sees membership without losing focus")
-            second_address = ORG.leaves(rpc.doc()["value"]["workspaces"][0]["tabs"][1]["root"])[0]
+            created = rpc.doc()
+            second_address = ORG.leaves(created["value"]["spaces"][0]["tabs"][1]["root"])[0]
             UI.until(lambda: "multi$" in screen(a,(100,28)), "new tab program prompt before input")
             a.send(b"stty -echo; printf 'NEW_TAB_%s\\n' READY\r")
             UI.until(lambda: "NEW_TAB_READY" in screen(a,(100,28)), "new program on creator")
@@ -140,8 +141,10 @@ detach = "f10"
             UI.until(lambda: hc("get",second_address)["cols"] <= 84, "activating hidden tab advertises latest desired geometry")
             b.send(b"\x1b[15~")
             UI.until(lambda: "WRAP_RESIZED" in screen(b,(84,23)), "other client returns to original tab")
-            a.send(b"\x1bOS")  # F4: retire shared second tab.
-            UI.until(lambda: len(rpc.doc()["value"]["workspaces"][0]["tabs"]) == 1, "shared tab close")
+            a.send(b"\x1bOS")  # F4: close the current pane, not an entire tab.
+            UI.until(lambda: hc("get",second_address)["state"] == "finished", "shared pane termination")
+            UI.until(lambda: not re.search(r"\b2\b", screen(b,(84,23)).splitlines()[0]), "other client removes the ended pane")
+            assert rpc.doc() == created, "closing a pane does not edit the App document"
             UI.until(lambda: not re.search(r"\b2\b", screen(a,(100,28)).splitlines()[0]) and "C" * 20 in screen(a,(100,28)), "creator focus repairs to surviving tab (marker may reflow)")
             b.detach()
             UI.until(lambda: grid() == a_grid, "detaching leader restores remaining viewer's requested grid")
@@ -150,7 +153,7 @@ detach = "f10"
             pattern(a,a_grid,"D","WRAP_DETACHED")
             UI.until(lambda: wrapped(a,(100,28),"D","WRAP_DETACHED"), "survivor keeps valid parser after detach")
             assert hc("get",address)["pid"] == pid
-            assert rpc.doc()["version"] == version + 2, "only explicit tab creation/close write shared organization"
+            assert rpc.doc()["version"] == version + 1, "only explicit tab creation writes the document"
             assert not (home / "forbidden-old.sock").exists() and not (home / "forbidden-client.sock").exists()
             # Final shared membership disappearing must exit BOTH TUIs, not Core.
             b = UI.Viewer(env)
@@ -165,11 +168,12 @@ detach = "f10"
             UI.until(lambda: "rename pane" in screen(a,(100,28)) and pane_name not in screen(a,(100,28)), "other client receives cleared name")
             a.send(b"\r")
             UI.until(lambda: "rename pane" not in screen(a,(100,28)), "empty-name submission")
-            assert rpc.doc()["version"] == version + 2
+            assert rpc.doc() == created
             a.send(b"exit\r")
             a.wait_exit()
             b.wait_exit()
-            assert not rpc.doc()["value"]["workspaces"]
+            assert hc("get",address)["state"] == "finished"
+            assert rpc.doc() == created, "the private TUIs exit but do not rewrite the App layout"
             print(json.dumps({"simultaneous_default_tuis":True,"same_core_program_pid":True,
                               "automatic_per_tty_identity":True,"ordered_authoritative_wrap":True,
                               "input_and_resize_leadership":True,"no_resize_feedback":True,

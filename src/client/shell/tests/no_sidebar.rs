@@ -14,8 +14,9 @@ fn tab_controls_and_hits_stay_inside_narrow_nonzero_origin_rectangles() {
             render::render_tab_bar(
                 &mut buffer,
                 area,
-                &projected,
+                &render::TabBarEntries::new(&projected),
                 &config,
+                false,
                 &mut 0,
                 &mut true,
                 None,

@@ -45,13 +45,9 @@ impl Session {
                 }
                 self.seq = seq;
                 if p["type"] == "doc" {
-                    if p["data"]["name"] == super::super::organization::DOCUMENT
-                        && p["data"]["version"]
-                            .as_u64()
-                            .is_some_and(|v| v > self.document_version)
+                    if p["data"]["name"] == super::super::app_layout::DOCUMENT
                         && self.refresh_shared()?
                     {
-                        self.retire_completed_programs()?;
                         self.sync_views()?;
                     }
                     continue;
@@ -64,14 +60,8 @@ impl Session {
                     // document may introduce it, so failed creates cannot reinsert panes.
                     continue;
                 };
-                if p["type"] == "removed"
-                    || (p["type"] == "labels" && p["data"]["labels"]["herdr"] != "tui")
-                {
-                    self.change(|model| match model.id(address) {
-                        Some(current) => model.retire(current),
-                        None => Ok(()),
-                    })?;
-                    self.sync_views()?;
+                if p["type"] == "removed" {
+                    self.reconcile(json!({"address":address,"reason":"removed"}), seq)?;
                     continue;
                 }
                 let mut terminal = self.model.records[&id].facts.clone();
@@ -154,7 +144,14 @@ impl Session {
             return Ok(());
         };
         let ready = facts["state"] == "live" && facts["pid"].as_u64().is_some();
-        let completed = super::super::model::program_completed(&facts);
+        if super::super::app_layout::terminal_ended(&facts) {
+            // The App owns the shared layout and reconciles exited terminals
+            // itself. Drop the pane locally without writing its document.
+            self.model.remove(id);
+            self.snapshot_dirty = true;
+            self.sync_views()?;
+            return Ok(());
+        }
         let record = self
             .model
             .records
@@ -177,12 +174,9 @@ impl Session {
                 self.last_focus = None;
             }
         } else if self.views.get(&id).is_none_or(|v| v.closed) {
-            self.attach(id)?;
+            self.attach(id, self.model.focused() == Some(id))?;
             self.resize(self.size, self.cells.0, self.cells.1)?;
             self.focus()?;
-        }
-        if completed {
-            self.retire_completed_programs()?;
         }
         Ok(())
     }

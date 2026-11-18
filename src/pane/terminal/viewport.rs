@@ -1,8 +1,6 @@
 //! Resize recovery, scroll viewport and cursor presentation state.
 //! Preserve resize replay ordering and keep all terminal accesses under the same lock.
 
-use std::time::Instant;
-
 use bytes::Bytes;
 
 use super::read::{
@@ -10,8 +8,6 @@ use super::read::{
 };
 use super::{GhosttyPaneCore, GhosttyPaneTerminal, ScrollMetrics, TerminalCursorState};
 use crate::pane::cursor::DecscusrTracker;
-
-pub(super) const CURSOR_POSITION_SETTLE_ENABLED: bool = false;
 
 impl GhosttyPaneTerminal {
     pub fn resize(
@@ -141,8 +137,14 @@ impl GhosttyPaneTerminal {
 
     pub fn cursor_state(&self) -> Option<TerminalCursorState> {
         let mut core = self.core.lock().ok()?;
-        let current = current_cursor_state(&mut core);
-        effective_cursor_state(&mut core, current)
+        let GhosttyPaneCore {
+            terminal,
+            render_state,
+            decscusr_tracker,
+            ..
+        } = &mut *core;
+        render_state.update(terminal).ok()?;
+        cursor_state_from_render_state(render_state, decscusr_tracker)
     }
 }
 
@@ -160,28 +162,6 @@ pub(super) fn decscusr_cursor_shape(
         (crate::ghostty::CursorVisualStyle::Bar, true) => 5,
         (crate::ghostty::CursorVisualStyle::Bar, false) => 6,
     }
-}
-
-pub(super) fn effective_cursor_state(
-    core: &mut GhosttyPaneCore,
-    current: Option<TerminalCursorState>,
-) -> Option<TerminalCursorState> {
-    if !CURSOR_POSITION_SETTLE_ENABLED {
-        return current;
-    }
-    core.cursor_settle_state
-        .reported_cursor(current, Instant::now())
-}
-
-pub(super) fn current_cursor_state(core: &mut GhosttyPaneCore) -> Option<TerminalCursorState> {
-    let GhosttyPaneCore {
-        terminal,
-        render_state,
-        decscusr_tracker,
-        ..
-    } = core;
-    render_state.update(terminal).ok()?;
-    cursor_state_from_render_state(render_state, decscusr_tracker)
 }
 
 pub(super) fn cursor_state_from_render_state(

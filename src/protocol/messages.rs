@@ -892,7 +892,6 @@ pub struct ClientShellTab {
     pub number: usize,
     pub label: String,
     pub custom_label: bool,
-    pub zoomed: bool,
     pub focused: bool,
     #[serde(deserialize_with = "deserialize_client_shell_agent_status")]
     pub agent_status: crate::actions::AgentStatus,
@@ -951,22 +950,6 @@ pub struct PaneSurfaceScrollMetrics {
     pub offset_from_bottom: u64,
     pub max_offset_from_bottom: u64,
     pub viewport_rows: u64,
-}
-
-/// One draggable BSP split handle relative to a pane surface.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaneSurfaceSplit {
-    pub direction: PaneSurfaceSplitDirection,
-    pub pos: u16,
-    pub area: SurfaceRect,
-    pub hit_rect: SurfaceRect,
-    pub path: Vec<bool>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PaneSurfaceSplitDirection {
-    Horizontal,
-    Vertical,
 }
 
 /// Wire-safe rectangle relative to a pane surface.
@@ -1117,7 +1100,6 @@ pub struct PaneSurfaceFrame {
     pub surface_revision: u64,
     pub frame: FrameData,
     pub panes: Vec<PaneSurfacePane>,
-    pub splits: Vec<PaneSurfaceSplit>,
     pub graphics: SurfaceGraphicsScene,
 }
 

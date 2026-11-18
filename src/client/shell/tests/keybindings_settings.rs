@@ -33,7 +33,6 @@ fn tab_bar_renders_ellipses_and_clamps_to_useful_scroll() {
             number,
             label: number.to_string(),
             custom_label: false,
-            zoomed: false,
             focused: false,
             agent_status: AgentStatus::Idle,
         });
@@ -75,7 +74,6 @@ fn inactive_auto_named_tab_label_does_not_stack_terminal_faint() {
         number: 2,
         label: "beta".into(),
         custom_label: false,
-        zoomed: false,
         focused: false,
         agent_status: AgentStatus::Idle,
     });
@@ -169,8 +167,7 @@ fn prefix_core_action_uses_typed_request_with_stable_ids() {
 
 #[test]
 fn unavailable_endpoint_method_is_disabled_without_disconnect() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.set_endpoint_methods(Some(vec!["pane.focus".into()]));
     let mut outcome = ClientShellInput::default();
@@ -223,8 +220,7 @@ fn unavailable_endpoint_method_is_disabled_without_disconnect() {
 
 #[test]
 fn generic_endpoint_failures_and_control_errors_are_visible() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
         crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
@@ -279,8 +275,7 @@ fn generic_endpoint_failures_and_control_errors_are_visible() {
 
 #[test]
 fn non_paste_input_errors_are_not_labeled_as_paste_rejections() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     assert!(state.receive_endpoint_error("Input rejected: Core pane not found".into()));
     assert_eq!(
         state.visible_endpoint_notice.as_ref().unwrap().key.code,
@@ -295,8 +290,7 @@ fn non_paste_input_errors_are_not_labeled_as_paste_rejections() {
 
 #[test]
 fn endpoint_timeout_is_a_deduplicated_server_notice() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
         crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
@@ -332,8 +326,7 @@ fn endpoint_timeout_is_a_deduplicated_server_notice() {
 
 #[test]
 fn endpoint_notice_dedupe_resets_for_a_new_server_boot() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_endpoint_methods(Some(Vec::new()));
     let method = || {
         crate::actions::Action::WorkspaceFocus(crate::actions::WorkspaceTarget {
@@ -362,8 +355,7 @@ fn endpoint_notice_dedupe_resets_for_a_new_server_boot() {
 
 #[test]
 fn help_overlay_preserves_builtin_search_and_scroll_behavior() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     let mut open = ClientShellInput::default();
     state.record_binding(
@@ -442,42 +434,4 @@ fn help_overlay_preserves_builtin_search_and_scroll_behavior() {
     ));
     state.handle_input_bytes(b"?");
     assert!(state.overlay.is_none());
-}
-
-#[test]
-fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-
-    assert!(state.handle_input_bytes(&[0x02]).actions.is_empty());
-    assert!(state.handle_input_bytes(b"r").actions.is_empty());
-    assert_eq!(state.mode, ClientShellMode::Resize);
-
-    let modified = state.handle_input_bytes(b"\x1b[1;2D");
-    assert!(matches!(
-        &modified.actions[..],
-        [ClientShellAction::Endpoint { request, .. }]
-            if matches!(
-                &request.action,
-                crate::actions::Action::PaneResize(params)
-                    if params.direction == crate::actions::PaneDirection::Left
-            )
-    ));
-    assert_eq!(state.mode, ClientShellMode::Resize);
-
-    let resize = state.handle_input_bytes(b"h");
-    let [ClientShellAction::Endpoint { request, .. }] = &resize.actions[..] else {
-        panic!("resize should use endpoint API");
-    };
-    assert!(matches!(
-        &request.action,
-        crate::actions::Action::PaneResize(params)
-            if params.pane_id.as_deref() == Some("pane_1")
-                && params.direction == crate::actions::PaneDirection::Left
-    ));
-    assert_eq!(state.mode, ClientShellMode::Resize);
-
-    assert!(state.handle_input_bytes(b"\r").actions.is_empty());
-    assert_eq!(state.mode, ClientShellMode::Terminal);
 }

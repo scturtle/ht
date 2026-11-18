@@ -2,10 +2,11 @@ use super::*;
 use crate::actions::AgentStatus;
 use crate::protocol::{
     ClientShellAgent, ClientShellPane, ClientShellTab, ClientShellWorktree, PaneSurfacePane,
-    PaneSurfaceSplit, PaneSurfaceSplitDirection, SurfaceRect,
+    SurfaceRect,
 };
 use crossterm::event::MouseEvent;
 mod no_sidebar;
+mod pane_tabs;
 mod text_editing;
 
 pub(super) fn snapshot() -> ClientShellSnapshot {
@@ -39,7 +40,6 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
             number: 1,
             label: "1".into(),
             custom_label: false,
-            zoomed: false,
             focused: true,
             agent_status: AgentStatus::Idle,
         }],
@@ -97,9 +97,38 @@ fn surface() -> PaneSurfaceFrame {
             pixel_width: 0,
             pixel_height: 0,
         }],
-        splits: Vec::new(),
         graphics: crate::protocol::SurfaceGraphicsScene::default(),
     }
+}
+
+fn state_with_snapshot(snapshot: ClientShellSnapshot) -> ClientShellState {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot));
+    state
+}
+
+fn close_state(tab_count: usize) -> ClientShellState {
+    let mut projected = snapshot();
+    for number in 2..=tab_count {
+        let mut tab = projected.tabs[0].clone();
+        tab.tab_id = format!("tab_{number}");
+        tab.number = number;
+        tab.focused = false;
+        projected.tabs.push(tab);
+    }
+    let mut state = state_with_snapshot(projected);
+    state.set_pane_surface(surface());
+    state.compose(106, 24).unwrap();
+    state
+}
+
+fn click_close_menu_row(state: &mut ClientShellState, rect: Rect) -> ClientShellInput {
+    state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: rect.x,
+        row: rect.y,
+        modifiers: KeyModifiers::empty(),
+    })])
 }
 
 fn frame_rows(frame: &FrameData) -> Vec<String> {
@@ -190,7 +219,6 @@ fn copy_search_result(
 mod agents_worktrees_notifications;
 mod chrome_context;
 mod close_pane;
-mod close_tab;
 mod copy;
 mod dialogs;
 mod endpoint_requests;

@@ -1,4 +1,5 @@
 //! Core runtime mounted into the existing client loop, not a second TUI.
+mod app_layout;
 mod copy;
 mod effects;
 mod endpoint;
@@ -13,14 +14,13 @@ mod projection;
 mod scrollback_tests;
 mod session;
 mod shared;
-mod swap;
+mod tab_layout;
 #[cfg(test)]
 mod tests;
 mod transport;
 pub(in crate::client) mod view;
 mod wake;
 mod writer;
-mod zoom;
 
 use super::events::ClientLoopEvent;
 use crate::protocol::{ClientMessage, ServerMessage};
@@ -148,22 +148,8 @@ pub(super) fn prepare(
     config: &crate::config::Config,
 ) -> io::Result<(Box<Session>, Vec<String>)> {
     let mut session = Session::connect(options, size, cells, config)?;
-    // Explicit user startup, NOT connection/recovery: reuse the normal creation
-    // action when the previous session was fully closed. Never adopt old programs.
-    if session.model.records.is_empty() {
-        session.organization_action(crate::actions::Action::WorkspaceCreate(
-            crate::actions::WorkspaceCreateParams {
-                source_workspace_id: None,
-                cwd: None,
-                focus: true,
-                label: None,
-                env: Default::default(),
-            },
-        ))?;
-        session.sync_views()?;
-        session.save()?;
-    }
-    let endpoint_methods = methods::advertised(&session.core.hello);
+    session.seed_private_layout()?;
+    let endpoint_methods = session.advertised_methods();
     Ok((Box::new(session), endpoint_methods))
 }
 
@@ -237,7 +223,7 @@ fn run_connection(
         for message in session.publish()? {
             emit(events, message)?;
         }
-        if session.model.records.is_empty() {
+        if session.is_closed() {
             // Last-pane closure leaves the TUI, but never stops Core.
             emit(
                 events,
@@ -271,7 +257,7 @@ fn run_connection(
                     for reply in session.message(message)? {
                         emit(events, reply)?;
                     }
-                    if session.model.records.is_empty() {
+                    if session.is_closed() {
                         break;
                     }
                 }
@@ -390,7 +376,7 @@ pub(super) fn start(
                         if let Err(failed) = emit(
                             &events,
                             ServerMessage::ClientShellEndpointMethods {
-                                methods: methods::advertised(&session.core.hello),
+                                methods: session.advertised_methods(),
                             },
                         ) {
                             break Err(failed);

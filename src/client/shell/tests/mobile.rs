@@ -49,8 +49,11 @@ fn mobile_header_and_switcher_render_released_sections_and_stable_targets() {
         .collect::<String>();
     assert!(header_text.contains("client-shell"));
     assert!(header_text.contains("tab 1"));
-    assert!(header_text.contains("blocked"));
     assert!(header_text.contains("switch"));
+    assert!(frame_rows(&header)[1]
+        .split_whitespace()
+        .any(|word| word == "1"));
+    assert_eq!(state.hits.tabs[0].0.y, 1);
     assert_eq!(state.hits.mobile_switch, Rect::new(34, 0, 10, 2));
 
     let click = |rect: Rect| {
@@ -178,7 +181,6 @@ fn mobile_background_workspace_uses_its_own_active_tab_status() {
         number: 7,
         label: "logs".into(),
         custom_label: true,
-        zoomed: false,
         focused: false,
         agent_status: AgentStatus::Idle,
     });
@@ -203,7 +205,6 @@ fn mobile_background_workspace_uses_its_own_active_tab_status() {
             number,
             label: label.into(),
             custom_label: true,
-            zoomed: false,
             focused: false,
             agent_status: AgentStatus::Idle,
         });

@@ -41,9 +41,10 @@ pub(super) enum ClientMobileTarget {
 
 #[derive(Default)]
 pub(super) struct ShellHitMap {
+    // One rectangle per visible tab group for whole-tab drag/reorder.
     pub(super) tabs: Vec<(Rect, String)>,
+    pub(super) tab_panes: Vec<(Rect, String)>,
     pub(super) panes: Vec<PaneHit>,
-    pub(super) pane_splits: Vec<PaneSplitHit>,
     pub(super) new_tab: Rect,
     pub(super) tab_scroll_left: Rect,
     pub(super) tab_scroll_right: Rect,
@@ -81,16 +82,6 @@ pub(super) struct PaneHit {
     pub(super) pixel_height: u32,
 }
 
-#[derive(Clone)]
-pub(super) struct PaneSplitHit {
-    pub(super) direction: crate::protocol::PaneSurfaceSplitDirection,
-    pub(super) pos: u16,
-    pub(super) area: Rect,
-    pub(super) hit_rect: Rect,
-    pub(super) path: Vec<bool>,
-    pub(super) topology_signature: u64,
-}
-
 pub(super) struct ClientPaneMouseGesture {
     pub(super) hit: PaneHit,
     pub(super) button: crossterm::event::MouseButton,
@@ -101,6 +92,7 @@ pub(super) struct ClientPaneMouseGesture {
 
 pub(super) struct ClientTabPress {
     pub(super) tab_id: String,
+    pub(super) pane_id: Option<String>,
     pub(super) workspace_id: String,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
@@ -115,13 +107,6 @@ pub(super) enum ClientChromeDrag {
         tab_id: String,
         workspace_id: String,
         insert_index: Option<usize>,
-    },
-    PaneSplit {
-        hit: PaneSplitHit,
-        tab_id: String,
-        grab_offset: i32,
-        last_sent_ratio: Option<f32>,
-        last_sent_at: Option<std::time::Instant>,
     },
     PaneScrollbar {
         hit: PaneHit,
@@ -159,7 +144,6 @@ pub(super) enum ClientShellMode {
     Terminal,
     Prefix,
     Navigate,
-    Resize,
     Copy,
 }
 
@@ -238,12 +222,9 @@ pub(super) enum ClientContextMenuAction {
     NewTab,
     RenamePane,
     ClearPaneName,
-    SwapWithFocusedPane,
-    SplitRight,
-    SplitDown,
-    Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
+    RenameTab,
 }
 
 #[derive(Debug)]
@@ -259,7 +240,7 @@ pub(super) enum ClientContextMenuTarget {
     Pane {
         pane_id: String,
         workspace_id: String,
-        source_pane_id: Option<String>,
+        tab_group: Option<String>,
         has_manual_label: bool,
         right_click_passthrough: bool,
     },
@@ -388,18 +369,13 @@ pub(super) struct ClientVisibleNotification {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum ClientInputTarget {
-    Pane(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ClientInputContext {
     pub(super) mode: ClientShellMode,
     pub(super) overlay: Option<ClientShellOverlayKind>,
     pub(super) retained_selection: bool,
 }
 
-type ClientInputLeases = crate::input::InputLeaseTable<u8, ClientInputContext, ClientInputTarget>;
+type ClientInputLeases = crate::input::InputLeaseTable<u8, ClientInputContext, String>;
 
 #[derive(Clone, Debug)]
 pub(super) struct ClientPaneClick {
@@ -792,7 +768,6 @@ impl ClientShellState {
                         left.tab_id != right.tab_id
                             || left.workspace_id != right.workspace_id
                             || left.label != right.label
-                            || left.zoomed != right.zoomed
                     })
         });
         if tab_layout_changed
@@ -802,6 +777,19 @@ impl ClientShellState {
                 .as_deref()
                 .and_then(|current| current.focused_tab_id.as_deref())
                 != snapshot.focused_tab_id.as_deref()
+            || self.endpoint.snapshot.as_deref().is_some_and(|current| {
+                current.focused_pane_id != snapshot.focused_pane_id
+                    || current.panes.len() != snapshot.panes.len()
+                    || current
+                        .panes
+                        .iter()
+                        .zip(&snapshot.panes)
+                        .any(|(left, right)| {
+                            left.pane_id != right.pane_id
+                                || left.tab_id != right.tab_id
+                                || left.label != right.label
+                        })
+            })
         {
             self.reveal_focused_tab = true;
         }

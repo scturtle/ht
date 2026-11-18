@@ -9,7 +9,7 @@ mod scrollbar;
 mod status;
 mod text;
 pub(crate) mod widgets;
-pub(crate) use panes::{apply_pane_chrome, render_selection_highlight, zoomed_pane_info};
+pub(crate) use panes::render_selection_highlight;
 pub(crate) use scrollbar::{
     render_scrollbar_buffer, scrollbar_offset_from_drag_row, scrollbar_offset_from_row,
     scrollbar_thumb, scrollbar_thumb_grab_offset,

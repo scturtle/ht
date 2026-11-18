@@ -216,7 +216,6 @@ mod tests {
                 pixel_width: 0,
                 pixel_height: 0,
             }],
-            splits: Vec::new(),
             graphics: Default::default(),
         }
     }

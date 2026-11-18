@@ -128,8 +128,9 @@ impl ClientShellState {
             return None;
         }
         let layout = self.layout(cols, rows);
-        if self.last_tab_bar_width != Some(layout.tab_bar.width) {
-            self.last_tab_bar_width = Some(layout.tab_bar.width);
+        let chrome_width = layout.tab_bar.width.max(layout.mobile_header.width);
+        if self.last_tab_bar_width != Some(chrome_width) {
+            self.last_tab_bar_width = Some(chrome_width);
             self.reveal_focused_tab = true;
         }
         let tab_drag_insert_index = match &self.chrome_drag {
@@ -186,36 +187,6 @@ impl ClientShellState {
                 pixel_height: pane.pixel_height,
             })
             .collect();
-        let topology_signature = pane_surface_topology_signature(surface);
-        self.hits.pane_splits = surface
-            .splits
-            .iter()
-            .map(|split| PaneSplitHit {
-                direction: split.direction,
-                pos: match split.direction {
-                    crate::protocol::PaneSurfaceSplitDirection::Horizontal => {
-                        layout.pane_surface.x.saturating_add(split.pos)
-                    }
-                    crate::protocol::PaneSurfaceSplitDirection::Vertical => {
-                        layout.pane_surface.y.saturating_add(split.pos)
-                    }
-                },
-                area: Rect::new(
-                    layout.pane_surface.x.saturating_add(split.area.x),
-                    layout.pane_surface.y.saturating_add(split.area.y),
-                    split.area.width,
-                    split.area.height,
-                ),
-                hit_rect: Rect::new(
-                    layout.pane_surface.x.saturating_add(split.hit_rect.x),
-                    layout.pane_surface.y.saturating_add(split.hit_rect.y),
-                    split.hit_rect.width,
-                    split.hit_rect.height,
-                ),
-                path: split.path.clone(),
-                topology_signature,
-            })
-            .collect();
         let mode_bar_area = if layout.mobile_header.is_empty()
             && self.config.tab_bar_position == TabBarPositionConfig::Bottom
             && !layout.tab_bar.is_empty()
@@ -242,6 +213,7 @@ impl ClientShellState {
         };
         if mode_bar == Some(layout.tab_bar) {
             self.hits.tabs.clear();
+            self.hits.tab_panes.clear();
             self.hits.new_tab = Rect::default();
             self.hits.tab_scroll_left = Rect::default();
             self.hits.tab_scroll_right = Rect::default();
@@ -498,7 +470,6 @@ impl ClientShellState {
             }
             frame.replace_from_ratatui_buffer_preserving_effects(&composed, None);
             self.hits.panes.clear();
-            self.hits.pane_splits.clear();
         }
         restore_mode_bar(&mut frame, mode_bar, mode_bar_cells.as_deref());
         if let Some(bar) = mode_bar {
@@ -552,7 +523,6 @@ impl ClientShellState {
         if self.endpoint_status() != ClientEndpointStatus::Online {
             frame.cursor = None;
             self.hits.panes.clear();
-            self.hits.pane_splits.clear();
         }
         let graphics = self.compose_graphics(layout, &occlusion);
         Some(crate::client::frame_output::ComposedFrame { frame, graphics })

@@ -27,6 +27,7 @@ pub struct TabRenameParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabMoveParams {
     pub tab_id: String,
+    /// Zero-based gap in the visible tab order, before removing the source.
     pub insert_index: usize,
 }
 

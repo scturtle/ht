@@ -11,11 +11,10 @@ use super::render::{
     ghostty_cell_style, ghostty_color, ghostty_default_bg, ghostty_default_fg,
     ghostty_default_style, is_halfwidth_katakana_voiced_grapheme, PaletteOverrides,
 };
-use super::stream::{render_delay_after_pty_write, KITTY_GRAPHICS_REDRAW_SETTLE};
+use super::stream::KITTY_GRAPHICS_REDRAW_SETTLE;
 use super::text::{RetainedTextBuffer, TerminalTextMatch};
 use super::viewport::decscusr_cursor_shape;
 use super::*;
-use crate::pane::cursor::CURSOR_POSITION_SETTLE;
 use crate::protocol::CellData;
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
@@ -1728,7 +1727,7 @@ fn cursor_shape_tracker_handles_split_decscusr_sequences() {
 }
 
 #[test]
-fn cursor_state_uses_live_position_when_settle_policy_disabled() {
+fn cursor_state_reports_live_position_and_visibility_without_render_delay() {
     let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
     let pane = GhosttyPaneTerminal::new(terminal).unwrap();
     let pane_id = PaneId::from_raw(1);
@@ -1742,29 +1741,10 @@ fn cursor_state_uses_live_position_when_settle_policy_disabled() {
             .map(|cursor| (cursor.x, cursor.y, cursor.visible)),
         Some((20, 5, true))
     );
-}
 
-#[test]
-fn cursor_settle_policy_controls_render_delay() {
-    let delay = Some(CURSOR_POSITION_SETTLE);
-    assert_eq!(
-        render_delay_after_pty_write(false, false, delay, true),
-        delay
-    );
-    assert_eq!(
-        render_delay_after_pty_write(false, false, delay, false),
-        None
-    );
-    assert_eq!(
-        render_delay_after_pty_write(false, true, delay, false),
-        Some(KITTY_GRAPHICS_REDRAW_SETTLE)
-    );
-    assert_eq!(render_delay_after_pty_write(true, false, delay, true), None);
-    let jump_delay = Some(Duration::from_millis(100));
-    assert_eq!(
-        render_delay_after_pty_write(false, true, jump_delay, true),
-        jump_delay
-    );
+    let hidden = pane.process_pty_bytes(pane_id, b"\x1b[?25l");
+    assert_eq!(hidden.render_delay, None);
+    assert!(!pane.cursor_state().unwrap().visible);
 }
 
 #[test]
@@ -3327,13 +3307,16 @@ fn kitty_graphics_write_requests_render_with_settle_backstop() {
     let pane_terminal = GhosttyPaneTerminal::new(terminal).unwrap();
     let pane_id = PaneId::from_raw(1);
 
-    let result = pane_terminal.process_pty_bytes(
-        pane_id,
-        b"\x1b_Ga=T,f=32,t=d,i=7,p=1,s=1,v=1,q=2;/wAA/w==\x1b\\",
-    );
+    let image = b"\x1b_Ga=T,f=32,t=d,i=7,p=1,s=1,v=1,q=2;/wAA/w==\x1b\\";
+    let result = pane_terminal.process_pty_bytes(pane_id, image);
 
     assert!(result.request_render);
     assert_eq!(result.render_delay, Some(KITTY_GRAPHICS_REDRAW_SETTLE));
+
+    pane_terminal.process_pty_bytes(pane_id, b"\x1b[?2026h");
+    let synchronized = pane_terminal.process_pty_bytes(pane_id, image);
+    assert!(!synchronized.request_render);
+    assert_eq!(synchronized.render_delay, None);
 }
 
 #[test]

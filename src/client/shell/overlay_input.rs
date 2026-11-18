@@ -516,11 +516,4 @@ impl ClientShellState {
             outcome,
         );
     }
-
-    pub(super) fn request_tab_close(&mut self, tab_id: String, outcome: &mut ClientShellInput) {
-        self.push_endpoint_method(
-            crate::actions::Action::TabClose(crate::actions::TabTarget { tab_id }),
-            outcome,
-        );
-    }
 }

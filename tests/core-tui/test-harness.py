@@ -26,6 +26,17 @@ class HarnessTest(unittest.TestCase):
                 with self.assertRaises(AssertionError):H.stop_private_core(bad)
                 call.assert_not_called()
 
+    def test_shared_launch_path_keeps_default_in_owned_runtime(self):
+        env = H.isolated_env("/var/tmp/owned", "/var/tmp/owned/core")
+        env["HC_SESSION"] = "default"
+        self.assertNotIn("--core-session", H.argv(env, shared=True))
+        self.assertEqual(H.private_socket(env, shared=True),
+                         Path(env["XDG_RUNTIME_DIR"]) / "herdr-core/default.sock")
+        with patch.object(H.subprocess, "run") as call:
+            with self.assertRaises(AssertionError):
+                H.stop_private_core(dict(env, XDG_RUNTIME_DIR="/run/user/1000"), shared=True)
+            call.assert_not_called()
+
     def test_absent_socket_does_not_start_a_core(self):
         env=H.isolated_env("/var/tmp/owned","/var/tmp/owned/core")
         with patch.object(Path,"exists",return_value=False),patch.object(H.subprocess,"run") as call:

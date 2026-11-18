@@ -56,12 +56,15 @@ impl Session {
                 "terminal": address, "labels": {DISPLAY_NAME: label.unwrap_or_default()}
             }),
         )?;
-        if facts["address"] != address || facts["labels"]["herdr"] != "tui" {
-            return Err(invalid(
-                "Core renamed terminal identity or membership changed",
-            ));
+        if facts["address"] != address {
+            return Err(invalid("Core renamed terminal identity changed"));
         }
-        self.model.insert(facts)?;
+        self.model
+            .records
+            .get_mut(&id)
+            .ok_or_else(|| invalid("Core pane not found"))?
+            .facts = facts;
+        self.model.revision += 1;
         self.snapshot_dirty = true;
         Ok(actions::ActionResult::PaneInfo {
             pane: self.pane_info(id)?,

@@ -62,7 +62,7 @@ fn pane_context_menu(x: u16, y: u16, highlighted: usize) -> ClientContextMenuOve
         target: ClientContextMenuTarget::Pane {
             pane_id: "pane_1".into(),
             workspace_id: "ws_1".into(),
-            source_pane_id: None,
+            tab_group: None,
             has_manual_label: false,
             right_click_passthrough: false,
         },
@@ -216,8 +216,8 @@ fn menu_frames_keep_the_existing_cells_styles_and_row_hits() {
         );
     }
     // Frozen from the pre-refactor renderers; regenerate only for an explained
-    // visual change, never to hide a diff. Only global-menu hashes changed
-    // when the settings action was removed; all context-menu hashes stay fixed.
+    // visual change, never to hide a diff. Settings changed the global menu;
+    // retiring native actions removed the split and tab-close entries.
     assert_eq!(
         hashes,
         [
@@ -226,21 +226,21 @@ fn menu_frames_keep_the_existing_cells_styles_and_row_hits() {
             10335611173078272972,
             16516313914029720483,
             17610719380000164917,
-            12655346890250652373,
-            6664696300332186892,
-            14745777955461418564,
+            2548604356291958990,
+            5382289266281750124,
+            7352428443116133148,
             12679051088765218619,
-            17418703810515401257,
+            6979758321051042574,
             16340729584275160786,
             1869004341548720022,
             15975299008599594424,
             1042060000735657755,
             16063732747639853577,
-            17075867149867056739,
-            2806888640395350712,
-            1639763178814430318,
+            15928516754772226880,
+            10829983585831594832,
+            13821112714905745454,
             13341582256592687363,
-            14855942911886583819,
+            12359267749767982308,
         ]
     );
 }
@@ -360,8 +360,7 @@ fn context_highlighted(state: &ClientShellState) -> usize {
 }
 
 fn menu_state(width: u16, height: u16) -> ClientShellState {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(width, height).expect("shell frame");
     state
@@ -422,12 +421,7 @@ fn global_menu_keeps_jk_and_the_context_menu_keeps_only_arrow_keys() {
 #[test]
 fn context_menu_capability_refresh_drops_stale_rows_instead_of_rebinding_them() {
     let mut state = menu_state(106, 30);
-    state.set_endpoint_methods(Some(vec![
-        "pane.rename".into(),
-        "pane.split".into(),
-        "pane.zoom".into(),
-        "pane.close".into(),
-    ]));
+    state.set_endpoint_methods(Some(vec!["pane.rename".into(), "pane.close".into()]));
     state.open_pane_context_menu("pane_1".into(), 20, 6);
     assert_eq!(context_highlighted(&state), 0);
     state.compose(106, 30).expect("laid out menu rows");
@@ -435,12 +429,8 @@ fn context_menu_capability_refresh_drops_stale_rows_instead_of_rebinding_them() 
     assert!(!state.hits.context_menu_rows.is_empty());
 
     // The re-gated list no longer starts with pane.rename, so the old first row
-    // now covers "Split right". Its hits must be gone, not rebound.
-    assert!(state.set_endpoint_methods(Some(vec![
-        "pane.split".into(),
-        "pane.zoom".into(),
-        "pane.close".into(),
-    ])));
+    // now covers the right-click toggle. Its hits must be gone, not rebound.
+    assert!(state.set_endpoint_methods(Some(vec!["pane.close".into(),])));
     assert!(state.hits.context_menu_rows.is_empty());
     let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
         panic!("the menu stays open across the refresh");

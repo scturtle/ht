@@ -4,9 +4,11 @@ use base64::Engine as _;
 #[test]
 fn graphics_over_budget_finish_without_another_input_or_core_event() {
     let mut model = Model::new("budget-test".into());
-    let id = model
-        .insert(json!({"address":"test", "state":"live", "pid":7}))
-        .unwrap();
+    let id = model.add_test_tab(
+        "space",
+        "main",
+        [json!({"address":"test", "state":"live", "pid":7})],
+    )[0];
     let mut view = View::new(120, 40, 1).unwrap();
     // Two incompressible images fit individually, but not together, within the
     // real 30 MiB frame budget. Chunk the uploads exactly as a program would.
@@ -49,12 +51,12 @@ fn graphics_over_budget_finish_without_another_input_or_core_event() {
         views: HashMap::from([(id, view)]),
         channels: HashMap::new(),
         document_version: 1,
+        exit_when_empty: false,
         size: ClientSurfaceSize {
             cols: 120,
             rows: 40,
         },
         cells: (8, 16),
-        ui: view::ChromeConfig::from_config(&config),
         renderer,
         dirty: true,
         snapshot_dirty: true,

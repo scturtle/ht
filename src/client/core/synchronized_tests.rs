@@ -1,36 +1,24 @@
 //! Cross-layer atomic-paint regressions: real parser/renderer, mock Core sink.
 use super::*;
 use crate::client::core::transport::{DATA, RESIZE};
+use ratatui::layout::Rect;
 use std::time::Duration;
 
 fn fixture(count: usize) -> (Session, Vec<PaneId>) {
     let mut model = Model::new("synchronized-test".into());
-    let ids = (0..count)
-        .map(|i| {
-            model
-                .insert(json!({
-                    "address":format!("p{i}"), "state":"live", "pid":7+i
-                }))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    model.focus(ids[0]).unwrap();
+    let ids = model.add_test_tab(
+        "space",
+        "main",
+        (0..count).map(|i| json!({"address":format!("p{i}"), "state":"live", "pid":7+i})),
+    );
     let config = crate::config::Config::default();
-    let ui = view::ChromeConfig::from_config(&config);
-    let infos = view::pane_infos(&model, Rect::new(0, 0, 80, 24));
-    let views = infos
+    let views = ids
         .iter()
-        .map(|p| {
-            let channel = ids.iter().position(|id| *id == p.id).unwrap() as u32 + 1;
-            (
-                p.id,
-                View::new(
-                    p.inner_rect.width.max(1),
-                    p.inner_rect.height.max(1),
-                    channel,
-                )
-                .unwrap(),
-            )
+        .enumerate()
+        .map(|(index, id)| {
+            let mut view = View::new(80, 24, index as u32 + 1).unwrap();
+            view.visible = index == 0;
+            (*id, view)
         })
         .collect::<HashMap<_, _>>();
     let channels = views.iter().map(|(id, v)| (v.channel, *id)).collect();
@@ -47,9 +35,9 @@ fn fixture(count: usize) -> (Session, Vec<PaneId>) {
             views,
             channels,
             document_version: 1,
+            exit_when_empty: false,
             size: ClientSurfaceSize { cols: 80, rows: 24 },
             cells: (8, 16),
-            ui,
             renderer,
             dirty: true,
             snapshot_dirty: true,
@@ -233,37 +221,38 @@ fn pending_dirty_cannot_publish_synchronized_intermediate_clear() {
 }
 
 #[test]
-fn synchronized_pane_does_not_block_other_panes_or_snapshot_revisions() {
+fn synchronized_pane_does_not_block_switching_to_another_pane_or_snapshot_revisions() {
     let (mut s, ids) = fixture(2);
     data(&mut s, ids[0], b"FIRST_COMMITTED");
     data(&mut s, ids[1], b"SECOND_OLD");
     let before = surface(&mut s).unwrap();
     data(&mut s, ids[0], b"\x1b[?2026h\x1b[2J\x1b[HFIRST_PARTIAL");
-    data(&mut s, ids[1], b"\rSECOND_NEW");
+    assert!(surface(&mut s).is_none());
+    s.dirty = true; // A forced compose must still use the committed pane.
     let held = surface(&mut s).unwrap();
     assert!(text(&held).contains("FIRST_COMMITTED"));
     assert!(!text(&held).contains("FIRST_PARTIAL"));
-    assert!(text(&held).contains("SECOND_NEW"));
     assert_eq!(
-        held.panes
-            .iter()
-            .find(|p| p.pane_id == "p0")
-            .unwrap()
-            .content_revision,
-        before
-            .panes
-            .iter()
-            .find(|p| p.pane_id == "p0")
-            .unwrap()
-            .content_revision
+        held.panes[0].content_revision,
+        before.panes[0].content_revision
     );
     s.model.revision += 1;
     s.snapshot_dirty = true;
     let metadata = surface(&mut s).unwrap();
     assert_eq!(metadata.projection_revision, s.model.revision);
     assert_eq!(metadata.frame, held.frame);
+
+    s.model.focus(ids[1]).unwrap();
+    s.views.get_mut(&ids[0]).unwrap().visible = false;
+    s.views.get_mut(&ids[1]).unwrap().visible = true;
+    data(&mut s, ids[1], b"\rSECOND_NEW");
+    let selected = surface(&mut s).unwrap();
+    assert_eq!(selected.panes.len(), 1);
+    assert_eq!(selected.panes[0].pane_id, "p1");
+    assert!(text(&selected).contains("SECOND_NEW"));
+    assert!(!text(&selected).contains("FIRST"));
     data(&mut s, ids[0], b"\x1b[?2026l");
-    assert!(text(&surface(&mut s).unwrap()).contains("FIRST_PARTIAL"));
+    assert!(surface(&mut s).is_none());
 }
 
 #[test]
@@ -435,10 +424,9 @@ fn synchronized_hidden_output_keeps_early_exit_and_reveal_uses_completed_content
     data(&mut s, ids[0], b"FIRST_OLD");
     data(&mut s, ids[1], b"SECOND_ONLY");
     surface(&mut s).unwrap();
-    let tab = s.model.active_tab().unwrap().to_owned();
     s.model.focus(ids[1]).unwrap();
-    s.model.zoomed_tabs.insert(tab.clone());
     s.views.get_mut(&ids[0]).unwrap().visible = false;
+    s.views.get_mut(&ids[1]).unwrap().visible = true;
     s.dirty = true;
     assert!(text(&surface(&mut s).unwrap()).contains("SECOND_ONLY"));
     data(&mut s, ids[0], b"\x1b[?2026h\x1b[2J\x1b[HFIRST_FINISHED");
@@ -446,8 +434,8 @@ fn synchronized_hidden_output_keeps_early_exit_and_reveal_uses_completed_content
     data(&mut s, ids[0], b"\x1b[?2026l");
     assert!(surface(&mut s).is_none());
     assert!(s.synchronized_deadline.is_none());
-    s.model.zoomed_tabs.remove(&tab);
     s.model.focus(ids[0]).unwrap();
+    s.views.get_mut(&ids[1]).unwrap().visible = false;
     s.views.get_mut(&ids[0]).unwrap().visible = true;
     s.dirty = true;
     assert!(text(&surface(&mut s).unwrap()).contains("FIRST_FINISHED"));
@@ -501,16 +489,16 @@ fn reserved_graphics_slots_do_not_upload_or_spin_on_unrepresentable_assets() {
 }
 
 #[test]
-fn synchronized_image_moves_and_clips_with_latest_pane_geometry() {
-    let (mut s, ids) = fixture(2);
-    let id = ids[1];
+fn synchronized_image_clips_and_restores_with_latest_pane_geometry() {
+    let (mut s, ids) = fixture(1);
+    let id = ids[0];
     data(
         &mut s,
         id,
-        b"\x1b[1;18H\x1b_Ga=T,f=32,i=1,p=1,s=1,v=1,c=4,r=1,q=2;/wAA/w==\x1b\\",
+        b"\x1b[1;39H\x1b_Ga=T,f=32,i=1,p=1,s=1,v=1,c=4,r=1,q=2;/wAA/w==\x1b\\",
     );
     let before = surface(&mut s).unwrap();
-    assert_eq!(before.graphics.placements[0].x, 58);
+    assert_eq!(before.graphics.placements[0].x, 38);
     data(&mut s, id, b"\x1b[?2026h\x1b[2J\x1b_Ga=d,d=A,q=2;\x1b\\");
     s.consume(Frame {
         channel: s.views[&id].channel,

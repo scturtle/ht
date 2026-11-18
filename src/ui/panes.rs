@@ -1,53 +1,10 @@
 use super::widgets::panel_contrast_fg;
-use crate::layout::PaneInfo;
 use crate::ui::Palette;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, Borders},
 };
-pub(crate) fn pane_inner_rect(area: Rect, borders: Borders) -> Rect {
-    if borders.is_empty() {
-        area
-    } else {
-        Block::default().borders(borders).inner(area)
-    }
-}
-
-/// A zoomed pane fills the surface; all split dividers are hidden.
-pub(crate) fn zoomed_pane_info(id: crate::layout::PaneId, area: Rect) -> PaneInfo {
-    PaneInfo {
-        id,
-        rect: area,
-        inner_rect: area,
-        borders: Borders::NONE,
-        is_focused: true,
-    }
-}
-
-/// Shared inner dividers only: no outer frame, gaps, or scrollbar columns.
-pub(crate) fn apply_pane_chrome(panes: Vec<PaneInfo>) -> Vec<PaneInfo> {
-    let outer_left = panes.iter().map(|info| info.rect.x).min().unwrap_or(0);
-    let outer_top = panes.iter().map(|info| info.rect.y).min().unwrap_or(0);
-    panes
-        .into_iter()
-        .map(|mut info| {
-            let mut borders = Borders::NONE;
-            // Each divider is owned by the pane to its right or below.
-            if info.rect.x > outer_left {
-                borders.insert(Borders::LEFT);
-            }
-            if info.rect.y > outer_top {
-                borders.insert(Borders::TOP);
-            }
-            info.borders = borders;
-            info.inner_rect = pane_inner_rect(info.rect, borders);
-            info
-        })
-        .collect()
-}
-
 pub(crate) fn render_selection_highlight<P: PartialEq>(
     selection: Option<&crate::selection::Selection<P>>,
     buffer: &mut Buffer,
@@ -176,62 +133,5 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
         Color::White => Some((255, 255, 255)),
         Color::Rgb(r, g, b) => Some((r, g, b)),
         Color::Indexed(_) => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::layout::TileLayout;
-    use ratatui::layout::Direction;
-
-    #[test]
-    fn single_and_zoomed_panes_fill_the_area_without_a_frame() {
-        let (layout, id) = TileLayout::new();
-        for area in [Rect::new(0, 0, 80, 24), Rect::new(3, 5, 1, 1)] {
-            let panes = apply_pane_chrome(layout.panes(area));
-            assert_eq!(panes.len(), 1);
-            assert_eq!(panes[0].rect, area);
-            assert_eq!(panes[0].inner_rect, area);
-            assert_eq!(panes[0].borders, Borders::NONE);
-            let zoomed = zoomed_pane_info(id, area);
-            assert_eq!(zoomed.inner_rect, area);
-            assert_eq!(zoomed.borders, Borders::NONE);
-        }
-        assert!(apply_pane_chrome(Vec::new()).is_empty());
-    }
-
-    #[test]
-    fn nested_splits_have_one_inner_divider_and_no_gaps_or_outer_frame() {
-        for first_direction in [Direction::Horizontal, Direction::Vertical] {
-            let (mut layout, _) = TileLayout::new();
-            layout.split_focused(first_direction);
-            layout.split_focused(match first_direction {
-                Direction::Horizontal => Direction::Vertical,
-                Direction::Vertical => Direction::Horizontal,
-            });
-            let area = Rect::new(3, 5, 80, 24);
-            let original = layout.panes(area);
-            let panes = apply_pane_chrome(original.clone());
-            for (pane, before) in panes.iter().zip(&original) {
-                assert_eq!(pane.rect, before.rect, "chrome must not introduce gaps");
-                assert_eq!(pane.id, before.id);
-                assert_eq!(pane.is_focused, before.is_focused);
-                let left = u16::from(pane.rect.x > area.x);
-                let top = u16::from(pane.rect.y > area.y);
-                assert_eq!(pane.borders.contains(Borders::LEFT), left != 0);
-                assert_eq!(pane.borders.contains(Borders::TOP), top != 0);
-                assert!(!pane.borders.intersects(Borders::RIGHT | Borders::BOTTOM));
-                assert_eq!(
-                    pane.inner_rect,
-                    Rect::new(
-                        pane.rect.x + left,
-                        pane.rect.y + top,
-                        pane.rect.width - left,
-                        pane.rect.height - top,
-                    )
-                );
-            }
-        }
     }
 }

@@ -49,8 +49,7 @@ fn selection_repaint_cadence_does_not_leave_work_after_another_composition() {
 
 #[test]
 fn selection_release_copies_latest_position_before_deferred_paint() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("pane frame");
     let pane = state.hits.panes[0].clone();
@@ -81,8 +80,7 @@ fn selection_release_copies_latest_position_before_deferred_paint() {
 
 #[test]
 fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("pane frame");
     let pane = state.hits.panes[0].clone();
@@ -181,8 +179,7 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
 
 #[test]
 fn ctrl_click_without_a_link_replays_the_original_gesture() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("pane frame");
     let pane = state.hits.panes[0].clone();
@@ -219,92 +216,6 @@ fn ctrl_click_without_a_link_replays_the_original_gesture() {
             if matches!(request.action, crate::actions::Action::PaneFocus(_))
     ));
     assert!(state.selection.is_some());
-}
-
-#[test]
-fn pane_split_drag_uses_projected_handle_and_stable_tab_path() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
-    let mut pane_surface = surface();
-    pane_surface.splits.push(PaneSurfaceSplit {
-        direction: PaneSurfaceSplitDirection::Horizontal,
-        pos: 40,
-        area: SurfaceRect {
-            x: 0,
-            y: 0,
-            width: 80,
-            height: 19,
-        },
-        hit_rect: SurfaceRect {
-            x: 40,
-            y: 0,
-            width: 1,
-            height: 19,
-        },
-        path: vec![false, true],
-    });
-    state.set_pane_surface(pane_surface);
-    state.compose(106, 20).expect("split pane surface");
-    let split = state.hits.pane_splits[0].clone();
-
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: split.hit_rect.x,
-        row: split.hit_rect.y + 2,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(matches!(
-        state.chrome_drag,
-        Some(ClientChromeDrag::PaneSplit { .. })
-    ));
-    let mut replacement = snapshot();
-    replacement.revision = 2;
-    let mut replacement_surface = surface();
-    replacement_surface.projection_revision = 2;
-    replacement_surface.splits.push(PaneSurfaceSplit {
-        direction: PaneSurfaceSplitDirection::Horizontal,
-        pos: 40,
-        area: SurfaceRect {
-            x: 0,
-            y: 0,
-            width: 80,
-            height: 19,
-        },
-        hit_rect: SurfaceRect {
-            x: 40,
-            y: 0,
-            width: 1,
-            height: 19,
-        },
-        path: vec![false, true],
-    });
-    state.set_snapshot(Box::new(replacement));
-    state.set_pane_surface(replacement_surface);
-    let drag = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Drag(MouseButton::Left),
-        column: split.area.x + 48,
-        row: split.hit_rect.y + 2,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    let [ClientShellAction::Endpoint { request, .. }] = &drag.actions[..] else {
-        panic!("pane split drag should use endpoint API");
-    };
-    assert!(matches!(
-        &request.action,
-        crate::actions::Action::LayoutSetSplitRatio(params)
-            if params.tab_id.as_deref() == Some("tab_1")
-                && params.path == vec![false, true]
-                && (params.ratio - 0.6).abs() < f32::EPSILON
-    ));
-    let release =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: split.area.x + 48,
-            row: split.hit_rect.y + 2,
-            modifiers: KeyModifiers::empty(),
-        })]);
-    assert!(release.actions.is_empty());
-    assert!(state.chrome_drag.is_none());
 }
 
 #[test]
@@ -684,8 +595,7 @@ fn double_click_drag_autoscroll_keeps_absolute_word_anchor() {
 
 #[test]
 fn pane_content_updates_preserve_live_ranges_until_geometry_or_screen_changes() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let surface_at = |surface_revision, content_revision, alternate_screen_active| {
         let mut pane_surface = surface();
         pane_surface.surface_revision = surface_revision;
@@ -783,8 +693,7 @@ fn pane_content_updates_preserve_live_ranges_until_geometry_or_screen_changes() 
 
 #[test]
 fn pane_mouse_input_keeps_stable_target_and_endpoint_encoding() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut pane_surface = surface();
     pane_surface.panes[0].mouse_reporting = true;
     state.set_pane_surface(pane_surface);
@@ -847,8 +756,7 @@ fn pane_mouse_input_keeps_stable_target_and_endpoint_encoding() {
 
 #[test]
 fn pane_pixel_mouse_preserves_pane_relative_pixel_coordinates() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     let mut pane_surface = surface();
     pane_surface.panes[0].mouse_reporting = true;
     pane_surface.panes[0].sgr_pixel_mouse = true;
@@ -1085,8 +993,7 @@ fn tab_drag_clears_its_drop_target_after_leaving_the_tab_row() {
 
 #[test]
 fn tab_wheel_switches_tabs_without_changing_overflow_scroll() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("tab bar");
     let tab = state.hits.tabs[0].0;
@@ -1113,8 +1020,7 @@ fn tab_wheel_switches_tabs_without_changing_overflow_scroll() {
 
 #[test]
 fn context_menu_keyboard_and_outside_click_are_client_owned() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+    let mut state = state_with_snapshot(snapshot());
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("composed frame");
     let tab = state.hits.tabs[0].0;

@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Clear, Paragraph, Widget},
 };
 
-use super::render::{display_width, put_segment, put_text};
+use super::render::{display_width, put_text};
 use super::*;
 
 const MOBILE_BUTTON_WIDTH: u16 = 10;
@@ -68,7 +68,7 @@ pub(super) fn render_mobile_header(
     );
     hits.mobile_switch = button;
     let status_width = button.x.saturating_sub(area.x).saturating_sub(1);
-    let status = Rect::new(area.x, area.y, status_width, area.height);
+    let status = Rect::new(area.x, area.y, status_width, 1);
     render_header_status(buffer, status, snapshot, config);
     render_header_button(buffer, button, snapshot, config);
 }
@@ -134,14 +134,6 @@ fn render_header_status(
         &tab_status,
         Style::default().fg(palette.overlay1).bg(palette.panel_bg),
     );
-    if area.height > 1 {
-        render_agent_summary(
-            buffer,
-            Rect::new(area.x, area.y + 1, area.width, 1),
-            snapshot,
-            config,
-        );
-    }
 }
 
 fn render_header_button(
@@ -229,133 +221,6 @@ fn compact_tab_status(snapshot: &ClientShellSnapshot, workspace: &ClientShellWor
         format!("tab {label}")
     } else {
         format!("tab {label} · {}/{}", active + 1, tabs.len())
-    }
-}
-
-fn render_agent_summary(
-    buffer: &mut Buffer,
-    area: Rect,
-    snapshot: &ClientShellSnapshot,
-    config: &ClientShellConfig,
-) {
-    use crate::actions::AgentStatus;
-    let counts = [
-        (AgentStatus::Blocked, "blocked"),
-        (AgentStatus::Done, "done"),
-        (AgentStatus::Working, "working"),
-        (AgentStatus::Idle, "idle"),
-    ]
-    .map(|(status, label)| {
-        (
-            status,
-            label,
-            snapshot
-                .agents
-                .iter()
-                .filter(|agent| agent.agent_status == status)
-                .count(),
-        )
-    });
-    let total = counts.iter().map(|(_, _, count)| count).sum::<usize>();
-    let pending = counts[..3].iter().map(|(_, _, count)| count).sum::<usize>();
-    if total == 0 {
-        put_text(
-            buffer,
-            area.x,
-            area.y,
-            area.width,
-            " no agents",
-            Style::default()
-                .fg(config.palette.overlay1)
-                .bg(config.palette.panel_bg),
-        );
-        return;
-    }
-    if pending == 0 {
-        put_text(
-            buffer,
-            area.x,
-            area.y,
-            area.width,
-            " all idle",
-            Style::default()
-                .fg(config.palette.overlay1)
-                .bg(config.palette.panel_bg),
-        );
-        return;
-    }
-
-    let mut x = area.x.saturating_add(1);
-    let mut shown = 0usize;
-    let mut omitted = false;
-    for (status, label, count) in counts {
-        if count == 0 {
-            continue;
-        }
-        let symbol = match (config.status_indicators, status) {
-            (crate::config::StatusIndicatorStyle::Dots, AgentStatus::Blocked) => Some("◉"),
-            (crate::config::StatusIndicatorStyle::Dots, AgentStatus::Done) => Some("●"),
-            (crate::config::StatusIndicatorStyle::Dots, _) => None,
-            _ => Some(status_icon(status, config.status_indicators)),
-        };
-        let text = symbol.map_or_else(
-            || format!("{count} {label}"),
-            |symbol| format!("{symbol} {count} {label}"),
-        );
-        let separator = if shown == 0 { "" } else { " · " };
-        let needed = display_width(separator).saturating_add(display_width(&text));
-        if area.right().saturating_sub(x) < needed {
-            omitted = true;
-            break;
-        }
-        if !separator.is_empty() {
-            x = put_segment(
-                buffer,
-                x,
-                area.y,
-                area.right(),
-                separator,
-                Style::default()
-                    .fg(config.palette.overlay0)
-                    .bg(config.palette.panel_bg),
-            );
-        }
-        let color = if shown == 0 {
-            match status {
-                AgentStatus::Done => config.palette.blue,
-                _ => status_color(status, &config.palette),
-            }
-        } else {
-            config.palette.overlay1
-        };
-        x = put_segment(
-            buffer,
-            x,
-            area.y,
-            area.right(),
-            &text,
-            Style::default()
-                .fg(color)
-                .bg(config.palette.panel_bg)
-                .add_modifier(if shown == 0 {
-                    Modifier::BOLD
-                } else {
-                    Modifier::empty()
-                }),
-        );
-        shown += 1;
-    }
-    if omitted && area.right().saturating_sub(x) >= 2 {
-        put_text(
-            buffer,
-            x,
-            area.y,
-            2,
-            " …",
-            Style::default()
-                .fg(config.palette.overlay0)
-                .bg(config.palette.panel_bg),
-        );
     }
 }
 
@@ -911,10 +776,8 @@ impl ClientShellState {
         use crossterm::event::{MouseButton, MouseEventKind};
         let point = (mouse.column, mouse.row);
         if self.mode != ClientShellMode::Navigate {
-            if matches!(
-                self.mode,
-                ClientShellMode::Terminal | ClientShellMode::Resize
-            ) && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+            if self.mode == ClientShellMode::Terminal
+                && mouse.kind == MouseEventKind::Down(MouseButton::Left)
                 && super::contains(self.hits.mobile_switch, point)
             {
                 self.mobile_switcher_scroll = 0;

@@ -3,6 +3,7 @@ use std::{collections::BTreeSet, num::NonZeroUsize};
 use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
+use super::key_fields::key_fields;
 use super::{
     BindingConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
     DEFAULT_SCROLLBACK_LIMIT_LINES,
@@ -180,203 +181,76 @@ pub struct LoadedConfig {
     pub invalid_sections: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct KeysConfig {
-    /// Prefix key(s) to enter prefix mode (e.g. "ctrl+b", "f12", "esc", or an
-    /// array to accept several).
-    pub prefix: BindingConfig,
-    /// Open keybinding help. Default: "prefix+?"
-    pub help: BindingConfig,
-    /// Create a new workspace. Default: "prefix+shift+n"
-    pub new_workspace: BindingConfig,
-    /// Rename the selected workspace. Default: "prefix+shift+w"
-    pub rename_workspace: BindingConfig,
-    /// Close the selected workspace. Default: "prefix+shift+d"
-    pub close_workspace: BindingConfig,
-    /// Open the workspace navigation surface. Default: "prefix+w"
-    pub workspace_picker: BindingConfig,
-    /// Open the session navigator. Default: "prefix+g"
-    pub goto: BindingConfig,
-    /// Move workspace selection up in navigate mode. Default: "up".
-    pub navigate_workspace_up: BindingConfig,
-    /// Move workspace selection down in navigate mode. Default: "down".
-    pub navigate_workspace_down: BindingConfig,
-    /// Focus the pane to the left in navigate mode. Default: "h". Left arrow is always an alias.
-    pub navigate_pane_left: BindingConfig,
-    /// Focus the pane below in navigate mode. Default: "j".
-    pub navigate_pane_down: BindingConfig,
-    /// Focus the pane above in navigate mode. Default: "k".
-    pub navigate_pane_up: BindingConfig,
-    /// Focus the pane to the right in navigate mode. Default: "l". Right arrow is always an alias.
-    pub navigate_pane_right: BindingConfig,
-    /// Detach the current client from its Herdr server. Default: "prefix+q".
-    pub detach: BindingConfig,
-    /// Reload config.toml in the running app/server. Default: "prefix+shift+r".
-    pub reload_config: BindingConfig,
-    /// Focus the currently visible notification target. Default: "prefix+o".
-    pub open_notification_target: BindingConfig,
-    /// Select the previous workspace. Unset by default.
-    pub previous_workspace: BindingConfig,
-    /// Select the next workspace. Unset by default.
-    pub next_workspace: BindingConfig,
-    /// Focus the previous agent shown in the agent panel. Unset by default.
-    pub previous_agent: BindingConfig,
-    /// Focus the next agent shown in the agent panel. Unset by default.
-    pub next_agent: BindingConfig,
-    /// Focus an agent by index 1-9. Unset by default.
-    pub focus_agent: BindingConfig,
-    /// Local-client shortcut that sends a clipboard image to a remote Herdr session. Default: "ctrl+v".
-    pub remote_image_paste: String,
-    /// Create a new tab in the active workspace. Default: "prefix+c"
-    pub new_tab: BindingConfig,
-    /// Rename the active tab. Default: "prefix+shift+t".
-    pub rename_tab: BindingConfig,
-    /// Select the previous tab. Default: "prefix+p".
-    pub previous_tab: BindingConfig,
-    /// Select the next tab. Default: "prefix+n".
-    pub next_tab: BindingConfig,
-    /// Move the active tab one position toward the front. Unset by default.
-    pub move_tab_previous: BindingConfig,
-    /// Move the active tab one position toward the back. Unset by default.
-    pub move_tab_next: BindingConfig,
-    /// Switch to tab 1-9. Default: "prefix+1..9".
-    pub switch_tab: BindingConfig,
-    /// Switch to workspace 1-9 from prefix mode. Unset by default.
-    pub switch_workspace: BindingConfig,
-    /// Close the active tab. Default: "prefix+shift+x".
-    pub close_tab: BindingConfig,
-    /// Rename the focused pane. Default: "prefix+shift+p".
-    pub rename_pane: BindingConfig,
-    /// Open the focused pane scrollback in $EDITOR. Default: "prefix+e".
-    pub edit_scrollback: BindingConfig,
-    pub clear_pane: BindingConfig,
-    /// Enter keyboard copy mode for the focused pane. Default: "prefix+[".
-    pub copy_mode: BindingConfig,
-    /// Focus the pane to the left. Default: "prefix+h".
-    pub focus_pane_left: BindingConfig,
-    /// Focus the pane below. Default: "prefix+j".
-    pub focus_pane_down: BindingConfig,
-    /// Focus the pane above. Default: "prefix+k".
-    pub focus_pane_up: BindingConfig,
-    /// Focus the pane to the right. Default: "prefix+l".
-    pub focus_pane_right: BindingConfig,
-    /// Swap the focused pane with the pane to the left. Default: "prefix+shift+h".
-    pub swap_pane_left: BindingConfig,
-    /// Swap the focused pane with the pane below. Default: "prefix+shift+j".
-    pub swap_pane_down: BindingConfig,
-    /// Swap the focused pane with the pane above. Default: "prefix+shift+k".
-    pub swap_pane_up: BindingConfig,
-    /// Swap the focused pane with the pane to the right. Default: "prefix+shift+l".
-    pub swap_pane_right: BindingConfig,
-    /// Cycle to the next pane. Default: "prefix+tab".
-    pub cycle_pane_next: BindingConfig,
-    /// Cycle to the previous pane. Default: "prefix+shift+tab".
-    pub cycle_pane_previous: BindingConfig,
-    /// Focus the last focused pane across workspaces and tabs. Unset by default.
-    pub last_pane: BindingConfig,
-    /// Split pane vertically (side by side). Default: "prefix+v"
-    pub split_vertical: BindingConfig,
-    /// Split pane horizontally (stacked). Default: "prefix+minus"
-    pub split_horizontal: BindingConfig,
-    /// Close the focused pane. Default: "prefix+x"
-    pub close_pane: BindingConfig,
-    /// Toggle zoom for the focused pane. Default: "prefix+z"
-    #[serde(alias = "fullscreen")]
-    pub zoom: BindingConfig,
-    /// Enter resize mode. Default: "prefix+r"
-    pub resize_mode: BindingConfig,
-    /// Resize the focused pane toward the left. Unset by default.
-    pub resize_pane_left: BindingConfig,
-    /// Resize the focused pane downward. Unset by default.
-    pub resize_pane_down: BindingConfig,
-    /// Resize the focused pane upward. Unset by default.
-    pub resize_pane_up: BindingConfig,
-    /// Resize the focused pane toward the right. Unset by default.
-    pub resize_pane_right: BindingConfig,
-    /// Optional indexed shortcuts expanded over number keys 1-9.
-    pub indexed: IndexedKeysConfig,
-    #[serde(skip_serializing)]
-    pub(crate) user_fields: BTreeSet<&'static str>,
+macro_rules! define_keys_config {
+    ((); $( $section:ident {
+        $( $(#[$attr:meta])* $field:ident: $ty:ty = $default:expr => $kind:ident $(($target:ident))?; )*
+    } )*) => {
+        #[derive(Debug, Clone, Serialize)]
+        pub struct KeysConfig {
+            /// Prefix key(s) to enter prefix mode (e.g. "ctrl+b", "f12", "esc", or an
+            /// array to accept several).
+            pub prefix: BindingConfig,
+            $($( $(#[$attr])* pub $field: $ty, )*)*
+            /// Optional indexed shortcuts expanded over number keys 1-9.
+            pub indexed: IndexedKeysConfig,
+            #[serde(skip_serializing)]
+            pub(crate) user_fields: BTreeSet<&'static str>,
+        }
+
+        impl Default for KeysConfig {
+            fn default() -> Self {
+                Self {
+                    prefix: BindingConfig::one("ctrl+b"),
+                    $($( $field: $default, )*)*
+                    indexed: IndexedKeysConfig::default(),
+                    user_fields: BTreeSet::new(),
+                }
+            }
+        }
+
+        #[derive(Debug, Default, Deserialize)]
+        #[serde(default)]
+        struct KeysConfigOverlay {
+            prefix: Option<BindingConfig>,
+            // Legacy additional prefixes, merged with the main prefix setting.
+            extra_prefixes: Option<BindingConfig>,
+            $($( $(#[$attr])* $field: Option<$ty>, )*)*
+            indexed: Option<IndexedKeysConfig>,
+        }
+
+        impl KeysConfigOverlay {
+            fn apply_fields(self, keys: &mut KeysConfig) {
+                $($(
+                    if let Some(value) = self.$field {
+                        keys.$field = value;
+                        keys.user_fields.insert(stringify!($field));
+                    }
+                )*)*
+                if let Some(indexed) = self.indexed {
+                    keys.indexed = indexed;
+                    keys.user_fields.insert("indexed");
+                }
+            }
+        }
+    };
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-struct KeysConfigOverlay {
-    prefix: Option<BindingConfig>,
-    /// Legacy additional prefixes, merged with the main prefix setting.
-    extra_prefixes: Option<BindingConfig>,
-    help: Option<BindingConfig>,
-    new_workspace: Option<BindingConfig>,
-    rename_workspace: Option<BindingConfig>,
-    close_workspace: Option<BindingConfig>,
-    workspace_picker: Option<BindingConfig>,
-    goto: Option<BindingConfig>,
-    navigate_workspace_up: Option<BindingConfig>,
-    navigate_workspace_down: Option<BindingConfig>,
-    navigate_pane_left: Option<BindingConfig>,
-    navigate_pane_down: Option<BindingConfig>,
-    navigate_pane_up: Option<BindingConfig>,
-    navigate_pane_right: Option<BindingConfig>,
-    detach: Option<BindingConfig>,
-    reload_config: Option<BindingConfig>,
-    open_notification_target: Option<BindingConfig>,
-    previous_workspace: Option<BindingConfig>,
-    next_workspace: Option<BindingConfig>,
-    previous_agent: Option<BindingConfig>,
-    next_agent: Option<BindingConfig>,
-    focus_agent: Option<BindingConfig>,
-    remote_image_paste: Option<String>,
-    new_tab: Option<BindingConfig>,
-    rename_tab: Option<BindingConfig>,
-    previous_tab: Option<BindingConfig>,
-    next_tab: Option<BindingConfig>,
-    move_tab_previous: Option<BindingConfig>,
-    move_tab_next: Option<BindingConfig>,
-    switch_tab: Option<BindingConfig>,
-    switch_workspace: Option<BindingConfig>,
-    close_tab: Option<BindingConfig>,
-    rename_pane: Option<BindingConfig>,
-    edit_scrollback: Option<BindingConfig>,
-    clear_pane: Option<BindingConfig>,
-    copy_mode: Option<BindingConfig>,
-    focus_pane_left: Option<BindingConfig>,
-    focus_pane_down: Option<BindingConfig>,
-    focus_pane_up: Option<BindingConfig>,
-    focus_pane_right: Option<BindingConfig>,
-    swap_pane_left: Option<BindingConfig>,
-    swap_pane_down: Option<BindingConfig>,
-    swap_pane_up: Option<BindingConfig>,
-    swap_pane_right: Option<BindingConfig>,
-    cycle_pane_next: Option<BindingConfig>,
-    cycle_pane_previous: Option<BindingConfig>,
-    last_pane: Option<BindingConfig>,
-    split_vertical: Option<BindingConfig>,
-    split_horizontal: Option<BindingConfig>,
-    close_pane: Option<BindingConfig>,
-    #[serde(alias = "fullscreen")]
-    zoom: Option<BindingConfig>,
-    resize_mode: Option<BindingConfig>,
-    resize_pane_left: Option<BindingConfig>,
-    resize_pane_down: Option<BindingConfig>,
-    resize_pane_up: Option<BindingConfig>,
-    resize_pane_right: Option<BindingConfig>,
-    indexed: Option<IndexedKeysConfig>,
-}
+key_fields!(define_keys_config);
 
 impl<'de> Deserialize<'de> for KeysConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let input = KeysConfigOverlay::deserialize(deserializer)?;
+        let mut input = KeysConfigOverlay::deserialize(deserializer)?;
         let mut keys = KeysConfig::default();
 
         let prefix_was_supplied = input.prefix.is_some() || input.extra_prefixes.is_some();
         let mut prefix_values = Vec::new();
-        if let Some(prefix) = input.prefix {
+        if let Some(prefix) = input.prefix.take() {
             prefix_values.extend(prefix.into_values());
         }
-        if let Some(extra) = input.extra_prefixes {
+        if let Some(extra) = input.extra_prefixes.take() {
             prefix_values.extend(extra.into_values());
         }
         if prefix_was_supplied {
@@ -390,71 +264,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
             keys.user_fields.insert("prefix");
         }
 
-        macro_rules! apply_field {
-            ($field:ident) => {
-                if let Some(value) = input.$field {
-                    keys.$field = value;
-                    keys.user_fields.insert(stringify!($field));
-                }
-            };
-        }
-
-        apply_field!(help);
-        apply_field!(new_workspace);
-        apply_field!(rename_workspace);
-        apply_field!(close_workspace);
-        apply_field!(workspace_picker);
-        apply_field!(goto);
-        apply_field!(navigate_workspace_up);
-        apply_field!(navigate_workspace_down);
-        apply_field!(navigate_pane_left);
-        apply_field!(navigate_pane_down);
-        apply_field!(navigate_pane_up);
-        apply_field!(navigate_pane_right);
-        apply_field!(detach);
-        apply_field!(reload_config);
-        apply_field!(open_notification_target);
-        apply_field!(previous_workspace);
-        apply_field!(next_workspace);
-        apply_field!(previous_agent);
-        apply_field!(next_agent);
-        apply_field!(focus_agent);
-        apply_field!(remote_image_paste);
-        apply_field!(new_tab);
-        apply_field!(rename_tab);
-        apply_field!(previous_tab);
-        apply_field!(next_tab);
-        apply_field!(move_tab_previous);
-        apply_field!(move_tab_next);
-        apply_field!(switch_tab);
-        apply_field!(switch_workspace);
-        apply_field!(close_tab);
-        apply_field!(rename_pane);
-        apply_field!(edit_scrollback);
-        apply_field!(clear_pane);
-        apply_field!(copy_mode);
-        apply_field!(focus_pane_left);
-        apply_field!(focus_pane_down);
-        apply_field!(focus_pane_up);
-        apply_field!(focus_pane_right);
-        apply_field!(swap_pane_left);
-        apply_field!(swap_pane_down);
-        apply_field!(swap_pane_up);
-        apply_field!(swap_pane_right);
-        apply_field!(cycle_pane_next);
-        apply_field!(cycle_pane_previous);
-        apply_field!(last_pane);
-        apply_field!(split_vertical);
-        apply_field!(split_horizontal);
-        apply_field!(close_pane);
-        apply_field!(zoom);
-        apply_field!(resize_mode);
-        apply_field!(resize_pane_left);
-        apply_field!(resize_pane_down);
-        apply_field!(resize_pane_up);
-        apply_field!(resize_pane_right);
-        apply_field!(indexed);
-
+        input.apply_fields(&mut keys);
         Ok(keys)
     }
 }
@@ -513,70 +323,6 @@ pub struct AdvancedConfig {
     /// Physical history rows retained per client pane, approximately (whole-page pruning).
     /// Default: 1000. Zero disables history. Applied when the client starts.
     pub scrollback_limit_lines: u32,
-}
-
-impl Default for KeysConfig {
-    fn default() -> Self {
-        Self {
-            prefix: BindingConfig::one("ctrl+b"),
-            help: BindingConfig::one("prefix+?"),
-            new_workspace: BindingConfig::one("prefix+shift+n"),
-            rename_workspace: BindingConfig::one("prefix+shift+w"),
-            close_workspace: BindingConfig::one("prefix+shift+d"),
-            workspace_picker: BindingConfig::one("prefix+w"),
-            goto: BindingConfig::one("prefix+g"),
-            navigate_workspace_up: BindingConfig::one("up"),
-            navigate_workspace_down: BindingConfig::one("down"),
-            navigate_pane_left: BindingConfig::one("h"),
-            navigate_pane_down: BindingConfig::one("j"),
-            navigate_pane_up: BindingConfig::one("k"),
-            navigate_pane_right: BindingConfig::one("l"),
-            detach: BindingConfig::one("prefix+q"),
-            reload_config: BindingConfig::one("prefix+shift+r"),
-            open_notification_target: BindingConfig::one("prefix+o"),
-            previous_workspace: BindingConfig::empty(),
-            next_workspace: BindingConfig::empty(),
-            previous_agent: BindingConfig::empty(),
-            next_agent: BindingConfig::empty(),
-            focus_agent: BindingConfig::empty(),
-            remote_image_paste: "ctrl+v".into(),
-            new_tab: BindingConfig::one("prefix+c"),
-            rename_tab: BindingConfig::one("prefix+shift+t"),
-            previous_tab: BindingConfig::one("prefix+p"),
-            next_tab: BindingConfig::one("prefix+n"),
-            move_tab_previous: BindingConfig::empty(),
-            move_tab_next: BindingConfig::empty(),
-            switch_tab: BindingConfig::one("prefix+1..9"),
-            switch_workspace: BindingConfig::empty(),
-            close_tab: BindingConfig::one("prefix+shift+x"),
-            rename_pane: BindingConfig::one("prefix+shift+p"),
-            edit_scrollback: BindingConfig::one("prefix+e"),
-            clear_pane: BindingConfig::default(),
-            copy_mode: BindingConfig::one("prefix+["),
-            focus_pane_left: BindingConfig::one("prefix+h"),
-            focus_pane_down: BindingConfig::one("prefix+j"),
-            focus_pane_up: BindingConfig::one("prefix+k"),
-            focus_pane_right: BindingConfig::one("prefix+l"),
-            swap_pane_left: BindingConfig::one("prefix+shift+h"),
-            swap_pane_down: BindingConfig::one("prefix+shift+j"),
-            swap_pane_up: BindingConfig::one("prefix+shift+k"),
-            swap_pane_right: BindingConfig::one("prefix+shift+l"),
-            cycle_pane_next: BindingConfig::one("prefix+tab"),
-            cycle_pane_previous: BindingConfig::one("prefix+shift+tab"),
-            last_pane: BindingConfig::empty(),
-            split_vertical: BindingConfig::one("prefix+v"),
-            split_horizontal: BindingConfig::one("prefix+minus"),
-            close_pane: BindingConfig::one("prefix+x"),
-            zoom: BindingConfig::one("prefix+z"),
-            resize_mode: BindingConfig::one("prefix+r"),
-            resize_pane_left: BindingConfig::empty(),
-            resize_pane_down: BindingConfig::empty(),
-            resize_pane_up: BindingConfig::empty(),
-            resize_pane_right: BindingConfig::empty(),
-            indexed: IndexedKeysConfig::default(),
-            user_fields: BTreeSet::new(),
-        }
-    }
 }
 
 impl Default for UiConfig {
