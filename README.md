@@ -14,7 +14,7 @@ A working installation needs **two binaries**, built independently:
 
 | Component | Sources | Zig | Output |
 |---|---|---|---|
-| Client (`ht`) | this workspace + libghostty-vt `vt-1.0.0` | 0.17.x | `target/release/ht` |
+| Client (`ht`) | this workspace + libghostty-vt `vt-1.0.0` | 0.17.0 | `target/release/ht` |
 | Core (`hc`) | herdr-core | 0.16.0 | `.local/hc/bin/herdr-core` |
 
 ### 1. Prepare dependencies
@@ -27,12 +27,10 @@ with `cargo install` into `~/.local/bin` kept on `PATH`.
 
 ### 2. Prepare the two Zig toolchains
 
-The client uses Zig 0.17.x and Core uses Zig 0.16.0, because they vendor
-different Ghostty sources; the newer Zig cannot build Core, whose embedded
-Ghostty rejects any other minor version. Install both side by side as
-`.local/toolchain/zig/<version>/`, then point `ZIG` at the client one. Core's
-build ignores `ZIG` and always uses `.local/toolchain/zig/0.16.0/zig`, failing
-with a clear message when that file is missing.
+The client and Core use different Zig versions because they vendor different
+Ghostty sources. Install both toolchains side by side: `just` sets `ZIG` to
+`.local/toolchain/zig/0.17.0/zig` for the client, so no shell export is needed.
+Core's build ignores `ZIG` and always uses `.local/toolchain/zig/0.16.0/zig`.
 
 ### 3. Build the client and Core
 

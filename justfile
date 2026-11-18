@@ -2,6 +2,9 @@
 
 python := "python3"
 
+# Client toolchain. build-core selects its own Zig 0.16.0 independently.
+export ZIG := justfile_directory() / ".local/toolchain/zig/0.17.0/zig"
+
 # Fetch and verify the pinned libghostty-vt source archive (~64 MB extracted)
 vendor-libghostty:
     {{python}} scripts/fetch_libghostty_vt.py
