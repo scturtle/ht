@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('sync_harness', ROOT / 'tests/core-tui/harness.py')
 UI = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(UI)
-BINARY = Path(os.environ.get('CORE_UI_HERDR', ROOT / 'target/release/ht')).resolve()
+BINARY = UI.HERDR
 ORACLE = Path(os.environ.get('CORE_UI_ORACLE', ROOT / 'tests/core-tui/target/debug/screen-oracle'))
 END = b'\x1b[?2026l'
 OLD = 'BASELINE_STABLE_'

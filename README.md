@@ -10,11 +10,13 @@ A personal, Linux-only fork of [Herdr](https://github.com/herdrdev/herdr), using
 
 ## Build
 
-A working installation needs **two binaries**, built independently:
+A working installation needs **two binaries**, built independently. The build
+recipes target static musl on the host architecture (`x86_64` or `aarch64`),
+so neither binary requires glibc at runtime.
 
 | Component | Sources | Zig | Output |
 |---|---|---|---|
-| Client (`ht`) | this workspace + libghostty-vt `vt-1.0.0` | 0.17.0 | `target/release/ht` |
+| Client (`ht`) | this workspace + libghostty-vt `vt-1.0.0` | 0.17.0 | `target/<arch>-unknown-linux-musl/release/ht` |
 | Core (`hc`) | herdr-core | 0.16.0 | `.local/hc/bin/herdr-core` |
 
 ### 1. Prepare dependencies
@@ -23,7 +25,12 @@ Install Rust 1.100.0 with clippy and rustfmt through
 [rustup](https://rustup.rs/) (`rust-toolchain.toml` pins the channel), a libclang
 shared library for bindgen (`LIBCLANG_PATH` if it is not auto-detected), and
 `just`, which drives every build recipe, plus `cargo-nextest` for `just test`,
-with `cargo install` into `~/.local/bin` kept on `PATH`.
+with `cargo install` into `~/.local/bin` kept on `PATH`. From the repository
+root, add the musl standard library for the pinned toolchain:
+
+```sh
+rustup target add "$(uname -m)-unknown-linux-musl"
+```
 
 ### 2. Prepare the two Zig toolchains
 
@@ -38,6 +45,9 @@ Core's build ignores `ZIG` and always uses `.local/toolchain/zig/0.16.0/zig`.
 just build        # client: fetch verified libghostty-vt sources, then build ht
 just build-core   # Core: fetch, patch, build and atomically publish herdr-core
 ```
+
+When invoking Cargo directly for the client, pass
+`--target "$(uname -m)-unknown-linux-musl"` to select the same target.
 
 ### 4. Install (optional)
 
@@ -54,7 +64,8 @@ published `hc/bin/herdr-core`). Client Cargo outputs stay in `target/`.
 ## Run
 
 ```sh
-HERDR_CORE_BIN="$PWD/.local/hc/bin/herdr-core" ./target/release/ht
+HERDR_CORE_BIN="$PWD/.local/hc/bin/herdr-core" \
+  "./target/$(uname -m)-unknown-linux-musl/release/ht"
 ```
 
 With both binaries on `PATH` (via `just install`), launch with `ht`. It

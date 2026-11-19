@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -130,8 +131,9 @@ def main():
     # Cargo build scripts do not necessarily fingerprint an external Ghostty
     # tree when the workspace path changes. Never reuse native artifacts from
     # another patched source bundle (even when crate versions are unchanged).
-    target = CACHE / "work" / "artifacts" / source.name
-    env["CARGO_TARGET_DIR"] = str(target)
+    artifacts = CACHE / "work" / "artifacts" / source.name
+    env["CARGO_TARGET_DIR"] = str(artifacts)
+    target = f"{platform.machine()}-unknown-linux-musl"
     # Core's embedded Ghostty rejects any other minor Zig version, and the
     # caller's ZIG is meant for the client. Never fall back to PATH: a 0.17 there
     # would fail deep inside the build instead of here.
@@ -141,7 +143,7 @@ def main():
             "(see README) or the build cannot run"
         )
     env["ZIG"] = str(CORE_ZIG)
-    command = ["cargo", "build" if args.action == "build" else "test", "--locked"]
+    command = ["cargo", args.action, "--locked", "--target", target]
     if args.action == "build":
         command += ["-p", "herdr-core"]
         if not args.debug:
@@ -151,14 +153,13 @@ def main():
         raise RuntimeError("build/test modified pinned sources; inspect before reuse")
     if args.action == "build":
         profile = "debug" if args.debug else "release"
-        name = "herdr-core.exe" if os.name == "nt" else "herdr-core"
-        output = CACHE / "bin" / name
+        output = CACHE / "bin" / "herdr-core"
         output.parent.mkdir(parents=True, exist_ok=True)
-        fd, pending = tempfile.mkstemp(prefix=name + "-", dir=output.parent)
+        fd, pending = tempfile.mkstemp(prefix=output.name + "-", dir=output.parent)
         os.close(fd)
         pending = Path(pending)
         try:
-            shutil.copy2(target / profile / name, pending)
+            shutil.copy2(artifacts / target / profile / output.name, pending)
             pending.replace(output)  # Never expose a partial or failed build.
         finally:
             pending.unlink(missing_ok=True)

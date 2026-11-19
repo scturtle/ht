@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import platform
 import pty
 import select
 import shutil
@@ -28,7 +29,8 @@ class LauncherTests(unittest.TestCase):
         tools = self.root / ".local/toolchain"
         tools.mkdir(parents=True)
         self.executable(tools / "just", "#!/bin/sh\nexit 0\n")
-        self.executable(self.root / "target/release/ht", '''#!/usr/bin/env python3
+        target = f"{platform.machine()}-unknown-linux-musl"
+        self.executable(self.root / "target" / target / "release/ht", '''#!/usr/bin/env python3
 import json, os, sys
 print(json.dumps({"stdin_tty": os.isatty(0), "stdout_tty": os.isatty(1),
                   "argv": sys.argv[1:],

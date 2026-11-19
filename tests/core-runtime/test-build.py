@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Pinned-source preparation contracts, using tiny local archives and no runtime."""
+"""Pinned Core build contracts, using tiny local archives and no runtime."""
 import hashlib
 import json
+import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -52,6 +54,39 @@ class SourcePreparationTests(unittest.TestCase):
         source = Path(prepared.stdout.strip())
         self.assertEqual((source / "README").read_text(), "new\n")
         self.assertIn("patching file", prepared.stderr)
+
+    def test_build_publishes_the_musl_artifact_instead_of_a_stale_host_build(self):
+        tools = self.root / ".local/toolchain"
+        zig = tools / "zig/0.16.0/zig"
+        zig.parent.mkdir(parents=True)
+        zig.touch()
+        cargo = tools / "cargo"
+        cargo.write_text(f"#!{sys.executable}\n" + '''\
+import os
+from pathlib import Path
+import sys
+
+args = sys.argv[1:]
+assert args[0] == "build" and "--locked" in args and "--release" in args
+assert args[args.index("-p") + 1] == "herdr-core"
+assert Path(os.environ["ZIG"]) == Path(sys.argv[0]).with_name("zig") / "0.16.0/zig"
+artifacts = Path(os.environ["CARGO_TARGET_DIR"])
+target = args[args.index("--target") + 1]
+for prefix, payload in [(artifacts, "stale host build"), (artifacts / target, target)]:
+    out = prefix / "release/herdr-core"
+    out.parent.mkdir(parents=True)
+    out.write_text(payload)
+    out.chmod(0o755)
+''')
+        cargo.chmod(0o755)
+        env = dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}")
+        built = subprocess.run([sys.executable, str(self.builder), "build"], env=env,
+                               capture_output=True, text=True, timeout=15)
+        self.assertEqual(built.returncode, 0, built.stderr)
+        output = self.root / ".local/hc/bin/herdr-core"
+        self.assertEqual(built.stdout.strip(), str(output))
+        self.assertEqual(output.read_text(), f"{platform.machine()}-unknown-linux-musl")
+        self.assertTrue(os.access(output, os.X_OK))
 
     def test_cached_prepare_is_stable_and_never_discards_edits(self):
         prepared = self.prepare()

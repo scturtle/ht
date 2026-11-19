@@ -16,7 +16,9 @@ SHA-256. `build.py` checks downloads, applies the listed patches with zero fuzz,
 and verifies a complete source digest before and after building/testing. It
 refuses to replace edited prepared sources. Inputs are source-reproducible;
 binaries are not promised bit-identical across different toolchains. Use the
-project's Rust toolchain and Zig 0.16.0.
+project's Rust toolchain and Zig 0.16.0. Both `build` and `test` use the host
+architecture's `*-unknown-linux-musl` target; install it from the repository
+root with `rustup target add "$(uname -m)-unknown-linux-musl"`.
 
 - Downloaded archives: `.local/hc/downloads/`
 - Prepared sources: `.local/hc/work/prepared/<bundle-id>/`

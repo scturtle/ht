@@ -352,9 +352,10 @@ Core 使用独立 runtime dir，不自动配置 systemd/linger；不承诺注销
 直接使用构建好的二进制时：
 
 ```sh
-just build-core
+just build build-core
 HERDR_CORE_BIN="$PWD/.local/hc/bin/herdr-core" \
-  target/release/ht --core-home /absolute/path/to/a-private-core-home --core-session private-demo
+  "target/$(uname -m)-unknown-linux-musl/release/ht" \
+  --core-home /absolute/path/to/a-private-core-home --core-session private-demo
 ```
 
 `HERDR_CORE_BIN` 默认是 PATH 上的 `herdr-core`。Core home 只能由 `--core-home` 指定，

@@ -8,7 +8,7 @@ restored collector end to end and is not full migration acceptance.
 """
 import base64
 import json
-from harness import isolated_env, private_socket, stop_private_core
+from harness import HC, HERDR, isolated_env, private_socket, stop_private_core
 import os
 from pathlib import Path
 import select
@@ -21,10 +21,6 @@ import time
 import fcntl
 import pty
 import termios
-
-ROOT = Path(__file__).resolve().parents[2]
-HERDR = Path(os.environ.get("CORE_UI_HERDR", ROOT / "target/release/ht")).resolve()
-HC = Path(os.environ.get("CORE_TUI_HC", ROOT / ".local/hc/bin/herdr-core")).resolve()
 
 # 1x1 RGBA, red. The protocol needs the whole frame in one direct transmission.
 PIXEL = base64.b64encode(bytes([255, 0, 0, 255])).decode()

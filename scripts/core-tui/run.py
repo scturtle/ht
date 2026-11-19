@@ -3,6 +3,7 @@
 import hashlib
 import os
 from pathlib import Path
+import platform
 import sys
 root = Path(sys.argv[1])
 hc = Path(os.environ.get('CORE_TUI_HC', root / '.local/hc/bin/herdr-core')).resolve()
@@ -36,5 +37,6 @@ if config and Path(config).resolve() == (root / 'scripts/core-tui/try-config.tom
     print('Trial keys: Ctrl+b or F12 prefix; prefix+p/n switch panes; prefix+q or F10 detach.', flush=True)
 else:
     print('An outer Herdr/tmux may capture the same prefix. Optional trial config: scripts/core-tui/try-config.toml', flush=True)
-os.execve(root / 'target/release/ht',
+target = f'{platform.machine()}-unknown-linux-musl'
+os.execve(root / 'target' / target / 'release/ht',
           ['ht', '--core-home', str(home), '--core-session', session_name], env)

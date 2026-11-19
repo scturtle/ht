@@ -15,7 +15,7 @@ migration acceptance.
 """
 import fcntl
 import json
-from harness import isolated_env, private_socket, stop_private_core
+from harness import HC, HERDR, isolated_env, private_socket, stop_private_core
 import os
 import pty
 from pathlib import Path
@@ -25,12 +25,6 @@ import subprocess
 import tempfile
 import termios
 import time
-
-ROOT = Path(__file__).resolve().parents[2]
-HERDR = Path(os.environ.get("CORE_UI_HERDR", ROOT / "target/release/ht")).resolve()
-HC = Path(
-    os.environ.get("CORE_TUI_HC", ROOT / ".local/hc/bin/herdr-core")
-).resolve()
 
 # A planned restart brings Core back in well under a second; the explicit-stop
 # early exit only fires after this long with nothing listening.

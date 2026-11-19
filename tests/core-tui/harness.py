@@ -3,6 +3,7 @@
 import fcntl
 import os
 from pathlib import Path
+import platform
 import pty
 import select
 import signal
@@ -12,7 +13,8 @@ import termios
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-HERDR = Path(os.environ.get("CORE_UI_HERDR", ROOT / "target/release/ht")).resolve()
+MUSL_TARGET = f"{platform.machine()}-unknown-linux-musl"
+HERDR = Path(os.environ.get("CORE_UI_HERDR", ROOT / "target" / MUSL_TARGET / "release/ht")).resolve()
 HC = Path(os.environ.get("CORE_TUI_HC", ROOT / ".local/hc/bin/herdr-core")).resolve()
 
 

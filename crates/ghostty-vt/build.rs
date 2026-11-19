@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 mod build_support;
 use build_support::SourcePin;
@@ -139,15 +139,57 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+// Ask Zig for the headers it uses for this musl target. Bindgen's default
+// Clang search can pick up the host's glibc headers or fail to find stdint.h.
+fn with_musl_headers(builder: bindgen::Builder, zig: &str, target: &str) -> bindgen::Builder {
+    let probe = Command::new(zig)
+        .args([
+            "cc",
+            "-target",
+            target,
+            "-E",
+            "-Xclang",
+            "-v",
+            "-x",
+            "c",
+            "/dev/null",
+        ])
+        .env("LC_ALL", "C")
+        .stdout(Stdio::null())
+        .output()
+        .unwrap_or_else(|err| panic!("could not run {zig:?} to find musl headers: {err}"));
+    let report = String::from_utf8_lossy(&probe.stderr);
+    assert!(
+        probe.status.success(),
+        "Zig musl header probe failed: {report}"
+    );
+    let dirs = report
+        .split_once("#include <...> search starts here:\n")
+        .and_then(|(_, rest)| rest.split_once("End of search list."))
+        .map(|(dirs, _)| dirs.trim())
+        .filter(|dirs| !dirs.is_empty())
+        .unwrap_or_else(|| panic!("Zig did not report musl include paths for {target}: {report}"));
+    dirs.lines().fold(
+        builder.detect_include_paths(false).clang_arg("-nostdinc"),
+        |builder, dir| builder.clang_args(["-isystem", dir.trim()]),
+    )
+}
+
 /// Generate the FFI declarations from the patched headers actually used by the
 /// build. Doing this here instead of checking in a generated file keeps the Rust
 /// declarations and the linked archive from drifting apart: a patch that changes
 /// the C API can no longer leave a stale, silently unsound binding behind.
-fn generate_bindings(staged: &Path, out_dir: &Path) {
+fn generate_bindings(staged: &Path, out_dir: &Path, zig: &str, target: &str) {
     let include = staged.join("include");
     let header = include.join("ghostty").join("vt.h");
     println!("cargo:rerun-if-changed={}", include.display());
-    let bindings = bindgen::Builder::default()
+    let builder = bindgen::Builder::default();
+    let builder = if target.ends_with("-linux-musl") {
+        with_musl_headers(builder, zig, target)
+    } else {
+        builder
+    };
+    let bindings = builder
         .header(header.display().to_string())
         .allowlist_type("Ghostty.*")
         .allowlist_function("ghostty_.*")
@@ -207,6 +249,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SIMD");
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_ZIG_SYSTEM_DIR");
     println!("cargo:rerun-if-env-changed=ZIG");
+    println!("cargo:rerun-if-env-changed=ZIG_LIB_DIR");
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_WINDOWS_LIBC");
 
     let optimize = env::var("LIBGHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
@@ -221,10 +264,9 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     // The fetched tree stays pristine; each build owns its patched staging tree.
     let vendored_dir = stage_patched_source(&source_dir, &patch_dir, &out_dir, &pin);
-    generate_bindings(&vendored_dir, &out_dir);
-    let zig_prefix = out_dir.join("zig-out");
-
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".into());
+    generate_bindings(&vendored_dir, &out_dir, &zig, zig_target);
+    let zig_prefix = out_dir.join("zig-out");
     let mut command = Command::new(&zig);
     command
         .arg("build")

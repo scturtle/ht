@@ -1,6 +1,8 @@
 # herdr task runner (personal Core-only Linux build)
 
 python := "python3"
+musl_target := arch() + "-unknown-linux-musl"
+ht_release := justfile_directory() / "target" / musl_target / "release/ht"
 
 # Client toolchain. build-core selects its own Zig 0.16.0 independently.
 export ZIG := justfile_directory() / ".local/toolchain/zig/0.17.0/zig"
@@ -12,7 +14,7 @@ vendor-libghostty:
 # Unit and contract tests (needs cargo-nextest, see README)
 test:
     {{python}} tests/core-tui/test-harness.py
-    cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
+    cargo nextest run --locked --target {{musl_target}} --status-level fail --final-status-level fail --failure-output final --success-output never
     just arch-test
     just vendor-test
 
@@ -26,7 +28,7 @@ vendor-test:
 
 # Run one nextest filter, e.g. `just test-one codex_stale_working`
 test-one filter:
-    cargo nextest run --locked "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
+    cargo nextest run --locked --target {{musl_target}} "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
 
 # Build the pinned local Core; never installs and never restarts a running Core.
 build-core:
@@ -56,46 +58,46 @@ core-launcher-test:
 [unix]
 lint:
     cargo fmt --check
-    cargo clippy --all-targets --locked -- -D warnings
+    cargo clippy --all-targets --locked --target {{musl_target}} -- -D warnings
 
 # Everything a pre-commit needs: lint, unit tests and contract tests
 check: lint test
 
-# Build the ht release binary (fetches the pinned libghostty-vt sources first)
+# Build the static ht release binary (fetches the pinned libghostty-vt sources first)
 [unix]
 build: vendor-libghostty
-    cargo build --release --locked
+    cargo build --release --locked --target {{musl_target}} --bin ht
 
 # Link the release binaries into ~/.local/bin so `ht` and `herdr-core` run from anywhere.
 # Existing `hc` aliases point at the `herdr-core` link, so they follow the rebuild.
 install: build build-core
     @mkdir -p ~/.local/bin
-    @ln -sf "{{justfile_directory()}}/target/release/ht" ~/.local/bin/ht
+    @ln -sf "{{ht_release}}" ~/.local/bin/ht
     @ln -sf "{{justfile_directory()}}/.local/hc/bin/herdr-core" ~/.local/bin/herdr-core
-    @echo "ht         -> {{justfile_directory()}}/target/release/ht"
+    @echo "ht         -> {{ht_release}}"
     @echo "herdr-core -> {{justfile_directory()}}/.local/hc/bin/herdr-core"
     @echo "hc         -> herdr-core (existing alias)"
 
 # Profile one visible pane as active-tab membership and background tabs scale
 bench-render-scale:
-    cargo test --release --locked --bin ht render_scale_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --target {{musl_target}} --bin ht render_scale_profile -- --ignored --nocapture --test-threads=1
 
 # Test-only stage clocks; no profiling checks or timers enter production rendering.
 bench-render-stages:
-    cargo test --release --locked --bin ht render_stage_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --target {{musl_target}} --bin ht render_stage_profile -- --ignored --nocapture --test-threads=1
 
 # Profile terminal target name resolution at increasing pane counts.
 bench-terminal-targets:
-    cargo test --release --locked --bin ht terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --target {{musl_target}} --bin ht terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
 
 # Profile full and retained text, static-image, and unchanged-image updates.
 bench-retained-graphics:
-    cargo test --release --locked --bin ht render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --target {{musl_target}} --bin ht render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
 
 # Profile first-batch latency and aggregate drain cost for external API bursts.
 bench-api-fairness:
-    cargo test --release --locked --bin ht external_api_burst_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --target {{musl_target}} --bin ht external_api_burst_profile -- --ignored --nocapture --test-threads=1
 
 # Print default config
 default-config:
-    cargo run --release --locked -- --default-config
+    cargo run --release --locked --target {{musl_target}} -- --default-config
