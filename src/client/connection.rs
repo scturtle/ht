@@ -12,11 +12,6 @@ pub(crate) enum ClientEndpointStatus {
     Reconnecting,
 }
 
-pub(crate) struct ConnectionFailure {
-    pub(crate) generation: u64,
-    pub(crate) kind: io::ErrorKind,
-    pub(crate) message: String,
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SendOutcome {
     Sent,
@@ -26,7 +21,7 @@ pub(crate) enum SendOutcome {
 pub(crate) struct EndpointConnection {
     endpoint: Option<EndpointHandle>,
     generation: u64,
-    failure: Option<ConnectionFailure>,
+    failure: Option<io::Error>,
 }
 impl EndpointConnection {
     pub(super) fn new(endpoint: EndpointHandle, generation: u64) -> Self {
@@ -70,13 +65,9 @@ impl EndpointConnection {
         };
         let error = endpoint.take_error().unwrap_or(error);
         endpoint.disconnect();
-        self.failure = Some(ConnectionFailure {
-            generation: self.generation,
-            kind: error.kind(),
-            message: error.to_string(),
-        });
+        self.failure = Some(error);
     }
-    pub(crate) fn take_failure(&mut self) -> Option<ConnectionFailure> {
+    pub(crate) fn take_failure(&mut self) -> Option<io::Error> {
         let error = self
             .endpoint
             .as_mut()
@@ -137,8 +128,8 @@ mod tests {
             SendOutcome::NotSent
         );
         let failure = connection.take_failure().unwrap();
-        assert_eq!(failure.kind, io::ErrorKind::TimedOut);
-        assert_eq!(failure.message, "writer deadline");
+        assert_eq!(failure.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(failure.to_string(), "writer deadline");
         assert!(!connection.accepts(1));
         assert!(probe.drain().is_empty());
     }
@@ -177,9 +168,10 @@ mod tests {
             connection.send(&ClientMessage::Detach),
             SendOutcome::NotSent
         );
-        assert!(connection.take_failure().is_some_and(
-            |failure| failure.generation == 1 && failure.kind == io::ErrorKind::BrokenPipe
-        ));
+        assert_eq!(
+            connection.take_failure().unwrap().kind(),
+            io::ErrorKind::BrokenPipe
+        );
         assert!(connection.take_failure().is_none());
         drop(connection);
         assert!(probe.is_stopped());
@@ -206,9 +198,8 @@ mod tests {
             SendOutcome::NotSent
         );
         let failure = connection.take_failure().unwrap();
-        assert_eq!(failure.generation, 7);
-        assert_eq!(failure.kind, io::ErrorKind::TimedOut);
-        assert_eq!(failure.message, "writer deadline");
+        assert_eq!(failure.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(failure.to_string(), "writer deadline");
         assert!(connection.take_failure().is_none());
         drop(connection);
         assert!(probe.drain().is_empty());
@@ -220,9 +211,8 @@ mod tests {
         let mut connection = EndpointConnection::new(handle, 9);
         probe.fail(io::Error::new(io::ErrorKind::BrokenPipe, "worker stopped"));
         let failure = connection.take_failure().unwrap();
-        assert_eq!(failure.generation, 9);
-        assert_eq!(failure.kind, io::ErrorKind::BrokenPipe);
-        assert_eq!(failure.message, "worker stopped");
+        assert_eq!(failure.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(failure.to_string(), "worker stopped");
         assert!(!connection.accepts(9));
         assert!(connection.take_failure().is_none());
     }

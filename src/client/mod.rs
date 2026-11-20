@@ -185,18 +185,6 @@ pub fn run_core_client() -> io::Result<()> {
     Ok(())
 }
 
-/// A transport failure whose generation a live connection already replaced must not
-/// end the loop; every other failure is still fatal. Checked before the Timer work
-/// below runs so an ignored failure never skips it.
-fn failure_is_superseded(
-    endpoints: &connection::EndpointConnection,
-    failure_generation: u64,
-) -> bool {
-    endpoints
-        .generation()
-        .is_some_and(|generation| generation != failure_generation)
-}
-
 /// The main client event loop.
 ///
 /// Uses a threaded architecture:
@@ -910,18 +898,9 @@ async fn run_client_loop(
                 state
                     .detached_process_children
                     .retain_mut(|child| child.try_wait().ok().flatten().is_none());
-                if let Some(failure) = connection.take_failure() {
-                    if !failure_is_superseded(&connection, failure.generation) {
-                        warn!(
-                            endpoint = "local",
-                            error = %failure.message,
-                            "endpoint transport failed"
-                        );
-                        return Err(ClientError::ConnectionLost(io::Error::new(
-                            failure.kind,
-                            failure.message,
-                        )));
-                    }
+                if let Some(error) = connection.take_failure() {
+                    warn!(endpoint = "local", %error, "endpoint transport failed");
+                    return Err(ClientError::ConnectionLost(error));
                 }
                 {
                     let expired_endpoints = endpoint_commands

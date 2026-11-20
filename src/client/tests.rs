@@ -183,25 +183,3 @@ fn system_toast_notify_preserves_colon_in_title() {
         ))
     );
 }
-
-#[test]
-fn only_a_failure_from_the_live_generation_ends_the_client_loop() {
-    let (handle, probe) = core::test_support::endpoint();
-    let live = connection::EndpointConnection::new(handle, 7);
-    assert!(!failure_is_superseded(&live, 7));
-    assert!(failure_is_superseded(&live, 6));
-
-    drop(probe);
-    let (handle, _probe) = core::test_support::endpoint();
-    let mut revoked = connection::EndpointConnection::new(handle, 7);
-    revoked.fail(io::Error::new(io::ErrorKind::BrokenPipe, "lost"));
-    assert!(
-        !failure_is_superseded(&revoked, 7),
-        "a revoked connection reports its own failure as fatal"
-    );
-    assert!(revoked.take_failure().is_some());
-    assert!(
-        revoked.take_failure().is_none(),
-        "a failure is consumed once"
-    );
-}

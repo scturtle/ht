@@ -248,9 +248,8 @@ mod tests {
             "failed input must not be queued or replayed"
         );
         let failure = connection.take_failure().unwrap();
-        assert_eq!(failure.generation, 7);
-        assert_eq!(failure.kind, io::ErrorKind::BrokenPipe);
-        assert_eq!(failure.message, "queue closed");
+        assert_eq!(failure.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(failure.to_string(), "queue closed");
         assert!(connection.take_failure().is_none());
     }
 
