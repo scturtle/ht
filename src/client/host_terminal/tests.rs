@@ -443,17 +443,7 @@ mod probe {
 
 mod setup {
     use super::super::modes::set_host_kitty_keyboard_report_all;
-    use super::super::setup::{
-        enable_host_color_scheme_reports, refresh_test_guard, write_terminal_restore_postlude,
-        TerminalGuard,
-    };
-
-    #[test]
-    fn host_color_scheme_reports_enable_sequence() {
-        let mut output = Vec::new();
-        enable_host_color_scheme_reports(&mut output).unwrap();
-        assert_eq!(output, b"\x1b[?2031h");
-    }
+    use super::super::setup::{refresh_test_guard, write_terminal_restore_postlude, TerminalGuard};
 
     #[test]
     fn terminal_restore_postlude_restores_cursor_without_reenabling_input() {
@@ -590,7 +580,7 @@ mod restore {
 
     const MODIFY_OTHER_KEYS: &[u8] = b"\x1b[>4;2m";
     const KEYBOARD_POP: &[u8] = b"\x1b[<1u";
-    const POSTLUDE: &[u8] = b"\x1b[?2031l\x1b[?25h\x1b[0 q";
+    const POSTLUDE: &[u8] = b"\x1b[?25h\x1b[0 q";
 
     #[derive(Default)]
     struct FaultWriter {
@@ -634,7 +624,7 @@ mod restore {
 
     #[derive(Default)]
     struct RestoreRecord {
-        modes: Vec<(bool, bool, bool)>,
+        modes: Vec<(bool, bool)>,
         bytes: Vec<u8>,
         raw_restore_calls: usize,
     }
@@ -642,11 +632,9 @@ mod restore {
     fn recorded_guard(raw_restore_fails: bool) -> (TerminalGuard, Arc<Mutex<RestoreRecord>>) {
         let record = Arc::new(Mutex::new(RestoreRecord::default()));
         let callback_record = Arc::clone(&record);
-        let guard = terminal_guard_for_test(move |keyboard, modify_other_keys, color_reports| {
+        let guard = terminal_guard_for_test(move |keyboard, modify_other_keys| {
             let mut record = callback_record.lock().unwrap();
-            record
-                .modes
-                .push((keyboard, modify_other_keys, color_reports));
+            record.modes.push((keyboard, modify_other_keys));
             let RestoreRecord {
                 bytes,
                 raw_restore_calls,
@@ -656,7 +644,6 @@ mod restore {
                 bytes,
                 keyboard,
                 modify_other_keys,
-                color_reports,
                 |_| Ok(()),
                 || {
                     *raw_restore_calls += 1;
@@ -706,7 +693,7 @@ mod restore {
             .count()
     }
 
-    fn assert_single_restore(record: &Mutex<RestoreRecord>, expected: (bool, bool, bool)) {
+    fn assert_single_restore(record: &Mutex<RestoreRecord>, expected: (bool, bool)) {
         let record = record.lock().unwrap();
         assert_eq!(record.modes, [expected]);
         assert_eq!(record.raw_restore_calls, 1);
@@ -718,10 +705,6 @@ mod restore {
             occurrences(&record.bytes, b"\x1b[>4;0m"),
             usize::from(expected.1)
         );
-        assert_eq!(
-            occurrences(&record.bytes, b"\x1b[?2031l"),
-            usize::from(expected.2)
-        );
         assert!(record.bytes.ends_with(b"\x1b[?25h\x1b[0 q"));
     }
 
@@ -732,11 +715,6 @@ mod restore {
         drop(finish_setup(guard, &mut complete).unwrap());
         let mut initial_mouse_reset = Vec::new();
         clear_host_mouse_reporting(&mut initial_mouse_reset).unwrap();
-        let color_start = complete
-            .bytes
-            .windows(b"\x1b[?2031h".len())
-            .position(|bytes| bytes == b"\x1b[?2031h")
-            .unwrap();
         let modify_start = complete
             .bytes
             .windows(MODIFY_OTHER_KEYS.len())
@@ -758,7 +736,6 @@ mod restore {
                 (
                     failure_offset >= initial_mouse_reset.len(),
                     failure_offset >= modify_start,
-                    failure_offset >= color_start,
                 ),
             );
         }
@@ -767,14 +744,13 @@ mod restore {
     #[test]
     fn setup_flush_failures_drop_the_guard_with_recorded_progress() {
         let expected = [
-            (false, false, false), // Initial mouse reset, before the keyboard push.
-            (true, false, false),  // Keyboard push.
-            (true, false, false),  // Mouse reset before enabling capture.
-            (true, false, false),  // Mouse capture.
-            (true, false, false),  // Paste/focus reporting.
-            (true, false, true),   // Color reporting.
-            (true, true, true),    // modifyOtherKeys.
-            (true, true, true),    // Line wrapping.
+            (false, false), // Initial mouse reset, before the keyboard push.
+            (true, false),  // Keyboard push.
+            (true, false),  // Mouse reset before enabling capture.
+            (true, false),  // Mouse capture.
+            (true, false),  // Paste/focus reporting.
+            (true, true),   // modifyOtherKeys.
+            (true, true),   // Line wrapping.
         ];
         let (guard, _) = recorded_guard(false);
         let mut complete = FaultWriter::default();
@@ -805,7 +781,7 @@ mod restore {
             panic!("setup unexpectedly succeeded");
         };
         assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
-        assert_single_restore(&record, (false, false, false));
+        assert_single_restore(&record, (false, false));
     }
 
     #[test]
@@ -824,7 +800,7 @@ mod restore {
                 )
             }));
             assert!(result.is_err());
-            assert_single_restore(&record, (true, false, !panic_in_probe));
+            assert_single_restore(&record, (true, false));
         }
     }
 
@@ -836,7 +812,7 @@ mod restore {
         assert_eq!(guard.take_buffered_host_input(), b"typed input");
         assert!(guard.take_buffered_host_input().is_empty());
         guard.restore(|| {}).unwrap();
-        assert_single_restore(&record, (true, true, true));
+        assert_single_restore(&record, (true, true));
     }
 
     #[test]
@@ -851,7 +827,7 @@ mod restore {
             guard.restore(|| drains.set(drains.get() + 1)).unwrap();
             panic_restore();
             assert_eq!(drains.get(), usize::from(!panic_first));
-            assert_single_restore(&record, (true, true, true));
+            assert_single_restore(&record, (true, true));
         }
     }
 
@@ -873,25 +849,22 @@ mod restore {
             &mut writer,
             true,
             true,
-            true,
             |_| Ok(()),
             || {
                 let prefix = bytes.borrow();
-                for mode in [
-                    1003, 1002, 1000, 9, 1006, 1016, 1015, 1005, 1004, 2004, 2031,
-                ] {
+                for mode in [1003, 1002, 1000, 9, 1006, 1016, 1015, 1005, 1004, 2004] {
                     let sequence = format!("\x1b[?{mode}l");
                     assert!(
                         prefix
                             .windows(sequence.len())
                             .any(|part| part == sequence.as_bytes()),
-                        "mode {mode} must be disabled before the fence"
+                        "mode {mode} must be disabled before the drain"
                     );
                 }
                 assert_eq!(occurrences(&prefix, b"\x1b[?1049l"), 1);
                 assert_eq!(occurrences(&prefix, KEYBOARD_POP), 1);
                 assert_eq!(occurrences(&prefix, b"\x1b[>4;0m"), 1);
-                assert_eq!(occurrences(&prefix, b"\x1b[?25h\x1b[0 q"), 0);
+                assert_eq!(occurrences(&prefix, POSTLUDE), 0);
                 drop(prefix);
                 bytes.borrow_mut().extend_from_slice(b"drain"); // still raw
                 Ok(()) // raw restore follows the drain in production
@@ -899,9 +872,8 @@ mod restore {
         )
         .unwrap();
         let bytes = bytes.borrow();
-        assert!(bytes.ends_with(b"drain\x1b[?25h\x1b[0 q"));
+        assert!(bytes.ends_with(&[b"drain".as_slice(), POSTLUDE].concat()));
         assert_eq!(occurrences(&bytes, KEYBOARD_POP), 1);
-        assert_eq!(occurrences(&bytes, b"\x1b[?2031l"), 1);
     }
 
     #[test]
@@ -917,7 +889,7 @@ mod restore {
             }
             panic_restore();
             panic_restore();
-            assert_single_restore(&record, (true, true, true));
+            assert_single_restore(&record, (true, true));
         }
     }
 
@@ -925,20 +897,13 @@ mod restore {
     fn failed_restore_write_is_not_retried_by_drop() {
         let calls = Arc::new(AtomicUsize::new(0));
         let callback_calls = Arc::clone(&calls);
-        let guard = terminal_guard_for_test(move |keyboard, modify, colors| {
+        let guard = terminal_guard_for_test(move |keyboard, modify| {
             callback_calls.fetch_add(1, Ordering::Relaxed);
             let mut writer = FaultWriter {
                 fail_after_bytes: Some(0),
                 ..FaultWriter::default()
             };
-            restore_terminal_state_with(
-                &mut writer,
-                keyboard,
-                modify,
-                colors,
-                |_| Ok(()),
-                || Ok(()),
-            )
+            restore_terminal_state_with(&mut writer, keyboard, modify, |_| Ok(()), || Ok(()))
         });
         let guard = finish_setup(guard, &mut Vec::new()).unwrap();
         let panic_restore = guard.panic_restore();
@@ -964,7 +929,7 @@ mod restore {
             assert!(refreshed.is_empty());
             guard.restore(|| {}).unwrap(); // Already claimed, regardless of the first attempt's result.
             panic_restore();
-            assert_single_restore(&record, (true, true, true));
+            assert_single_restore(&record, (true, true));
         }
     }
 
@@ -975,7 +940,7 @@ mod restore {
             let panic_restore = guard.panic_restore();
             drop(guard);
             panic_restore();
-            assert_single_restore(&record, (true, true, true));
+            assert_single_restore(&record, (true, true));
         }
     }
 
@@ -1000,7 +965,7 @@ mod restore {
             for worker in workers {
                 worker.join().unwrap();
             }
-            assert_single_restore(&record, (true, true, true));
+            assert_single_restore(&record, (true, true));
         }
     }
 
@@ -1008,7 +973,7 @@ mod restore {
     fn panic_during_explicit_restore_does_not_retry_on_unwind() {
         let calls = Arc::new(AtomicUsize::new(0));
         let callback_calls = Arc::clone(&calls);
-        let guard = terminal_guard_for_test(move |_, _, _| {
+        let guard = terminal_guard_for_test(move |_, _| {
             callback_calls.fetch_add(1, Ordering::Relaxed);
             panic!("injected restore panic");
         });
@@ -1023,21 +988,13 @@ mod restore {
 
     #[test]
     fn restore_modes_are_conditional_and_preserve_the_outer_keyboard_stack() {
-        for mask in 0..8 {
-            let (keyboard, modify, colors) = (mask & 1 != 0, mask & 2 != 0, mask & 4 != 0);
+        for mask in 0..4 {
+            let (keyboard, modify) = (mask & 1 != 0, mask & 2 != 0);
             let mut bytes = Vec::new();
-            restore_terminal_state_with(
-                &mut bytes,
-                keyboard,
-                modify,
-                colors,
-                |_| Ok(()),
-                || Ok(()),
-            )
-            .unwrap();
+            restore_terminal_state_with(&mut bytes, keyboard, modify, |_| Ok(()), || Ok(()))
+                .unwrap();
             assert_eq!(occurrences(&bytes, KEYBOARD_POP), usize::from(keyboard));
             assert_eq!(occurrences(&bytes, b"\x1b[>4;0m"), usize::from(modify));
-            assert_eq!(occurrences(&bytes, b"\x1b[?2031l"), usize::from(colors));
             let host = crate::pane::testing::Screen::new(80, 24);
             host.test_process_pty_bytes(b"\x1b[>1u"); // Outer shell/wrapper.
             if keyboard {
@@ -1054,11 +1011,9 @@ mod restore {
     #[test]
     fn early_cleanup_failures_do_not_skip_raw_restore_or_postlude() {
         let mut complete = FaultWriter::default();
-        restore_terminal_state_with(&mut complete, true, true, true, |_| Ok(()), || Ok(()))
-            .unwrap();
-        // The last two writes belong to the color/cursor postlude, whose errors
-        // are propagated rather than treated as best-effort earlier cleanup.
-        for failed_write in 1..=complete.attempts.len() - 2 {
+        restore_terminal_state_with(&mut complete, true, true, |_| Ok(()), || Ok(())).unwrap();
+        // The last write is the cursor postlude, whose error is propagated.
+        for failed_write in 1..complete.attempts.len() {
             let mut writer = FaultWriter {
                 fail_write_call: Some(failed_write),
                 ..FaultWriter::default()
@@ -1066,7 +1021,6 @@ mod restore {
             let raw_calls = Cell::new(0);
             restore_terminal_state_with(
                 &mut writer,
-                true,
                 true,
                 true,
                 |_| Err(io::Error::other("injected graphics cleanup failure")),
@@ -1097,7 +1051,6 @@ mod restore {
                     &mut writer,
                     true,
                     true,
-                    true,
                     |_| Ok(()),
                     || {
                         raw_calls.set(raw_calls.get() + 1);
@@ -1120,7 +1073,6 @@ mod restore {
                     result.unwrap();
                 }
                 if writer_fails {
-                    assert!(writer.attempts.iter().any(|bytes| bytes == b"\x1b[?2031l"));
                     assert_eq!(writer.attempts.last().unwrap(), b"\x1b[?25h\x1b[0 q");
                 } else {
                     assert!(writer.bytes.ends_with(POSTLUDE));
@@ -1130,56 +1082,9 @@ mod restore {
     }
 
     #[test]
-    fn early_color_reset_error_does_not_skip_drain_raw_restore_or_cursor() {
-        let mut complete = FaultWriter::default();
-        restore_terminal_state_with(&mut complete, true, true, true, |_| Ok(()), || Ok(()))
-            .unwrap();
-        let color_write = complete
-            .attempts
-            .iter()
-            .position(|bytes| bytes == b"\x1b[?2031l")
-            .unwrap()
-            + 1;
-        for raw_fails in [false, true] {
-            let mut writer = FaultWriter {
-                fail_write_call: Some(color_write),
-                ..FaultWriter::default()
-            };
-            let drains_and_restores = Cell::new(0);
-            let result = restore_terminal_state_with(
-                &mut writer,
-                true,
-                true,
-                true,
-                |_| Ok(()),
-                || {
-                    drains_and_restores.set(drains_and_restores.get() + 1);
-                    if raw_fails {
-                        Err(io::Error::from(io::ErrorKind::NotConnected))
-                    } else {
-                        Ok(())
-                    }
-                },
-            );
-            assert_eq!(drains_and_restores.get(), 1);
-            assert_eq!(
-                result.unwrap_err().kind(),
-                if raw_fails {
-                    io::ErrorKind::NotConnected
-                } else {
-                    io::ErrorKind::BrokenPipe
-                }
-            );
-            assert!(writer.bytes.ends_with(b"\x1b[?25h\x1b[0 q"));
-            assert_eq!(occurrences(&writer.bytes, KEYBOARD_POP), 1);
-        }
-    }
-
-    #[test]
     fn postlude_flush_error_is_propagated_after_raw_restore() {
         let mut complete = FaultWriter::default();
-        restore_terminal_state_with(&mut complete, true, true, true, |_| Ok(()), || Ok(()))
-            .unwrap();
+        restore_terminal_state_with(&mut complete, true, true, |_| Ok(()), || Ok(())).unwrap();
         let mut writer = FaultWriter {
             fail_flush: Some(complete.flushes),
             ..FaultWriter::default()
@@ -1187,7 +1092,6 @@ mod restore {
         let raw_calls = Cell::new(0);
         let result = restore_terminal_state_with(
             &mut writer,
-            true,
             true,
             true,
             |_| Ok(()),
@@ -1203,11 +1107,8 @@ mod restore {
 }
 
 mod theme {
-    use super::super::theme::{
-        drain_host_replies_with, write_host_query, write_host_theme_query, ShutdownFence,
-    };
+    use super::super::theme::{drain_host_replies_with, write_host_theme_query, ShutdownFence};
     use crate::raw_input::RawInputByteFramer;
-    use crate::terminal::HOST_COLOR_SCHEME_QUERY_SEQUENCE;
     use std::cell::Cell;
     use std::io;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1507,20 +1408,12 @@ mod theme {
     }
 
     #[test]
-    fn theme_query_without_palette_counts_only_two_actual_replies() {
-        let expected = AtomicU64::new(0);
+    fn theme_query_counts_all_colors_and_overlapping_queries() {
+        let pending = AtomicU64::new(0);
         let mut writer = QueryWriter::default();
-        write_host_theme_query(&mut writer, false, &expected).unwrap();
-        assert_eq!(writer.bytes, b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
+        write_host_theme_query(&mut writer, &pending).unwrap();
         assert_eq!(writer.flushes, 1);
-        assert_eq!(expected.load(Ordering::Acquire), 2);
-    }
-
-    #[test]
-    fn theme_query_with_palette_counts_all_indices_and_overlapping_queries() {
-        let expected = AtomicU64::new(0);
-        let mut writer = QueryWriter::default();
-        write_host_theme_query(&mut writer, true, &expected).unwrap();
+        assert_eq!(pending.load(Ordering::Acquire), 258);
         let text = std::str::from_utf8(&writer.bytes).unwrap();
         let mut queries = text.split_terminator("\x1b\\");
         assert_eq!(queries.next(), Some("\x1b]10;?"));
@@ -1529,21 +1422,13 @@ mod theme {
             assert_eq!(queries.next(), Some(format!("\x1b]4;{index};?").as_str()));
         }
         assert_eq!(queries.next(), None);
-        write_host_theme_query(&mut QueryWriter::default(), false, &expected).unwrap();
-        assert_eq!(expected.load(Ordering::Acquire), 260);
+        write_host_theme_query(&mut QueryWriter::default(), &pending).unwrap();
+        assert_eq!(pending.load(Ordering::Acquire), 516);
         let mut failed = QueryWriter {
             fail_write: true,
             ..QueryWriter::default()
         };
-        assert!(write_host_theme_query(&mut failed, true, &expected).is_err());
-        assert_eq!(expected.load(Ordering::Acquire), 518);
-    }
-
-    #[test]
-    fn appearance_query_writes_only_the_appearance_query_and_flushes_once() {
-        let mut writer = QueryWriter::default();
-        write_host_query(&mut writer, HOST_COLOR_SCHEME_QUERY_SEQUENCE.as_bytes()).unwrap();
-        assert_eq!(writer.bytes, b"\x1b[?996n");
-        assert_eq!(writer.flushes, 1);
+        assert!(write_host_theme_query(&mut failed, &pending).is_err());
+        assert_eq!(pending.load(Ordering::Acquire), 774);
     }
 }

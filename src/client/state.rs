@@ -31,8 +31,8 @@ pub(super) struct ClientState {
     pub(super) blit_encoder: render_ansi::BlitEncoder,
     pub(super) image_files: image_files::FileTransport,
     pub(super) mouse_capture_active: bool,
-    /// Count query send attempts, not parser predictions on focus or theme
-    /// notifications. Shared with final restoration after the UI ends.
+    /// Lifetime count of color replies requested by this client. The reader
+    /// observes new requests without consuming the count needed at shutdown.
     pub(super) host_color_replies_expected: Arc<AtomicU64>,
     pub(super) endpoint_mouse_capture_requested: bool,
     pub(super) endpoint_sgr_pixels_requested: bool,

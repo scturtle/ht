@@ -20,10 +20,7 @@ pub(crate) fn parse_framed_input(data: &[u8]) -> Vec<RawInputEvent> {
 
 use crate::input::{parse_terminal_key_sequence, TerminalKey, TextCommit};
 use crate::terminal::{
-    parse_color_scheme_report as parse_host_color_scheme_report, parse_default_color_response,
-    parse_palette_color_response, DefaultColorKind, HostAppearance, RgbColor,
-    COLOR_SCHEME_DARK_REPORT as GHOSTTY_COLOR_SCHEME_DARK_REPORT,
-    COLOR_SCHEME_LIGHT_REPORT as GHOSTTY_COLOR_SCHEME_LIGHT_REPORT,
+    parse_default_color_response, parse_palette_color_response, DefaultColorKind, RgbColor,
 };
 
 const ESC: u8 = 0x1b;
@@ -54,7 +51,6 @@ pub enum RawInputEvent {
     HostPaletteColors {
         colors: Vec<(u8, RgbColor)>,
     },
-    HostColorSchemeChanged(HostAppearance),
     // The dimensions are only read by the Unix client.
     #[cfg_attr(not(any(unix, test)), allow(dead_code))]
     HostCellSizeReport {
@@ -97,26 +93,21 @@ pub(crate) struct RawInputByteFramer {
     // Keep the discarded prefix separate from continuation bytes awaiting validation.
     timed_out_mouse_prefix: Option<Vec<u8>>,
     lone_escape_recently_flushed: bool,
-    host_color_replies_awaited: u16,
-    // Actual replies parsed over this reader's lifetime. Unlike the Escape
-    // ambiguity window, this completion accounting must never expire.
+    host_color_replies_awaited: u64,
+    // Lifetime completion count, independent of the live Escape timeout.
     host_color_replies_received: u64,
     host_cell_size_replies_awaited: u16,
-    host_appearance_reply_awaited: bool,
     /// Last query sent or reply received. Hosts may answer only part of a
     /// query (or none of it), so the reply counters alone never expire.
     host_reply_activity_at: Option<Instant>,
     /// Last read that left an unfinished OSC 10/11 reply buffered.
     partial_host_color_reply_read_at: Option<Instant>,
     held_pending_host_reply_esc: bool,
-    host_color_scheme_change_tracking: bool,
-    host_appearance_query_on_focus: bool,
     split_coalesced_escape: bool,
     host_escape_disambiguation_active: bool,
     awaiting_mouse_tail_after: Option<usize>,
 }
 
-const HOST_COLOR_QUERY_REPLIES: u16 = 258;
 /// How long after the last query or reply Herdr still treats `ESC[` / `ESC]`
 /// as a possible host reply instead of a key.
 const HOST_REPLY_QUIET_WINDOW: Duration = Duration::from_secs(1);
@@ -144,19 +135,20 @@ impl RawInputByteFramer {
     }
 
     pub(crate) fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
-        if data.is_empty() {
-            return self.push_without_idle_expiry(data);
+        if !data.is_empty() {
+            // Bytes after the idle limit are never part of the abandoned reply.
+            self.drop_abandoned_host_color_reply();
         }
-        // Bytes after the idle limit are never part of the abandoned reply.
-        self.drop_abandoned_host_color_reply();
         let chunks = self.push_without_idle_expiry(data);
-        self.partial_host_color_reply_read_at =
-            starts_with_incomplete_default_color_response(&self.buffer).then(Instant::now);
+        if !data.is_empty() {
+            self.partial_host_color_reply_read_at =
+                starts_with_incomplete_default_color_response(&self.buffer).then(Instant::now);
+        }
         chunks
     }
 
-    /// Once the UI is gone, its idle expiry no longer protects key latency.
-    /// Preserve even aged reply prefixes; the shutdown drain has its own deadline.
+    /// The shutdown drain has its own deadline. Preserve the live reader's
+    /// partial replies even if their normal keyboard-latency window has ended.
     pub(crate) fn push_without_idle_expiry(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
         self.buffer.extend_from_slice(data);
         if let Some(prefix_len) = self.awaiting_mouse_tail_after.take() {
@@ -173,14 +165,19 @@ impl RawInputByteFramer {
     /// Hold a lone trailing ESC for one idle flush so an OSC 10/11 reply split
     /// at its ESC introducer stitches back together instead of leaking (#549).
     /// Overlapping queries each add their own replies to the window.
-    pub(crate) fn host_color_query_sent(&mut self) {
-        self.host_color_query_sent_with_replies(HOST_COLOR_QUERY_REPLIES);
-    }
-
-    fn host_color_query_sent_with_replies(&mut self, replies: u16) {
+    pub(crate) fn host_color_query_sent(&mut self, replies: u64) {
+        if replies == 0 {
+            return;
+        }
+        self.expire_unanswered_host_queries();
         self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_add(replies);
         self.held_pending_host_reply_esc = false;
         self.host_reply_activity_at = Some(Instant::now());
+    }
+
+    fn record_host_color_replies(&mut self, count: u64) {
+        self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_sub(count);
+        self.host_color_replies_received = self.host_color_replies_received.saturating_add(count);
     }
 
     /// Whether a buffered unfinished OSC 10/11 reply has waited past its idle
@@ -207,12 +204,6 @@ impl RawInputByteFramer {
         self.partial_host_color_reply_read_at = None;
     }
 
-    pub(crate) fn host_appearance_query_sent(&mut self) {
-        self.host_appearance_reply_awaited = true;
-        self.held_pending_host_reply_esc = false;
-        self.host_reply_activity_at = Some(Instant::now());
-    }
-
     /// Same hold window as `host_color_query_sent`, for the XTWINOPS cell size
     /// reply. Only the Unix client sends this query.
     pub(crate) fn host_cell_size_query_sent(&mut self) {
@@ -222,9 +213,7 @@ impl RawInputByteFramer {
     }
 
     fn awaiting_host_reply(&self) -> bool {
-        (self.host_color_replies_awaited > 0
-            || self.host_cell_size_replies_awaited > 0
-            || self.host_appearance_reply_awaited)
+        (self.host_color_replies_awaited > 0 || self.host_cell_size_replies_awaited > 0)
             && self
                 .host_reply_activity_at
                 .is_some_and(|at| at.elapsed() < HOST_REPLY_QUIET_WINDOW)
@@ -234,35 +223,16 @@ impl RawInputByteFramer {
         self.host_color_replies_received
     }
 
-    /// The UI has stopped: consume in-flight replies, but no longer expect a
-    /// follow-up query in response to a focus or appearance notification.
-    pub(crate) fn stop_followup_host_query_tracking(&mut self) {
-        self.host_color_scheme_change_tracking = false;
-        self.host_appearance_query_on_focus = false;
-    }
-
     /// Stop expecting replies the host never sent, so their reply handling no
     /// longer holds or discards what is now ordinary input.
     fn expire_unanswered_host_queries(&mut self) {
         if self.awaiting_host_reply() || self.host_reply_activity_at.is_none() {
             return;
         }
-        // The Windows default color query keeps its own reply deadline.
         self.host_color_replies_awaited = 0;
         self.host_cell_size_replies_awaited = 0;
-        self.host_appearance_reply_awaited = false;
         self.held_pending_host_reply_esc = false;
         self.host_reply_activity_at = None;
-    }
-
-    pub(crate) fn enable_host_color_scheme_change_tracking(&mut self) {
-        self.host_color_scheme_change_tracking = true;
-    }
-
-    /// Arm the bounded host-reply window when focus gain will emit an appearance query.
-    /// If the write or reply fails, a lone Escape is delayed for only one extra flush.
-    pub(crate) fn enable_host_appearance_query_on_focus(&mut self) {
-        self.host_appearance_query_on_focus = true;
     }
 
     pub(crate) fn has_pending_input(&self) -> bool {
@@ -418,16 +388,13 @@ impl RawInputByteFramer {
             return chunks;
         }
 
-        if (self.host_cell_size_replies_awaited > 0 || self.host_appearance_reply_awaited)
-            && self.buffer.as_slice() == b"\x1b["
-        {
+        if self.host_cell_size_replies_awaited > 0 && self.buffer.as_slice() == b"\x1b[" {
             if !self.held_pending_host_reply_esc && !mouse_wait_served {
                 self.held_pending_host_reply_esc = true;
                 tracing::trace!("holding incomplete host CSI reply one flush");
                 return chunks;
             }
             self.host_cell_size_replies_awaited = 0;
-            self.host_appearance_reply_awaited = false;
             self.held_pending_host_reply_esc = false;
         }
 
@@ -439,27 +406,6 @@ impl RawInputByteFramer {
                 "discarding incomplete host cell size report after input timeout"
             );
             self.host_cell_size_replies_awaited = 0;
-            self.held_pending_host_reply_esc = false;
-            self.discard_until = Some(ControlStringFamily::HostReplyCsi);
-            self.discarded_tail_bytes = 0;
-            self.buffer.clear();
-            return chunks;
-        }
-
-        if starts_with_incomplete_host_color_scheme_report(&self.buffer) {
-            if self.host_appearance_reply_awaited && !self.held_pending_host_reply_esc {
-                self.held_pending_host_reply_esc = true;
-                tracing::trace!(
-                    len = self.buffer.len(),
-                    "holding incomplete host color scheme report one flush"
-                );
-                return chunks;
-            }
-            tracing::debug!(
-                len = self.buffer.len(),
-                "discarding incomplete host color scheme report after input timeout"
-            );
-            self.host_appearance_reply_awaited = false;
             self.held_pending_host_reply_esc = false;
             self.discard_until = Some(ControlStringFamily::HostReplyCsi);
             self.discarded_tail_bytes = 0;
@@ -499,7 +445,6 @@ impl RawInputByteFramer {
             // No continuation arrived; give up the window so Escape is not delayed again.
             self.host_color_replies_awaited = 0;
             self.host_cell_size_replies_awaited = 0;
-            self.host_appearance_reply_awaited = false;
             self.held_pending_host_reply_esc = false;
             tracing::warn!(
                 bytes = ?self.buffer,
@@ -602,31 +547,18 @@ impl RawInputByteFramer {
             let Some((event, consumed)) = extract_one_event(&self.buffer) else {
                 break;
             };
-            if matches!(
-                event,
-                RawInputEvent::HostDefaultColor { .. } | RawInputEvent::HostPaletteColors { .. }
-            ) {
-                self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_sub(1);
-                // One OSC may contain multiple palette entries. Count only
-                // parsed replies, never mouse/key bytes or paste lookalikes.
-                let count = match &event {
-                    RawInputEvent::HostPaletteColors { colors } => colors.len() as u64,
-                    _ => 1,
-                };
-                self.host_color_replies_received =
-                    self.host_color_replies_received.saturating_add(count);
-            } else if matches!(event, RawInputEvent::HostCellSizeReport { .. }) {
-                self.host_cell_size_replies_awaited =
-                    self.host_cell_size_replies_awaited.saturating_sub(1);
-            } else if self.host_appearance_query_on_focus
-                && matches!(event, RawInputEvent::OuterFocusGained)
-            {
-                self.host_appearance_query_sent();
-            } else if matches!(event, RawInputEvent::HostColorSchemeChanged(_)) {
-                self.host_appearance_reply_awaited = false;
-                if self.host_color_scheme_change_tracking {
-                    self.host_color_query_sent();
+            match &event {
+                RawInputEvent::HostDefaultColor { .. } => {
+                    self.record_host_color_replies(1);
                 }
+                RawInputEvent::HostPaletteColors { colors } => {
+                    self.record_host_color_replies(colors.len() as u64);
+                }
+                RawInputEvent::HostCellSizeReport { .. } => {
+                    self.host_cell_size_replies_awaited =
+                        self.host_cell_size_replies_awaited.saturating_sub(1);
+                }
+                _ => {}
             }
             if is_host_reply_event(&event) && self.host_reply_activity_at.is_some() {
                 // Long reply bursts (256 palette entries) stay protected.
@@ -734,10 +666,6 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
             _ => {}
         }
 
-        if let Some(appearance) = parse_host_color_scheme_report(&buffer[..seq_len]) {
-            return Some((RawInputEvent::HostColorSchemeChanged(appearance), seq_len));
-        }
-
         if let Some((width_px, height_px)) = parse_host_cell_size_report(&buffer[..seq_len]) {
             return Some((
                 RawInputEvent::HostCellSizeReport {
@@ -817,13 +745,6 @@ fn starts_with_incomplete_default_color_response(buffer: &[u8]) -> bool {
         )
 }
 
-fn starts_with_incomplete_host_color_scheme_report(buffer: &[u8]) -> bool {
-    buffer.starts_with(b"\x1b[?")
-        && (GHOSTTY_COLOR_SCHEME_DARK_REPORT.starts_with(buffer)
-            || GHOSTTY_COLOR_SCHEME_LIGHT_REPORT.starts_with(buffer))
-        && buffer.len() < GHOSTTY_COLOR_SCHEME_DARK_REPORT.len()
-}
-
 fn starts_with_incomplete_host_cell_size_report(buffer: &[u8]) -> bool {
     let Some(body) = buffer.strip_prefix(b"\x1b[") else {
         return false;
@@ -850,7 +771,6 @@ fn is_host_reply_event(event: &RawInputEvent) -> bool {
         RawInputEvent::HostDefaultColor { .. }
             | RawInputEvent::HostPaletteColors { .. }
             | RawInputEvent::HostCellSizeReport { .. }
-            | RawInputEvent::HostColorSchemeChanged(_)
     )
 }
 

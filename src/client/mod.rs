@@ -33,9 +33,8 @@ use state::RetiredDirectGraphicsMatch;
 
 use host_terminal::{
     current_terminal_geometry, effective_mouse_capture, effective_sgr_pixel_mouse,
-    ioctl_terminal_geometry, query_host_terminal_appearance, query_host_terminal_theme,
-    reported_cell_size_from_events, resize_poll_loop, set_mouse_capture, setup_terminal,
-    store_reported_cell_size, TerminalGuard,
+    ioctl_terminal_geometry, query_host_terminal_theme, reported_cell_size_from_events,
+    resize_poll_loop, set_mouse_capture, setup_terminal, store_reported_cell_size, TerminalGuard,
 };
 
 fn refresh_host_mouse_capture(enabled: bool, sgr_pixels: bool) {
@@ -72,7 +71,7 @@ use notifications::handle_shell_notification_effects;
 use std::collections::HashMap;
 use std::io::{self, Write as _};
 use std::os::fd::AsRawFd;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -171,14 +170,10 @@ pub fn run_core_client() -> io::Result<()> {
         .await
     });
 
-    // The UI has ended and dropped its receiver, unblocking a backpressured
-    // sender. Only now join and take the framer; no worker may fence the tty
-    // while the UI can still write queries or re-enable reporting modes.
+    // The UI has dropped its receiver, unblocking a backpressured sender.
+    // Join and take the framer only now, after the last possible host query.
     let input_framer = stdin_reader.as_mut().and_then(input::StdinReader::finish);
     drop(stdin_reader);
-
-    // Restore input modes BEFORE the fence, but retain raw mode until reports
-    // already in flight (including wheel packets across SSH) have been consumed.
     let terminal_restore_failed = terminal_guard
         .restore(move || {
             if let Some(mut framer) = input_framer {
@@ -294,9 +289,7 @@ async fn run_client_loop(
     let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
 
     // Spawn the stdin reader thread.
-    let will_query_host_terminal_theme = true;
-    let host_theme_query_pending = Arc::new(AtomicU32::new(0));
-    let stdin_host_theme_query_pending = host_theme_query_pending.clone();
+    let stdin_host_color_replies_expected = Arc::clone(&state.host_color_replies_expected);
     // Ask the host directly when ioctl cannot supply pixel geometry.
     let will_query_host_cell_size =
         state.kitty_graphics_enabled && ioctl_terminal_geometry().is_none();
@@ -314,8 +307,7 @@ async fn run_client_loop(
         input::stdin_reader_loop(
             stdin_tx,
             &stdin_quit,
-            will_query_host_terminal_theme,
-            stdin_host_theme_query_pending,
+            stdin_host_color_replies_expected,
             will_query_host_cell_size,
             stdin_mouse_capture_active,
             stdin_sgr_pixels_active,
@@ -326,12 +318,7 @@ async fn run_client_loop(
         )
     }));
 
-    if will_query_host_terminal_theme {
-        query_host_terminal_theme(&state.host_color_replies_expected);
-        {
-            query_host_terminal_appearance();
-        }
-    }
+    query_host_terminal_theme(&state.host_color_replies_expected);
 
     if will_query_host_cell_size {
         let mut stdout = io::stdout();
@@ -519,12 +506,6 @@ async fn run_client_loop(
                 cell_height_px,
                 pixel_geometry_exact,
             ) => {
-                // On Unix, palette changes may lack a color-scheme notification.
-                // Re-query on redraw, including SIGWINCH without a resize.
-                if will_query_host_terminal_theme {
-                    host_theme_query_pending.fetch_add(1, Ordering::AcqRel);
-                    query_host_terminal_theme(&state.host_color_replies_expected);
-                }
                 let pixel_mouse_available =
                     pixel_geometry_exact && state.host_sgr_pixel_mouse == Some(true);
                 if !pixel_mouse_available && host_sgr_pixels_active.load(Ordering::Acquire) {

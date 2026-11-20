@@ -32,6 +32,7 @@ fn core_config_reload_and_context_menu_only_offer_implemented_actions() {
         keybindings::KeybindMatch::Action(keybindings::KeybindAction::ReloadConfig),
         &mut outcome,
     );
+    assert!(outcome.refresh_host_colors);
     assert!(
         outcome.actions.is_empty(),
         "Core config reload must remain client-local"

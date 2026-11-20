@@ -19,6 +19,9 @@ import harness as H
 
 PROMPT = b"HT_EXIT_SHELL$ "
 PROOF = b"SHELL_INPUT_PRESERVED"
+COLOR_QUERY = re.compile(rb"\x1b\](10|11|4;[0-9]+);\?\x1b\\")
+FULL_QUERY = [b"10", b"11"] + [f"4;{i}".encode() for i in range(256)]
+PAINT_END = b"\x1b[?2026l"
 
 
 def wait_for(viewer, check, description, timeout=8):
@@ -54,7 +57,7 @@ def reporting_modes_at_fence(output):
 def run_case(kind, base):
     home = base / "h"
     home.mkdir()
-    (home / "config.toml").write_text('[keys]\ndetach="f10"\n')
+    (home / "config.toml").write_text('[keys]\ndetach="f10"\nreload_config="f6"\n')
     env = H.isolated_env(home, home / "c")
     pid_file = base / "ht.pid"
     env.update(RESTORE_HT=str(H.HERDR), RESTORE_PID_FILE=str(pid_file))
@@ -64,10 +67,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import termios
+before = termios.tcgetattr(0)
 child = subprocess.Popen([os.environ["RESTORE_HT"], *sys.argv[1:]])
 Path(os.environ["RESTORE_PID_FILE"]).write_text(str(child.pid))
 status = child.wait()
-print(f"\\nHT_EXIT_STATUS={{status}}", flush=True)
+print(f"\\nHT_EXIT_STATUS={{status}} TTY_RESTORED={{termios.tcgetattr(0) == before}}", flush=True)
 env = dict(os.environ, PS1="HT_EXIT_SHELL$ ")
 os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
 """)
@@ -78,9 +83,23 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
         viewer = H.Viewer(env, binary=wrapper)
         wait_for(
             viewer,
-            lambda out: b"\x1b]4;255;?\x1b\\" in out and b"\x1b[?2026l" in out,
+            lambda out: b"\x1b]4;255;?\x1b\\" in out and PAINT_END in out,
             "palette query and first paint",
         )
+        assert COLOR_QUERY.findall(viewer.read()) == FULL_QUERY
+        batches = 1
+        if kind == "detach":
+            # Resize, focus, and an unsolicited appearance report are not queries.
+            start = len(viewer.output)
+            viewer.resize(92, 25)
+            wait_for(viewer, lambda out: PAINT_END in out[start:], "paint after host resize")
+            viewer.send(b"\x1b[O\x1b[I\x1b[?997;2n")
+            assert not observe_shell(viewer, 0.25)
+            assert COLOR_QUERY.findall(viewer.output) == FULL_QUERY
+            viewer.send(b"\x1b[17~")  # F6, explicit config reload.
+            wait_for(viewer, lambda out: COLOR_QUERY.findall(out) == FULL_QUERY * 2,
+                     "one more full color query batch after reload")
+            batches = 2
         if kind in ("last-pane-aged", "last-pane-slow"):
             # The live parser's one-second ambiguity window is not evidence
             # that an unanswered query completed across SSH.
@@ -125,7 +144,7 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
         if kind == "last-pane-early-ack":
             # A status response is not a per-query color acknowledgement. Keep
             # the palette tail in flight after it while motion packets arrive.
-            viewer.send(b"\x1b[0n\x1b[3n\x1b[?997;1n" + fence_reply)
+            viewer.send(b"\x1b[0n\x1b[3n" + fence_reply)
         if kind != "unanswered":
             # Delay the response to the fresh fence independently of the live
             # parser's expired query window, including an SSH-like >1s stall.
@@ -143,10 +162,6 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
                 if kind != "last-pane-slow":
                     tail += b"\x1b]11;rgb:0000/0000/0000\x07"
                 tail += b"\x1b[6;16;8t"
-            if kind != "last-pane-early-ack":
-                tail += (
-                    b"\x1b[?997;1n"  # Outstanding appearance query, not a new query.
-                )
             delayed_bytes = len(tail)
             # Split the first reply's ST between ESC and backslash, then cross a
             # 4096-byte read boundary with the rest of the 256-entry palette.
@@ -170,6 +185,16 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
                 viewer.send(fence_reply[:2])
                 early_shell |= observe_shell(viewer, 0.05)
                 viewer.send(fence_reply[2:])
+            if kind == "detach":
+                # One query batch plus the fence is not enough after a reload.
+                early_shell |= observe_shell(viewer, 0.15)
+                reload_replies = b"\x1b]10;rgb:aaaa/aaaa/aaaa\x07\x1b]11;rgb:1111/1111/1111\x07"
+                reload_replies += b"".join(
+                    f"\x1b]4;{index};rgb:1111/2222/3333\x1b\\".encode()
+                    for index in range(256)
+                )
+                delayed_bytes += len(reload_replies)
+                viewer.send(reload_replies)
 
         wait_for(
             viewer, lambda out: PROMPT in out, f"{kind}: outer shell handoff", timeout=4
@@ -177,9 +202,11 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
         elapsed = time.monotonic() - started
         output = viewer.read()
         shell_output = output[output.index(PROMPT) :]
-        assert b"HT_EXIT_STATUS=0" in output, output[-500:]
+        assert b"HT_EXIT_STATUS=0 TTY_RESTORED=True" in output, output[-500:]
+        assert not re.search(rb"\x1b\[\?(996n|2031[hl])", output)
         client_log = (home / "c" / "herdr-client.log").read_text()
         assert "terminal.shutdown_fence" in client_log, client_log
+        assert f"expected_colors={258 * batches}" in client_log, client_log
         assert f"confirmed={str(kind != 'unanswered').lower()}" in client_log, (
             client_log
         )
@@ -189,10 +216,9 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
         assert b"rgb:" not in shell_output, shell_output[-500:]
         assert b";66;20M" not in shell_output, shell_output[-500:]
         assert elapsed < 3.5, f"shutdown was not bounded: {elapsed:.3f}s"
-        if kind != "unanswered":
-            assert output.count(b"\x1b]4;255;?\x1b\\") == 1, (
-                "shutdown issued another palette query"
-            )
+        assert COLOR_QUERY.findall(output) == FULL_QUERY * batches, (
+            "unexpected color query outside startup and reload"
+        )
 
         # No detached stdin thread may consume the first command typed in the
         # outer shell. Hex escapes ensure the marker cannot match command echo.
@@ -207,6 +233,7 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
         )
         result = dict(
             case=kind,
+            color_query_batches=batches,
             delayed_reply_bytes=delayed_bytes,
             shell_rgb_leak=False,
             shell_mouse_leak=False,

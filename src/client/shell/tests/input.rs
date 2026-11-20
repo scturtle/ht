@@ -28,16 +28,6 @@ accent = "#123456"
             update: crate::protocol::ClientHostThemeUpdate::DefaultColor { .. }
         }]
     ));
-    for appearance in [
-        crate::terminal::HostAppearance::Dark,
-        crate::terminal::HostAppearance::Light,
-    ] {
-        let update =
-            state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(appearance)]);
-        assert!(update.query_host_theme);
-        assert_eq!(update.requests.len(), 1);
-        assert_eq!(state.config.palette, palette);
-    }
     let repeated = state.handle_raw_events(vec![RawInputEvent::HostDefaultColor {
         kind: crate::terminal::DefaultColorKind::Background,
         color,

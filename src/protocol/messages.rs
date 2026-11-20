@@ -565,12 +565,6 @@ pub enum ClientHostDefaultColorKind {
     Background,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientHostAppearance {
-    Dark,
-    Light,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientHostThemeUpdate {
     DefaultColor {
@@ -578,7 +572,6 @@ pub enum ClientHostThemeUpdate {
         color: ClientHostColor,
     },
     PaletteColors(Vec<(u8, ClientHostColor)>),
-    Appearance(ClientHostAppearance),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

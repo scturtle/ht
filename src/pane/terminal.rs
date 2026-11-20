@@ -208,13 +208,6 @@ impl PaneTerminal {
         self.ghostty.apply_host_terminal_theme(theme);
     }
 
-    pub fn apply_host_terminal_appearance(
-        &self,
-        appearance: Option<crate::terminal::HostAppearance>,
-    ) -> Option<Bytes> {
-        self.ghostty.apply_host_terminal_appearance(appearance)
-    }
-
     pub fn keyboard_protocol(
         &self,
         fallback: crate::input::KeyboardProtocol,

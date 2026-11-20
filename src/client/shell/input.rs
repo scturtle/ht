@@ -19,9 +19,7 @@ fn is_ctrl_bracket_key(key: &crate::input::TerminalKey) -> bool {
 }
 
 fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHostThemeUpdate> {
-    use crate::protocol::{
-        ClientHostAppearance, ClientHostDefaultColorKind, ClientHostThemeUpdate,
-    };
+    use crate::protocol::{ClientHostDefaultColorKind, ClientHostThemeUpdate};
 
     match event {
         RawInputEvent::HostDefaultColor { kind, color } => {
@@ -43,12 +41,6 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
                 .map(|(index, color)| (*index, (*color).into()))
                 .collect(),
         )),
-        RawInputEvent::HostColorSchemeChanged(appearance) => {
-            Some(ClientHostThemeUpdate::Appearance(match appearance {
-                crate::terminal::HostAppearance::Dark => ClientHostAppearance::Dark,
-                crate::terminal::HostAppearance::Light => ClientHostAppearance::Light,
-            }))
-        }
         _ => None,
     }
 }
@@ -239,7 +231,6 @@ impl ClientShellState {
                 RawInputEvent::Mouse(mouse) => self.handle_mouse(mouse, &mut outcome),
                 RawInputEvent::OuterFocusGained => {
                     self.outer_focused = Some(true);
-                    outcome.query_host_appearance = true;
                     outcome.repaint |= self.config.redraw_on_focus_gained;
                     if let Some(surface) = self.pane_surface.clone() {
                         outcome.repaint |= self.acknowledge_active_surface_agents(
@@ -258,10 +249,6 @@ impl ClientShellState {
                     outcome
                         .requests
                         .push(ClientMessage::ClientShellFocus { focused: false });
-                }
-                RawInputEvent::HostColorSchemeChanged(_) => {
-                    // Refresh native PTY colors, without switching UI overrides.
-                    outcome.query_host_theme = true;
                 }
                 RawInputEvent::HostDefaultColor {
                     kind: crate::terminal::DefaultColorKind::Background,

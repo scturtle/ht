@@ -19,6 +19,4 @@ pub(super) use modes::{
     set_host_kitty_keyboard_report_all, set_mouse_capture,
 };
 pub(super) use setup::{setup_terminal, TerminalGuard};
-pub(super) use theme::{
-    drain_pending_host_replies, query_host_terminal_appearance, query_host_terminal_theme,
-};
+pub(super) use theme::{drain_pending_host_replies, query_host_terminal_theme};

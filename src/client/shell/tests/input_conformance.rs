@@ -1000,8 +1000,7 @@ fn host_input_corpus() -> Vec<(HostProfile, Vec<u8>)> {
     corpus
 }
 
-/// Replies Herdr asks the host for at startup and on focus (colors, palette,
-/// cell size, appearance).
+/// Replies Herdr asks the host for at startup (colors, palette, cell size).
 const HOST_REPLIES: &[&[u8]] = &[
     b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\",
     b"\x1b]11;rgb:1e1e/1e1e/2e2e\x07",
@@ -1009,8 +1008,6 @@ const HOST_REPLIES: &[&[u8]] = &[
     b"\x1b]4;1;rgb:cdcd/0000/0000\x1b\\",
     b"\x1b]4;255;rgb:eeee/eeee/eeee\x07",
     b"\x1b[6;20;10t",
-    b"\x1b[?997;1n",
-    b"\x1b[?997;2n",
 ];
 
 /// A network hiccup between two reads of one sequence (SSH, slow links).
@@ -1032,9 +1029,7 @@ fn framed_events_with(
     let mut framer = HerdrPath::fresh_framer(host);
     if awaiting_replies {
         // Mirrors the Unix client right after it sent its host queries.
-        framer.host_color_query_sent();
-        framer.enable_host_color_scheme_change_tracking();
-        framer.enable_host_appearance_query_on_focus();
+        framer.host_color_query_sent(258);
         framer.host_cell_size_query_sent();
     }
     let mut chunks = Vec::new();

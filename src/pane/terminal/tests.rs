@@ -3584,44 +3584,6 @@ fn process_pty_bytes_returns_libghostty_query_responses_without_queuing_input() 
 }
 
 #[test]
-fn color_scheme_queries_and_live_updates_follow_terminal_mode() {
-    let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
-    let pane = GhosttyPaneTerminal::new(terminal).unwrap();
-    let pane_id = PaneId::from_raw(1);
-
-    assert!(pane
-        .apply_host_terminal_appearance(Some(crate::terminal::HostAppearance::Dark))
-        .is_none());
-    let query = pane.process_pty_bytes(pane_id, b"\x1b[?996n");
-    assert_eq!(
-        query.terminal_responses,
-        vec![Bytes::from_static(b"\x1b[?997;1n")]
-    );
-
-    pane.process_pty_bytes(pane_id, b"\x1b[?2031h");
-    assert!(pane
-        .apply_host_terminal_appearance(Some(crate::terminal::HostAppearance::Dark))
-        .is_none());
-    assert_eq!(
-        pane.apply_host_terminal_appearance(Some(crate::terminal::HostAppearance::Light)),
-        Some(Bytes::from_static(b"\x1b[?997;2n"))
-    );
-
-    assert!(pane.apply_host_terminal_appearance(None).is_none());
-    let unknown_query = pane.process_pty_bytes(pane_id, b"\x1b[?996n");
-    assert!(unknown_query.terminal_responses.is_empty());
-    assert!(pane
-        .apply_host_terminal_appearance(Some(crate::terminal::HostAppearance::Dark))
-        .is_none());
-
-    pane.process_pty_bytes(pane_id, b"\x1bc");
-    assert!(pane
-        .apply_host_terminal_appearance(Some(crate::terminal::HostAppearance::Light))
-        .is_none());
-    assert!(pane.pending_pty_responses.lock().unwrap().is_empty());
-}
-
-#[test]
 fn process_pty_bytes_returns_xtgettcap_truecolor_query_responses_without_queuing_input() {
     let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
     let pane = GhosttyPaneTerminal::new(terminal).unwrap();

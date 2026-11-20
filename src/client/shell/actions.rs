@@ -45,6 +45,7 @@ impl ClientShellState {
                 }
                 if action == keybindings::KeybindAction::ReloadConfig {
                     self.reload_client_config();
+                    outcome.refresh_host_colors = true;
                     self.invalidate_pane_surface();
                     outcome.repaint = true;
                     outcome.resize = true;

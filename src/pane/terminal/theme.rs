@@ -1,12 +1,10 @@
 //! Host theme baselines and child default-color ownership share one state,
 //! protected by the existing terminal-core lock.
 
-use bytes::Bytes;
 use tracing::debug;
 
 use super::GhosttyPaneTerminal;
 use crate::pane::osc::DefaultColorQuery;
-use crate::terminal::color_scheme_report;
 
 #[derive(Default)]
 pub(super) struct ThemeState {
@@ -76,32 +74,6 @@ impl GhosttyPaneTerminal {
                 background_unowned,
             );
         }
-    }
-
-    pub fn apply_host_terminal_appearance(
-        &self,
-        appearance: Option<crate::terminal::HostAppearance>,
-    ) -> Option<Bytes> {
-        let mut core = self.core.lock().ok()?;
-        let color_scheme = appearance.map(|appearance| match appearance {
-            crate::terminal::HostAppearance::Dark => crate::ghostty::ColorScheme::Dark,
-            crate::terminal::HostAppearance::Light => crate::ghostty::ColorScheme::Light,
-        });
-        let previous = core.terminal.set_color_scheme(color_scheme);
-
-        let transitioned = matches!(
-            (previous, color_scheme),
-            (Some(previous), Some(current)) if previous != current
-        );
-        if !transitioned
-            || !core
-                .terminal
-                .mode_get(crate::ghostty::MODE_COLOR_SCHEME_REPORT)
-                .unwrap_or(false)
-        {
-            return None;
-        }
-        appearance.map(|appearance| Bytes::from_static(color_scheme_report(appearance)))
     }
 }
 

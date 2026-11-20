@@ -143,8 +143,7 @@ pub(crate) struct ClientShellInput {
     pub detach: bool,
     pub repaint: bool,
     pub resize: bool,
-    pub query_host_appearance: bool,
-    pub query_host_theme: bool,
+    pub refresh_host_colors: bool,
     pub requests: Vec<ClientMessage>,
     pub actions: Vec<ClientShellAction>,
 }

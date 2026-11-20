@@ -61,16 +61,18 @@ Restoration then queries a unique unknown XTGETTCAP capability. Only its exact,
 complete echoed response acknowledges this shutdown; stale DSR 0n/3n or another
 shutdown's acknowledgement cannot match. Completion also requires the registered
 default/palette color-query attempts to be accounted for by lifetime reply counts.
-Neither these counts nor buffered reply prefixes expire during the drain. An early matching ACK must
-not abandon later colors. The gate checks both producers are off before the
-fence, split in-flight wheel reports, confirmed completion, and the first shell
-command. Unit coverage includes tracking-off before encoding resets, keyboard pop
-at most once, drain/raw-restore ordering and pasted/OSC-embedded fence lookalikes.
+Neither these counts nor buffered reply prefixes expire during the drain. An
+early matching ACK must not abandon later colors. The detach case verifies that
+only startup and manual reload query colors, and the drain waits for both
+batches. The gate also checks that report producers are off before the fence,
+split in-flight wheel reports are drained, and the first shell command works.
+Unit coverage includes tracking-off before encoding resets, keyboard pop at
+most once, drain/raw-restore ordering and pasted/OSC-embedded fence lookalikes.
 
 After the fence is written, drain waits at most two seconds for replies;
-join and output I/O are outside that bound. An unanswered terminal logs `terminal.shutdown_fence` with `confirmed=false`, not a successful
-completion. Late replies beyond that limit remain possible. This tests SSH-like
-reply timing, not an actual SSH connection or WAN latency.
+join and output I/O are outside that bound. An unanswered terminal logs
+`terminal.shutdown_fence` with `confirmed=false`. Late replies beyond that
+limit remain possible. This tests SSH-like timing, not actual WAN latency.
 
 `kitty-exit-ui-smoke.py` is the separate **actual Kitty + SSH** gate. Run
 `just smoke kitty-exit`; it requires Kitty/kitten, Xvfb, libX11/libXtst and

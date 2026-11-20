@@ -1,4 +1,4 @@
-//! Host theme queries and input handoff after report producers have stopped.
+//! Host color queries and input handoff after report producers have stopped.
 
 use std::io;
 use std::os::fd::RawFd;
@@ -6,38 +6,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::raw_input::RawInputByteFramer;
-use crate::terminal::{HOST_COLOR_QUERY_SEQUENCE, HOST_COLOR_SCHEME_QUERY_SEQUENCE};
-
-pub(in crate::client) fn query_host_terminal_appearance() {
-    let _ = write_host_query(
-        &mut io::stdout(),
-        HOST_COLOR_SCHEME_QUERY_SEQUENCE.as_bytes(),
-    );
-}
+use crate::terminal::HOST_COLOR_QUERY_SEQUENCE;
 
 pub(in crate::client) fn query_host_terminal_theme(expected: &AtomicU64) {
-    let _ = write_host_theme_query(
-        &mut io::stdout(),
-        crate::platform::should_query_host_terminal_palette(),
-        expected,
-    );
+    let _ = write_host_theme_query(&mut io::stdout(), expected);
 }
 
 pub(super) fn write_host_theme_query(
     writer: &mut impl io::Write,
-    query_palette: bool,
     expected: &AtomicU64,
 ) -> io::Result<()> {
     use std::fmt::Write as _;
-    // Register before writing: a reply can arrive as soon as the first query is
-    // emitted. Even a partial write must not falsely confirm complete shutdown.
-    expected.fetch_add(if query_palette { 258 } else { 2 }, Ordering::AcqRel);
     let mut query = String::from(HOST_COLOR_QUERY_SEQUENCE);
-    if query_palette {
-        for index in 0..=u8::MAX {
-            let _ = write!(query, "\x1b]4;{index};?\x1b\\");
-        }
+    for index in 0..=u8::MAX {
+        let _ = write!(query, "\x1b]4;{index};?\x1b\\");
     }
+    // Arm the reader before writing: two default colors and 256 palette entries.
+    expected.fetch_add(2 + 256, Ordering::AcqRel);
     write_host_query(writer, query.as_bytes())
 }
 
@@ -150,7 +135,6 @@ pub(super) fn drain_host_replies_with(
     const MAX_SHUTDOWN_DRAIN: Duration = Duration::from_secs(2);
     write_host_query(writer, &fence.query)?;
     let deadline = now() + MAX_SHUTDOWN_DRAIN;
-    framer.stop_followup_host_query_tracking();
     let mut completion = DrainCompletion {
         fence_received: false,
         pending_colors: expected_colors.saturating_sub(framer.host_color_replies_received()),

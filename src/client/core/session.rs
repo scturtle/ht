@@ -460,7 +460,6 @@ impl Session {
     }
 
     pub fn theme(&mut self, update: ClientHostThemeUpdate) -> io::Result<()> {
-        use crate::terminal::HostAppearance;
         match update {
             ClientHostThemeUpdate::DefaultColor { kind, color } => {
                 let (key, target) = match kind {
@@ -474,14 +473,6 @@ impl Session {
             ClientHostThemeUpdate::PaletteColors(colors) => {
                 for (index, color) in colors {
                     self.theme = self.theme.with_palette_color(index, color.into());
-                }
-            }
-            ClientHostThemeUpdate::Appearance(a) => {
-                for view in self.views.values() {
-                    view.terminal.apply_host_terminal_appearance(match a {
-                        ClientHostAppearance::Dark => Some(HostAppearance::Dark),
-                        ClientHostAppearance::Light => Some(HostAppearance::Light),
-                    });
                 }
             }
         }

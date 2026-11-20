@@ -1,444 +1,124 @@
-# Core-backed Herdr TUI
+# Herdr TUI：启动与使用
 
-这里只保留**真实现有 Herdr TUI 的默认 Core 后端**，没有独立的替代 TUI。
-旧 Herdr runtime 已物理删除；默认 `ht` 使用 Core，`--core` 仅为兼容别名，没有旧后端 fallback。
-UI 和适配器共用语义消息；旧 Herdr socket/bincode codec 已删除，Core 自身 wire 不变。
-这是个人 fork 的进行中迁移，**不是功能完整或稳定版承诺**。
+`ht` 是 Linux 上的 Herdr 终端客户端，沿用原有 UI，只使用 `herdr-core` 运行程序。
+`--core` 仍可用，但它只是默认入口的别名。构建依赖见[仓库 README](../../README.md#build)，
+Core 源码版本、补丁及协议要求见 [Core runtime](../core-runtime/README.md)。
 
-## 目录与职责
+## 连接现有 Core
 
-- `src/client/core/`：真实 TUI 的 Core 适配，默认入口在 `src/main.rs`。
-- `src/client/shell/`、`src/ui/`：原版交互与绘制。
-- `scripts/core-tui/`：本启动器及独立试用配置。
-- `scripts/core-runtime/`：固定源码的 Core 构建工具和补丁。
-- `tests/core-tui/`：真实 TUI 的隔离烟测和测试用 ANSI 屏幕解码器。
+两份二进制都在 `PATH` 时，直接运行 `ht`。它会连接默认 Core，未运行时启动它。
+App 与 `ht` 使用同一个 Linux 用户和 Core endpoint（通常是
+`$XDG_RUNTIME_DIR/herdr-core/default.sock`），即可共享 `herdr-app` 布局；启动顺序不限。
+空布局可直接用 `prefix+c` 创建第一个 Tab。
 
-目录整理没有改变 `.local/core-tui/existing/` 下的运行时或客户端身份，
-不会重启已有 Core，也不迁移其中的程序。
+- `HERDR_CORE_BIN` 指定 Core 可执行文件，默认从 `PATH` 查找 `herdr-core`。
+- `HC_SOCKET=/path/to/core.sock` 只连接该处**已运行**的 Core，不自动启动。
+- `--core-session <name>` 选择私有会话，不可与 `HC_SOCKET` 同用；
+  `--core-home <dir>` 指定客户端状态目录，单独使用不会隔离 Core。
 
-## 现有 Herdr TUI（试用入口）
+建议使用 `just build-core` 构建仓库固定的 Core。`ht` 要求 `terminal.attach_ordered`、
+`keyboard_stacks_v1` 等能力，不会降级到旧 attach。构建新二进制不会替换、重启或迁移
+正在运行的 Core；遇到能力不匹配，可先用下文的隔离启动器验证。
+
+## 隔离试用
+
+在仓库根目录运行：
 
 ```sh
 bash scripts/core-tui/run.sh
 ```
 
-使用真正的 `ClientShellState`、Tab 栏、键位、鼠标路由、通知和 Ghostty，
-不另造近似 UI。脚本构建固定源码的增强 Core 和当前 Herdr release binary，
-然后运行默认入口。也可用 `CORE_TUI_HC` 指定兼容的增强 Core。
-**现在要求 `ordered_attach` / `terminal.attach_ordered` 与 `keyboard_stacks_v1`。未打补丁的 Core，以及包含已退役 paint 屏障补丁的旧试用 Core 也能连接（这些能力只是不再要求），但缺少前两者的 Core 会被明确拒绝。**
-重建二进制不会升级已经运行的 server；不会自动重启、替换或迁移旧程序。如需马上试用新门禁，可显式选择
-新的隔离 runtime（这会创建新程序，不是迁移原程序）：
+启动器构建并运行真实 TUI，保留调用方的终端 stdin，清除继承的 `HC_*` 和 `HERDR_*`
+设置。默认使用 `.local/core-tui/existing/`，根据目录派生固定的 `trial-…` 会话名，
+socket 位于 `<home>/run/herdr-core/`。换用另一个 `CORE_UI_HOME` 就能试用新会话，
+不动现有 Core 或程序。
 
-```sh
-CORE_UI_HOME="$PWD/.local/core-tui/ordered-trial" \
-CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
-  bash scripts/core-tui/run.sh
-```
-
-后文的“不必停止 Core”均以 server 已满足能力要求为前提。
-
-构建输入、补丁范围、测试和移除条件见 [Core runtime](../core-runtime/README.md)。
-脚本清除继承的 `HC_*` / `HERDR_*` 身份和 socket 设置，运行时独立放在
-`.local/core-tui/existing/`，不会连接旧 Herdr server。TUI 仍读取正常 Herdr 界面配置；
-可用 `CORE_UI_CONFIG=/path/to/config.toml` 显式选择另一份配置。
-**已有 `[keys]` 会覆盖默认键位**，例如可以把默认前缀 `Ctrl+a` 改成别的键。
-嵌套在 Herdr/tmux 中运行时，相同前缀还可能被外层截获；可以使用独立终端，
-或显式使用随附的试用配置（不会修改全局配置）：
-
-```sh
-CORE_UI_CONFIG="$PWD/scripts/core-tui/try-config.toml" \
-  bash scripts/core-tui/run.sh
-```
-
-试用配置使用 **Ctrl+b** 或 **F12** 作为前缀，`前缀 p/n` 按栏上的顺序切 Pane，
-`前缀 q` 或 **F10** detach。嵌套外层截获 Ctrl+b 时，可改用 F12（例如 F12 然后 `?` 查看帮助）。
-
-本工作目录另有不提交的个人配置副本 `.local/core-tui/personal-config.toml`，
-保留配置中的 fish、底部 Tab、配色 override 和 Ctrl+a 键位，并添加 F12 备用前缀和嵌套许可。
-原全局配置不变：
-
-```sh
-CORE_UI_CONFIG="$PWD/.local/core-tui/personal-config.toml" \
-  bash scripts/core-tui/run.sh
-```
-
-新 Tab 直接创建，不弹命名框；可用 Ctrl+a Shift+T 重命名。
-`terminal.default_shell` 会作为 Core 创建程序时的 executable（不是 shell command 字符串）传递；
-未配置时由 Core 选择默认 shell。它不会替换已经运行的程序。
-
-入口曾有独立的 stdin 缺陷：用 Python heredoc 再 exec TUI，导致界面显示但
-键盘输入丢失，换键位不能修复。现已把启动逻辑移到 `run.py`，保留调用方
-的终端 stdin。满足能力要求的 Core 只需重进界面，不必停止 Core 或删除会话。
-`just core-launcher-test` 检查启动脚本保留调用方 stdin，以及 `--stop` 只作用于
-自己那个私有 Core。原先通过真实 PTY 驱动同一启动脚本的完整 UI 烟测按低频率随机
-超时（等待条件靠屏幕内容，负载高时不再收敛），已移除；分屏、鼠标、Tab、detach
-重连等行为仍由 `just smoke multiclient`、`just smoke keyboard`、`just smoke reconnect`
-覆盖。
-鼠标测试会先检查真实输出中的
-上报模式仍启用，不能在终端本来不会上报时强行注入鼠标来冒充通过。
-另已修复把程序鼠标需求误当成整个 TUI 捕获开关的问题；普通 Shell 不请求鼠标，
-也不应关闭 TUI 的鼠标操作。
-此前直接启动二进制的四项 smoke 没有覆盖这一入口缺陷。
-
-## 无常驻侧栏的导航
-
-桌面侧栏（工作区/agent 列表、折叠栏、宽度与分区拖动、自定义行模板）已移除。
-默认 `Ctrl+b` 后按 `w`，打开复用的移动端选择器；
-上下键选择工作区、Enter 确认、Esc 返回，右键条目可重命名/关闭。
-默认 `Ctrl+b` 后按 `g` 打开导航器，使用方向键或 j/k、Enter 选择；不再提供搜索、状态过滤或搜索输入框。自定义前缀/键位继续生效。
-Tab 栏可在顶部或底部，不再显示左侧 `spaces` 或右侧 `menu` 按钮，也不为它们预留宽度。
-`prefix+w` 选择器不再显示 menu 区块（移动布局相同）。设置页及其 `prefix+s` 入口已删除；帮助使用 `prefix+?`，诊断使用 pane 上下文菜单。
-移动端原有 `switch` 按钮保留，agent 列表仍可在选择器里查看。
-
-退役的 `ui.sidebar*`、`[ui.sidebar.*]`、`keys.toggle_sidebar` 和 theme 的
-`sidebar_bg` 项会提示未知键并忽略，不会改写配置或丢弃同节有效项。
-工作区/agent 数据、分组顺序、移动端、indexed/相对切换和请求身份围栏保留。
-`ui.agent_panel_sort` 仍决定移动端与 agent 快捷键的排序；旧 socket 身份下保存的
-agent 排序继续只读加载，旧侧栏几何与折叠偏好不再使用或写入。
-侧栏拖动独占的客户端 `workspace.move`/`workspace.move_block` 动作与能力声明也已退役，
-底层 Core 二进制、共享文档/CAS、PTY 和多客户端几何策略没有更换。
-旧个人配置副本中的侧栏项同样只提示忽略，不会被启动器自动修改。
-
-首次 attach 的工作区名字来自第一 Tab 根 pane 的**当前目录**，不是启动 ht 的目录。
-Core 公开快照中的 `cwd` 是程序启动目录，当前目录在 `foreground.cwd`；
-适配器在首次快照和后续事件中使用相同取值顺序，并保留 foreground 暂时为空时的本地最后目录回退。
-自定义工作区名称不被覆盖；新建 Tab/分屏仍继承当前目标 pane 的目录，显式 cwd 优先。
-`just smoke cwd` 用私有 HOME 启动 shell、cd 到 code/herdr、detach 后从 HOME
-重新 attach，验证第一次选择器和导航路径即正确，且 PID、网格与共享文档不变。
-
-## 配置文件与配色
-
-设置页面、音效提醒和内置主题已删除。UI 固定使用宿主终端默认色/ANSI 调色板，
-仅支持一层 `[theme.custom]` token override；不支持 light/dark override、auto_switch、
-name/light_name/dark_name，也不再使用旧的 `ui.accent`。这些退役字段和 `ui.sound`、
-`keys.settings` 会诊断后忽略，即使值类型不合法也不会阻止有效 sibling 配置生效。
-不会修改用户的旧配置文件。
-
-修改配置后可用默认 `prefix+Shift+r` 重载客户端 UI 配置；启动时选项（例如滚动保留策略）
-需要 detach 后按原选择重新 attach。终端原生 OSC 颜色同步和程序 BEL 协议仍保留，
-不属于 UI 主题切换或音效播放器。颜色只在读取/重载配置时解析，不在逐 pane 绘制循环重新解析。
-
-## 单连接与事件驱动调度
-
-每个 ht 只有一个 Core 连接和一条带关联身份的命令队列，不再包含单客户端多机器目录、
-SSH endpoint 激活/交接。**这不是单客户端限制**：手机、桌面等多个 ht 仍可同时连接
-同一 Core，保留独立焦点、选择、滚动、Zoom，以及 `latest` 权威网格策略。
-不确定投递不重试；generation / projection boot / request id 的请求围栏仍然有效。
-
-适配器直接发布已有类型化 snapshot，不再在进程内序列化 JSON 再解析。
-Core worker 由命令、帧/断线、异步写完成唤醒，无事时 park；有写入时保留实际超时 deadline，
-有剩余 graphics dirty 时继续发布。UI 只在 dirty/repaint/实际定时器变化时合成，不因每个事件重画。
-relay 重连会创建新的投影 epoch，使重建后从低值开始的 revision 不被旧缓存拒绝，
-同时取消旧 scope 请求并全量重绘；不会因此重启 Core 或程序。
-
-`just smoke scheduling` 在自建私有 Core/PTY 中检查空闲 worker 上下文切换、
-空闲输出字节、20 次按键到完整同步输出帧的延迟，以及高 revision 后仅丢失 relay 的恢复。
-它只终止经过 socket/命令行验证的测试 relay，不以分屏、resize 或 focus 手动恢复程序。
-可以比较预先保存的旧 release binary：
-
-```sh
-CORE_UI_BASELINE=/absolute/path/to/old-ht just smoke scheduling
-```
-
-这些是**本机 PTY 调度/输出测量，不是 WAN RTT，也不是物理终端绘制时间或整机 CPU 指标**。
-测试只运行本地原始终端 fixture，不调用模型；Core、程序及临时文件均属于本次测试。
-
-## 同步输出与中间空屏
-
-`just smoke synchronized` 用私有 Core/PTY 的合成输出，不调用模型，逐幅解码
-**已经结束的外层 2026 帧**。覆盖同步前有普通输出、分片 clear/repaint、干净同步块、
-块内填充，以及忘记结束同步时的 1 秒超时；普通非同步 clear 是能观察到空屏的正对照。
-测试主动把正常事务拉到 220ms 便于观察，并核对程序 PID、网格不变且没有 resize 救援。
-还重放 Pi 的 OSC 7501 `working → done/error/blocked/idle/clear`，逐帧核对任务结束
-不会清空窗格或重连 relay；`turn.state` 是任务状态，不能覆盖终端的 `state=live`。
-该门禁本身不调用 Pi/模型，不等于实际 Pi 事件录制、WAN 或物理显示延迟测量。
-
-未结束的同步输出只保留该窗格上一次已提交的文字、光标、链接和图片，不阻塞其他窗格、
-输入协议、查询回复、BEL 或 OSC 52。resize 仍跟随 Core 的权威网格，对旧画面裁剪/补白。
-客户端通过实际 deadline 唤醒，超过 1 秒时仅解除本地解析器的 2026 绘制等待；不向程序
-发送输入，不更改 Core 的 PTY。正常路径不额外复制画面，只有合成与未完成同步相遇时
-才懒捕获该窗格；关闭、换 attach channel、隐藏或连接恢复会清理相应缓存。
-
-## 多客户端图片探测应答
-
-`just smoke image-answers` 在私有 Core/PTY 中发送 Emacs 同样的 `i=31`
-PNG 能力查询、cell-size 查询和 DA1，不需要安装 Emacs，也不调用模型。覆盖单客户端、
-双客户端、单客户端迟到，以及一快一慢两个客户端。迟到控制只对本次创建并持有 PID 的
-测试 ht 暂停 250ms，随后恢复并清理；不是实际 SSH/WAN 延迟测量。
-
-按程序实际收到的原始 PTY 字节检查：正常查询只有一个图片回复且在 DA1 前；探测超时
-释放 DA1 后，匹配的迟到自动回复不再注入程序。普通图片上传 ACK 不套用探测超时；
-按键、Escape、粘贴、未知回复和 leadership 不变，分片及边界由 Core 单元测试覆盖。
-测试使用 `AUTOMATIC_INPUT`；混合键盘与回复的旧 DATA 客户端仍保留原始字节语义，
-不能据此宣称所有旧客户端也已去重。
-
-这是 **Core 侧** 修复，仅重启 ht 不会更换仍在运行的 Core。构建只原子发布供新进程
-使用的二进制，不自动重启或接管用户会话。测试用私有会话，实际 Core 切换另行明确安排。
-
-## 客户端 scrollback
-
-`[advanced] scrollback_limit_lines` 默认 `1000`，按物理历史行计数；例如设为
-`10000` 可保留更多。配置在客户端启动时读取，并用于后续 attach/relay 重连的历史请求。
-`0` 禁用客户端历史。历史保留仅按行数限制，不设置额外字节上限。
-
-Ghostty 仍按整页回收：仅在回收最旧页后还能保留有效目标行数时按行数回收；有效目标也
-受最小页分配约束，因此实际行数可能更多。显式字节上限可使保留量更少。Core 已丢弃的历史不能由客户端配置恢复。
-
-## 能力与测试边界
-
-- reload config 重新加载客户端配置；Core 未实现 `server.reload_config` 时不发送该请求。
-- pane/workspace/tab 右键菜单按实际方法表过滤；例如 Core 缺少 `terminal.label` 时不显示重命名。
-- Core 未实现 integration list/install 与 worktree 操作，客户端已移除对应设置页、右键/键位动作、对话框和响应分支；`api/schema` 中的相关词汇仍作为共享 schema 保留。旧配置里的 `keys.new_worktree`/`open_worktree`/`remove_worktree` 与 `[worktrees]` 仍能加载，只报告 unknown key/section 并忽略，不改写用户文件。
-- Core 转发真实终端 BEL 与 OSC 52，因此声音/剪贴板链路保留。它没有 semantic agent-notification
-  事件生产者；配置文件中的历史 toasts 选项仍可解析，但不会凭空生成通知。
-  剪贴板 toast 是另一条客户端链路，不受此限制。
-
-`tests/core-tui/harness.py` 统一身份清理、私有 session/socket 校验、exec 前 PTY 几何和停止逻辑。
-所有 Core smoke 使用相同隔离环境；停止前校验 session 和实际 socket，socket 缺失不自启。
-不再用已经废弃的 `core/core.sock` 判断清理是否必要。harness 安全测试随 `just test` 执行。
-`existing-ui-smoke.py` 是 organization gate 的兼容入口。
-`just smoke organization` 通过编辑私有配置文件并使用实际重载快捷键，验证 `[theme.custom]` override 出现在真实 ANSI 帧；重载不改写配置、不修改共享组织、不更换程序 PID。帮助过滤/返回仍经真实鼠标命中验证。
-
-`just smoke network` 对私有 PTY 的双向传输加入约 40ms 名义 RTT、±5ms 抖动、
-1/2/7/31/127/1024 字节分片、650ms 停止读输出和有界 32KiB 队列。
-它覆盖 copy/scroll/退出、连续输入、积压恢复以及仅杀 verified owned relay 后的 epoch 恢复，
-验证原程序 PID 和网格不变，不以手动 split/resize/focus 恢复。
-这是用户态有序字节流模拟，停读期间保留字节，**不是丢包重传、真实 SSH/TCP 断开重建或真实 Pi/model/extensions 测试**。
-报告中的延迟包含测试驱动的读/轮询开销，不能当作真实网络性能数据。
-
-### 渲染 profiling
-
-`just bench-render-stages` 分别计时 geometry、links、paint、frame、metadata/graphics，以及 frame drop。
-计时字段和代码仅在 `cfg(test)` 存在，生产渲染不添加时钟、环境查询或采样分支。
-旧/新 release 测试可执行文件可用固定 CPU 的 3 个 ABBA 周期比较：
-
-```sh
-python3 scripts/compare_core_render.py /path/to/old-render-tests /path/to/new-render-tests
-```
-
-比较的是固定几何测试进程，不是整机 CPU 或真实客户端端到端耗时。不要只用一次测量判断收益。
-若系统禁止 perf，则使用上述有界阶段计时，不自动修改 perf_event_paranoid 或请求系统级权限。
-
-当前绘制对“未写入且默认样式”的空白格使用已有 packed-cell 判定，省掉重复的 style/grapheme FFI。
-样式只在同一把锁保护的一次 render 中缓存，并通过完整路径解析真实默认颜色；不跨帧缓存颜色。
-行尾标量探测使全密集行沿用原完整路径，避免逐格额外探测。`bench-render-scale` 还包含
-0/50/100% 内容密度与完整路径的 ABBA 对照；功能测试比较两条路径的 buffer，覆盖实时颜色、
-BCE、palette、inverse/invisible、中文宽字符换行、链接及备用屏幕。
-
-## Pane 冻结现场诊断
-
-遇到冻结时，先不要分屏、调整尺寸或切换 pane：在目标 pane 的上下文菜单选择 `Dump pane diagnostics`。
-通知会给出 `/var/tmp/ht-pane-dump-<client-pid>-<timestamp>/` 路径。
-目录权限为 `0700`，**文件包含屏幕文字、程序信息，分享前务必检查敏感内容**；不会自动上传。
-
-- `client.json`：UI 焦点/模式、snapshot/surface revision、pane cells、待处理请求、输入/滚动状态、客户端线程状态及 wait channel。
-- `adapter.json`：目标 pane 的 channel、尺寸、credit、解析器模式（含 synchronized output）、viewport 和适配器状态。
-- `core.json` / `core-screen.txt`：独立 existing-only relay 只读查询的 Core 状态、程序事实及当前屏幕。
-- `report.json`：版本、时间、来源 socket、耗时和缺失/超时项。三层数据独立采样，不是原子快照。
-
-抓取不向 pane 发送输入、focus、resize、attach，不消费渲染 dirty 状态，也不操作程序生命周期。
-后台采集预算约 4 秒；Core 或适配器无响应也保留已拿到的部分，不阻塞 UI。
-更新客户端只需 detach 后重新运行 `ht`，**不需要重启 Core 或 Pi**。
-
-## 支持范围
-
-### App 共享布局
-
-直接运行 `ht` 会复用默认 Core；没有运行时，由 `herdr-core connect` 启动。iOS / 桌面 App
-与 `ht` 只要使用同一个 Linux 用户和 Core endpoint，谁先启动都能共享同一个 Core。
-默认 endpoint 由 Core 选取，通常是 `$XDG_RUNTIME_DIR/herdr-core/default.sock`。若 App
-已连接其他 **Core** socket，可用 `HC_SOCKET` 指定该 socket（不要填 App 的控制 socket）；
-显式指定时只连接已有的 Core。断线重连也不会自动启动 Core。
-布局只使用 `herdr-app` 文档：App 改分组或顺序后，`ht` 跟着更新；插件不显示，纯插件的 Tab
-不占编号。空布局可等待 App 更新，或在 `ht` 里用 `prefix+c` 创建第一个共享 Tab。
-终端输入、复制和本地切换可用；`prefix+x` 结束当前
-Pane 的终端，App 同步清理已结束的 Pane。`ht` 不关闭同组的其他 Pane，也不关闭 App 标记为不可关闭的 Pane。
-`prefix+c` 在共享布局里新增一个 Tab，`prefix+Shift+t` 重命名。可以拖动整个 Tab 重排，
-也可配置 `move_tab_previous` / `move_tab_next`。不显示的插件 Tab 仍保留在 App 文档里。
-Space 可用 `prefix+Shift+n/w` 新建、重命名；`prefix+w` 打开切换器，右键 Space 可关闭。
-关闭 Space 没有默认快捷键。关闭会结束只属于它的终端；若有不可关闭的独占 Pane，则不关闭这个 Space。
-新建后的焦点只在发起的客户端变化。Tab 内新增 Pane、方向交换、关闭整个 Tab 请在 App 操作。
-PTY 大小仍沿用 `latest`：两端同时使用一个 Pane 时会跟随最后声明的网格。
-
-### 私有会话
-
-显式指定 `--core-session <name>` 可启动自己的 Core，也只使用 `herdr-app`。
-首次没有 App 文档时创建一个 Shell。最后一个 Pane 结束时退出 TUI、不停 Core；
-重进空布局可用 `prefix+c` 创建 Tab。
-
-### 共同界面
-
-- 数据仍是 Workspace → Tab → Pane。TUI 一次只显示一个 Pane，同 Tab 的多 Pane 在栏上并排编号，
-  例如 `1.1  1.2 │ 2`。桌面和移动端都列出当前 Space 的所有 Tab/Panes；移动端用页头第二行，
-  即使所有 Tab 都只有一个 Pane 也照常显示。点击直达，窄屏先去掉名称，再用两端箭头滚动。
-  `prefix+p/n` 按栏上的 Pane 顺序在当前 Workspace 内循环，`prefix+1..9` 按 Tab 切换。
-  打开工作区选择器（`prefix+w`）后，`Tab` / `Shift+Tab` 可在当前 Tab 内切 Pane。
-  `ht` 不显示分屏、Zoom 或分隔线；App 原有的分屏几何不会被改动。
-- App 外部编辑和 missed events 触发文档重读。Core 明确确认程序结束后，`ht` 从本地投影
-  隐藏该 Pane，App 负责同步自己的共享布局；断流、Core restart/stop 本身不是程序退出证据。
-- 无自定义名的 Tab 按当前顺序显示 `1、2、3…`；稳定 ID 不作显示编号。
-- Pane 重命名复用原版对话框、快捷键和去空白/清空规则；个人配置可用 Ctrl+a Shift+P。
-  名称只存 Core 的 `herdr.display_name` 标签，跨客户端同步，脱离重进保留，清空恢复默认；
-  不修改 Core 程序身份、PID、App 文档、尺寸领导权或 OSC 7501 状态。
-  元数据通过 retained surface 更新，不重画终端；Core 缺少可选的 `terminal.label` 时只禁用此动作。
-- 关闭后迟到的按键释放/重复、鼠标释放/拖动等延续事件对已结束目标为空操作，绝不改投其它 Pane；
-  真正的新输入/粘贴失败仍提示，只有粘贴错误显示 `Paste rejected`。
-- 隐藏 Pane 不竞争尺寸；重新显示时即使期望网格未变，也重新声明一次，避免沿用其它客户端的网格。
-- focus、active Workspace/Tab、scroll、selection 属于各客户端；focus/几何变化不写共享文档。
-  焦点偏好保存在 `clients/<identity>/app-preferences.json`。
-- 多客户端可连接同一 Core 程序。Unix 自动按 TTY 派生身份，也可显式指定
-  `HERDR_CORE_CLIENT_ID`（直接启动二进制）或 `CORE_UI_CLIENT_ID`（使用 launcher），
-  值为 1–96 个 ASCII 字母、数字、`-`、`_`。launcher 仍丢弃外层继承的 `HERDR_*` 身份；
-  只有显式 `CORE_UI_CLIENT_ID` 才选用指定身份。不要让两个同时运行的客户端使用同一身份。
-  锁只阻止同一身份重复连接，不再锁住整个 Core home；没有稳定身份时不持久化 preferences。
-- attach 使用 `terminal.attach_ordered`：每次首帧与替换重绘之前都有权威 RESIZE→DATA→live DATA，
-  没有额外的 paint 完成标记。重放与实时字节不作区分，输入不做完成前闸门（已知且接受的让步）。
-  parser 跟随 Core 实际网格，客户端期望尺寸独立保存，不用权威尺寸反向制造 resize。
-  后台 Tab 的 attach 被动参与，后台窗口变化不抢尺寸领导权。
-- 几何策略为 `latest`：获得焦点或重新显示 pane 时客户端主动补发 RESIZE 夺回该 pane 的网格；
-  其他客户端收到 RESIZE 后跟随重绘，因此不会错格，但布局更小的一侧显示为裁剪而非重新折行。
-  一个 PTY 只有一个尺寸，两端不可能各自满屏吻合。
-- Core 唯一拥有 PTY、进程和 OSC 7501 状态；没有屏幕猜测或 Agent 专属脚本。未报告状态就是 Unknown。
-- 输入经 Ghostty 语义编码；自动回复走 automatic-input，不冒充人的输入、不抢领导权。
-  Kitty 主/备用屏幕完整 flags 栈可恢复；真实 TUI 已验证 press/repeat/release、替换客户端后的逐层 pop。
-- 工作区语义与原版对齐：无自定义名时工作区名来自"第一个 tab 的根 pane cwd"
-  （`derive_label_from_cwd`，HOME 显示 `~`），随 `cd` 更新；`WorkspaceInfo.number`
-  与侧栏报的是**位置**（`index + 1`），不是不复用的计数器；关闭当前工作区后按
-  原版 `close_workspaces` 规则落到"占据该位置的那个，越界夹到末尾"。
-  App 文档中空 `name` 表示没有自定义名。
-- 断线重连由适配层自己完成：`Session::resume` 用 `hc connect --existing`（补丁
-  0003）重连，重新 bootstrap、恢复客户端本地展示偏好、清掉旧通道、重置保留帧
-  （但保留已投递给宿主的图像缓存），再以权威 RESIZE 重新 attach 每个 pane。
-  排队输入**丢弃而非重放**（Core 没有启动纪元，重放可能作用在过期几何/模式上）。
-  重启会在 1 秒内重建 socket，因此 socket 连续缺失 5s 判定为"用户主动 stop"，
-  TUI 以原来的 `lost connection to Core` 退出。断连期间不向 TUI 发
-  `ServerDisconnected`，所以 UI 无需改动。
-- Kitty graphics 由客户端解析并绘制：pane 的 Ghostty 终端按配置启用图像存储，
-  复用原服务端的 `collect_scene`/`collect_visible_placements`（从旧 server 恢复，
-  只把"pane 来源"换成当前布局），再交给原有 `ClientState` 编码到宿主终端。
-  宿主必须报告 cell 像素（或回答 `CSI 16 t`），否则无法测量放置，图像被正确跳过。
-  已知边界：attach/重连后的**首帧**重放不含图像字节（Core 的 paint 只有字符网格），
-  程序需重新发送；这与 Ghostty 自身"快照不保留 image/placement"的契约一致。
-- copy-mode 复用现有 UI：选择/复制/滚动、行首尾、大小单词和段落、正反向/循环搜索；
-  有内容版本校验与有界结果，也验证了另一客户端决定尺寸时的搜索/复制。
-- 增强 Core 另提供 `connect --existing`，已验证不启动、不复活被明确停止的 server。
-  后续重连必须使用此模式；目前 TUI 尚未接入自动重连状态机。
-- 输入/输出有界，管道写入有 5 秒上限，RPC 总预算 15 秒（包含写入）。超时或断流会隔离旧连接，
-  不重试不确定已送达的输入/动作，也不接受迟到回复；这还不是自动重连。
-  CREDIT 用有界的异步标量队列，避免每个输出 chunk 都等待写线程往返。
-- 消费 DATA 后才回补 credit；hidden output 更新 parser，不额外重绘后台 Pane。
-  metadata-only snapshot 配套匹配 revision 的 retained surface，避免卡住现有 overlay。
-- 默认键位：`Ctrl+b c` 新 Tab、`Ctrl+b Tab` 组内切换 Pane、`Ctrl+b q` detach。
-
-### 必需能力与当前缺口
-
-以下是用户明确要求的迁移验收项，不能以 Unsupported 或“以后支持”作为完成结果：
-
-| 能力 | 当前阶段 |
+| 变量 | 用途 |
 | --- | --- |
-| 多 Workspace、多 Tab | 主要实现和真实 TUI 生命周期/并发 CAS/跨客户端 membership 与本地 focus 测试通过。 |
-| live handoff | 已验证客户端替换后的同 PID、键盘模式栈与输入；有界断线重连、旧 epoch fencing、holder-preserving Core server 重启/替换尚未实现和验收。 |
-| Kitty graphics | 主机显示/缓存组件保留，但适配器尚未发布图片 scene；Core 首屏/重连/重启图片重放仍缺失。 |
-| Kitty keyboard protocol | 编码、主/备用屏幕完整栈、脏 viewer、溢出、release/repeat、替换客户端后 pop 已验证；完整 text/AltGr/dead-key 与 server restart 联合验收待做。 |
-| copy-mode | 单元测试和真实 TUI 搜索/移动/选择/复制/退出通过；多客户端不同权威尺寸下的搜索复制也通过，最终 handoff 联合验收未完成。 |
-| 多客户端尺寸协调 | 新的显式 ordered attach 已实现；两个真实默认 TUI 验证输入、窗口 resize、detach 的尺寸仲裁，后台 Tab 不竞争、无 resize feedback；尚未验证更大客户端数和断线恢复。 |
+| `CORE_UI_HOME` | 隔离目录。启动和 `--stop` 必须使用同一目录。 |
+| `CORE_UI_CONFIG` | 指定 TUI 配置文件；未指定时，使用 `<home>/config/herdr/config.toml`，文件不存在则用默认值。 |
+| `CORE_TUI_HC` | 使用指定的兼容 Core，跳过 Core 构建；仍构建 `ht`。 |
+| `CORE_UI_CLIENT_ID` | 显式指定客户端身份；不要让同时运行的客户端共用同一身份。 |
 
-远程 Core transport、完整自动化 CLI bridge 尚未实现；旧 socket/integration 命令明确禁用。
-上游自更新也已禁用，防止装回退休 runtime。
-此前曾观察到窄 Pane resize 后 Bash 提示符重复重绘及 Core `read` 缺少部分最近输出；
-本轮几何仲裁通过不等于已证明任意 resize 无损。客户端只能恢复 Core 实际保留的内容。
-Core 使用独立 runtime dir，不自动配置 systemd/linger；不承诺注销存活，请勿放重要任务。
-
-直接使用构建好的二进制时：
+如果外层 Herdr 或 tmux 截获了前缀键，可以使用随附的[试用配置](try-config.toml)：
 
 ```sh
-just build build-core
-HERDR_CORE_BIN="$PWD/.local/hc/bin/herdr-core" \
-  "target/$(uname -m)-unknown-linux-musl/release/ht" \
-  --core-home /absolute/path/to/a-private-core-home --core-session private-demo
+CORE_UI_CONFIG="$PWD/scripts/core-tui/try-config.toml" bash scripts/core-tui/run.sh
 ```
 
-`HERDR_CORE_BIN` 默认是 PATH 上的 `herdr-core`。Core home 只能由 `--core-home` 指定，
-**不读任何环境变量**，避免被外层进程悄悄改掉。
-
-默认客户端连接 `$XDG_RUNTIME_DIR/herdr-core/default.sock`，也就是 `hc` 默认那个 Core。
-`ht` 创建的终端也能通过连接同一 socket 的 `hc ls` 查看。`--core-home` 只指定客户端状态目录；
-`--core-session <name>` 才选择并隔离私有 Core，会话 socket 仍遵循 hc 的命名规则。
-
-试用脚本根据 home 生成固定的 `trial-…` session，并将 XDG runtime/state/config 目录
-都放在该 home 下。启动和 `--stop` 共用这组标识，socket 位于
-`<home>/run/herdr-core/trial-….sock`，不会使用旧的 `<home>/core.sock` 或外层的 `HC_SOCKET`。
-
-停止试用脚本启动的 Core **及其中全部程序**：
+试用配置用 **Ctrl+b** 或 **F12** 作前缀，以 `prefix+q` 或 **F10** detach。
+普通 detach 只退出客户端，程序继续运行。要停止试用 Core **及其中的程序**，才运行：
 
 ```sh
 bash scripts/core-tui/run.sh --stop
 ```
 
-### 验证入口与当前证据
+私有会话没有布局文档时会创建一个 Shell；最后一个 Pane 结束后客户端退出，但 Core 仍运行。
+隔离运行不配置 systemd/linger，不保证注销后会话存活。
+
+## 导航与配置
+
+下表使用默认前缀 **Ctrl+a**。`prefix+…` 表示先按前缀，再按后续键；已有 `[keys]` 可覆盖默认值。
+
+| 操作 | 默认键位 |
+| --- | --- |
+| 帮助 | `prefix+?` |
+| 工作区选择器 / 导航器 | `prefix+w` / `prefix+g` |
+| 新建 / 重命名工作区 | `prefix+Shift+n` / `prefix+Shift+w` |
+| 新建 / 重命名 Tab | `prefix+c` / `prefix+Shift+t` |
+| 按栏上顺序切换 Pane / 按编号切换 Tab | `prefix+p`、`prefix+n` / `prefix+1..9` |
+| 重命名 / 关闭当前 Pane | `prefix+Shift+p` / `prefix+x` |
+| 键盘复制模式 / 使用编辑器查看历史 | `prefix+[` / `prefix+e` |
+| 重载客户端配置 / detach | `prefix+Shift+r` / `prefix+d` |
+
+没有常驻侧栏。一次显示一个 Pane，同 Tab 的 Pane 在栏上以 `1.1`、`1.2` 等编号列出；
+点击可切换，拖动可重排 Tab。工作区选择器支持方向键和右键菜单；导航器支持方向键或
+`j`/`k`，按 Enter 确认。`ht` 不绘制分屏或 Zoom，也不改动 App 的分屏几何。
+关闭 Pane 会结束对应程序；关闭工作区会结束只属于该工作区的程序。App 标记为不可关闭的
+Pane 受保护。
+
+直接启动时通常读取 `~/.config/herdr/config.toml`，可用 `HERDR_CONFIG_PATH` 指定文件。
+`ht --default-config` 查看支持项，`ht config check` 检查配置。热重载不修改 Core 配置。
+`terminal.default_shell` 和 `[advanced] scrollback_limit_lines` 在客户端启动时读取，修改后需
+detach 再连。前者只影响新建程序；后者默认保留 `1000` 个物理行，`0` 禁用客户端历史。
+Ghostty 按整页回收，实际保留行数可能略多；Core 已丢弃的历史无法恢复。
+
+UI 默认使用宿主终端的默认色和 ANSI 色，`[theme.custom]` 只覆盖显式设置的 UI 颜色项。
+不支持内置主题或亮暗切换；退役的配置键会提示并忽略，不改写文件。
+宿主默认前景、背景与 256 色调色板只在启动和手动重载时通过 OSC 查询。
+退出时先关闭输入报告并离开备用屏幕，再等待终端确认、读取在途回包（最多两秒），
+最后把 TTY 交还外层 shell。退出不重新查询或改写宿主颜色。
+
+## 多客户端与运行边界
+
+- Core 持有 PTY、程序和共享布局；客户端各自保留焦点、滚动和选择。布局修改使用
+  `herdr-app` 文档的局部 CAS 更新，不覆盖无关字段。App 的插件项保留在文档中，
+  但不显示在 TUI。
+- 每个客户端使用一条 `hc connect` relay。断线时用 `hc connect --existing` 恢复，
+  不启动或复活已停止的 Core，也不重放投递结果不明的输入。换客户端不需要重启 Core。
+- PTY 大小按 `latest` 仲裁：最后操作该 Pane 的客户端决定网格，其他客户端跟随；
+  后台 Pane 不抢尺寸。Ordered attach 在每次首帧和替换重绘前发送权威尺寸。
+- 默认按 TTY 派生客户端身份，焦点偏好保存在 `clients/<identity>/app-preferences.json`。
+  直接启动可设 `HERDR_CORE_CLIENT_ID`（1–96 个 ASCII 字母、数字、`-`、`_`）。
+- Kitty 图像显示需要宿主可用的单元格像素尺寸。Core 的首屏及重连重放不包含图像数据，
+  已显示过的图像可能需要程序重新发送。
+- Agent 状态仅来自程序上报的 OSC 7501，不从屏幕猜测。没有旧 Herdr 服务端、远程 Core
+  传输、集成安装器或 CLI API 桥；管理 Core 程序请用 `hc`。
+
+## 日志与验证
+
+客户端日志为状态目录下的 `herdr-client.log`：隔离启动时在 `CORE_UI_HOME` 下；直接启动
+默认在 `$XDG_STATE_HOME/herdr/core-client-v1/`（无 XDG 设置时用 `~/.local/state`）。
+排查退出时的回包问题，可查看 `terminal.shutdown_fence` 日志中的 `confirmed` 和
+`pending_colors`。
 
 ```sh
-just test-core
-just smoke
-just core-launcher-test
-just bench-render-scale
+just core-launcher-test         # stdin 和隔离会话选择
+just smoke                      # 真实 TUI，通过私有 Core/PTY 串行验证
+just smoke terminal-restore    # 回包清理、超时、TTY 交还
+just smoke keyboard graphics   # 只运行指定烟测
+just bench-render-scale        # 固定几何下比较 1 与 15+ Pane
+just bench-render-stages       # 测量渲染各阶段
 ```
 
-真实 TUI 烟测用 `/var/tmp` 私有 HOME/config/runtime/PTY，finally 只停止自己的 Core。
-禁用桌面 clipboard 环境，仅捕获 OSC 52；Bash 无 profile/rc，键盘测试使用独立 raw-PTY peer。
-`tests/core-tui/Cargo.toml` 只构建测试用 `screen-oracle`，依赖仅 `vt100` 与 `serde_json`，不含 TUI、Core transport
-或程序运行逻辑。它解码真实 TUI 的 PTY 输出并重放 resize 字节边界；不能用 retained ANSI
-原始子串冒充屏幕。测试解码器不是另一条用户入口。
-
-最近验证：**Herdr 1,898 passed / 8 skipped**；固定源码增强 Core 源码本轮未改，复验全套为
-**449 passed / 3 ignored**。`just lint` 及七项真实 TUI 烟测通过。它们都明确返回 `full_migration_acceptance: false`。
-
-默认 TUI 已消费新完成边界；Core 两个旧 attach 的协议仍未改，新 TUI 不静默降级到旧方法。
-输出边界／本地队列令牌不等于 Core input/boot epoch 或 host 实际绘制确认，也不证明 graphics 恢复或完整 handoff。详见
-[`scripts/core-runtime/README.md`](../core-runtime/README.md)。
-另在私有 HOME/PTY 下用真实 fish 验证个人副本：底部 Tab、Ctrl+a、`|` / `_` 分屏、
-无新 Tab 命名提示、Tab/Pane 重命名、清空 Pane 名称、Ctrl+a z 缩放、Ctrl+a Shift+H/L
-缩放中交换 Pane、exit 和 Ctrl+a d 均通过；未驱动用户会话。
-这不是 `just check` 全绿：部分退休 runtime 维护契约仍待清理，Bun 缺失、CoW 不可用、Windows 未验证。
-
-本轮固定 120×40 采样：未命名、未 zoom 的 1／15 Pane render 为 **548.71／541.13 µs**，
-1→15 delta **−7.58 µs**；增加 14 个 populated 后台 Tab 的单 Pane delta **−3.88 µs**。
-相较上一阶段的 −3.81／+0.41 µs 没有可见线性放大，负值属于本机噪声，不是优化证明。
-未测实际多客户端 fanout。新队列令牌只在 attach／paint／生命周期边界更新，DATA／render 不更新 registry。
-
-下表保留上一阶段的基线（µs/frame，非 CI 时间阈值）：
-
-| 布局 Pane | populated 后台 Tab | 所有 Pane 均有名称 | Zoom | render | retained projection |
-| ---: | ---: | :---: | :---: | ---: | ---: |
-| 1 | 0 | 否 | 否 | 548.33 | 164.82 |
-| 15 | 0 | 否 | 否 | 544.52 | 169.60 |
-| 1 | 14 | 否 | 否 | 548.74 | 166.14 |
-| 15 | 14 | 否 | 否 | 541.71 | 166.82 |
-| 1 | 0 | 是 | 否 | 552.39 | 170.01 |
-| 15 | 0 | 是 | 否 | 542.43 | 167.25 |
-| 1 | 14 | 是 | 否 | 546.35 | 166.36 |
-| 15 | 14 | 是 | 否 | 541.92 | 167.63 |
-| 1 | 0 | 否 | 请求后仍为否（单 Pane） | 553.34 | 170.04 |
-| 15 | 0 | 否 | 是，仅绘制 1 Pane | 331.44 | 165.90 |
-| 1 | 14 | 否 | 请求后仍为否（单 Pane） | 547.89 | 165.93 |
-| 15 | 14 | 否 | 是，仅绘制 1 Pane | 325.50 | 165.70 |
-
-未缩放、未命名时 1→15 可见 Pane 增量 −3.81 µs（−0.7%），增加 14 个后台 Tab +0.41 µs（+0.1%）；
-全部命名时分别为 −9.96 µs（−1.8%）及 −6.04 µs（−1.1%）。
-Zoom 的 15 Pane 行只绘制 1 个 Pane，不可当成 15 可见 Pane 的加速结果。
-小幅差异和负增量受采样噪声影响，不能当成优化证明；未测多客户端 frame fanout scaling。
-针对新增写入超时的管道专项采样还比较了 1/15 个 channel 的 CREDIT 开销：
-原同步写入 5.00/28.35 µs，一律等待写线程曾增至 8.35/74.18 µs，
-因此改为有界异步 CREDIT，采样为 1.38/16.18 µs；这些仅为本机支持性证据。
-
-`existing-ui-smoke.py` 是初始单客户端 milestone 的历史烟测，仍含旧 Unsupported/互斥断言。
-新专项烟测复用它的 PTY driver，但不执行其过时主流程，也不把它当成最终 migration gate。
-键盘烟测的清理曾误用不存在的顶层 `stop`，已改为检查返回码的 `server stop`，
-等待私有 socket 删除后才清理目录、输出成功；失败会保留现场。
-PTY driver 的异常清理会持续排空输出并有界等待，必要时只强制结束自己创建的 viewer；
-避免 renderer 堵在满 PTY 时令 finally 永久等待、跳过私有 Core 的清理。
-根据用户明确指令，已停止本机 default hc 及确认属于烟测的遗留进程；Linger 未改。
-当时的停机检查确认无 hc 服务/进程遗留；用户后续试用会重新启动试用 Core。
-自动测试仅启动并清理自己的私有 Core，不停止用户正在试用的 Core。
-没有提交、push、发布、系统安装或真实会话迁移。
-
+烟测清单、前置条件及测量边界见 [TUI 测试文档](../../tests/core-tui/README.md)。

@@ -1,4 +1,4 @@
-//! Shared terminal-theme data and pure color/appearance escape-sequence codecs.
+//! Shared terminal color data and escape-sequence codecs.
 //! Host I/O belongs to client::host_terminal; pane state belongs to pane::terminal.
 
 use bytes::Bytes;
@@ -8,12 +8,6 @@ pub struct RgbColor {
     pub r: u8,
     pub g: u8,
     pub b: u8,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostAppearance {
-    Dark,
-    Light,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,28 +46,6 @@ impl TerminalTheme {
 }
 
 pub const HOST_COLOR_QUERY_SEQUENCE: &str = "\x1b]10;?\x1b\\\x1b]11;?\x1b\\";
-pub const HOST_COLOR_SCHEME_QUERY_SEQUENCE: &str = "\x1b[?996n";
-pub const HOST_COLOR_SCHEME_REPORT_ENABLE_SEQUENCE: &str = "\x1b[?2031h";
-pub const HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE: &str = "\x1b[?2031l";
-
-pub(crate) const COLOR_SCHEME_DARK_REPORT: &[u8] = b"\x1b[?997;1n";
-pub(crate) const COLOR_SCHEME_LIGHT_REPORT: &[u8] = b"\x1b[?997;2n";
-
-pub(crate) const fn color_scheme_report(appearance: HostAppearance) -> &'static [u8] {
-    match appearance {
-        HostAppearance::Dark => COLOR_SCHEME_DARK_REPORT,
-        HostAppearance::Light => COLOR_SCHEME_LIGHT_REPORT,
-    }
-}
-
-pub(crate) fn parse_color_scheme_report(buffer: &[u8]) -> Option<HostAppearance> {
-    match buffer {
-        COLOR_SCHEME_DARK_REPORT => Some(HostAppearance::Dark),
-        COLOR_SCHEME_LIGHT_REPORT => Some(HostAppearance::Light),
-        _ => None,
-    }
-}
-
 pub fn parse_default_color_response(sequence: &str) -> Option<(DefaultColorKind, RgbColor)> {
     let body = sequence.strip_prefix("\x1b]")?;
     let body = body
@@ -276,22 +248,5 @@ mod tests {
             osc_rgb_response("4;255", 12, 128, 255).as_ref(),
             b"\x1b]4;255;rgb:0c0c/8080/ffff\x1b\\"
         );
-    }
-
-    #[test]
-    fn appearance_queries_modes_and_reports_keep_their_wire_encoding() {
-        assert_eq!(HOST_COLOR_QUERY_SEQUENCE, "\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
-        assert_eq!(HOST_COLOR_SCHEME_QUERY_SEQUENCE, "\x1b[?996n");
-        assert_eq!(HOST_COLOR_SCHEME_REPORT_ENABLE_SEQUENCE, "\x1b[?2031h");
-        assert_eq!(HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE, "\x1b[?2031l");
-        for (appearance, expected) in [
-            (HostAppearance::Dark, b"\x1b[?997;1n"),
-            (HostAppearance::Light, b"\x1b[?997;2n"),
-        ] {
-            assert_eq!(color_scheme_report(appearance), expected);
-            assert_eq!(parse_color_scheme_report(expected), Some(appearance));
-        }
-        assert_eq!(parse_color_scheme_report(b"\x1b[?997;3n"), None);
-        assert_eq!(parse_color_scheme_report(b"\x1b[?997;1"), None);
     }
 }

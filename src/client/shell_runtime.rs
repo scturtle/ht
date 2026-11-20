@@ -146,10 +146,7 @@ pub(super) fn finish_client_shell_input(
         );
         endpoints.send(&resize);
     }
-    if outcome.query_host_appearance {
-        query_host_terminal_appearance();
-    }
-    if outcome.query_host_theme {
+    if outcome.refresh_host_colors {
         query_host_terminal_theme(&state.host_color_replies_expected);
     }
     sync_client_shell_keyboard_report_all(state)?;

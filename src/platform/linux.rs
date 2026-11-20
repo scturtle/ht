@@ -1,10 +1,7 @@
 #[cfg(test)]
 use std::{io::Write, os::fd::RawFd};
 // Platform support for the Core TUI: terminal I/O, input, files, and notifications.
-use std::{
-    process::{Command, Stdio},
-    sync::OnceLock,
-};
+use std::process::{Command, Stdio};
 
 pub(crate) use super::unix_common::{create_remote_private_dir, create_remote_ssh_config_file};
 
@@ -21,37 +18,6 @@ pub(crate) fn replace_file(
 
 #[cfg(test)]
 mod config_file_tests;
-
-const WSL_MARKER_ENV_VARS: &[&str] = &["WSL_DISTRO_NAME", "WSL_INTEROP"];
-
-pub(crate) fn should_query_host_terminal_palette() -> bool {
-    !running_inside_wsl()
-}
-
-fn running_inside_wsl() -> bool {
-    static RUNNING_INSIDE_WSL: OnceLock<bool> = OnceLock::new();
-    *RUNNING_INSIDE_WSL.get_or_init(detect_running_inside_wsl)
-}
-
-fn detect_running_inside_wsl() -> bool {
-    proc_file_indicates_wsl("/proc/sys/kernel/osrelease")
-        || proc_file_indicates_wsl("/proc/version")
-        || WSL_MARKER_ENV_VARS
-            .iter()
-            .any(|key| std::env::var_os(key).is_some())
-        || std::path::Path::new("/run/WSL").exists()
-}
-
-fn proc_file_indicates_wsl(path: &str) -> bool {
-    std::fs::read_to_string(path)
-        .map(|text| text_indicates_wsl(&text))
-        .unwrap_or(false)
-}
-
-fn text_indicates_wsl(text: &str) -> bool {
-    let text = text.to_ascii_lowercase();
-    text.contains("microsoft") || text.contains("wsl")
-}
 
 pub fn open_url(url: &str) -> std::io::Result<Option<std::process::Child>> {
     Command::new("xdg-open")
