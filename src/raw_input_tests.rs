@@ -4,21 +4,6 @@ use super::*;
 use crossterm::event::{KeyCode, KeyEventKind};
 
 #[test]
-fn actual_color_completion_survives_parser_expiry_and_ignores_paste_and_mouse() {
-    let mut framer = RawInputByteFramer::default();
-    framer.host_color_query_sent(258);
-    framer.push(b"\x1b]4;245;rgb:8a8a/8a8a/8a8a\x1b\\");
-    assert_eq!(framer.host_color_replies_received(), 1);
-    framer.age_host_reply_activity(HOST_REPLY_QUIET_WINDOW);
-    framer.flush_timeout();
-    assert_eq!(framer.host_color_replies_received(), 1);
-    framer.push(b"\x1b[200~\x1b]4;246;rgb:9494/9494/9494\x1b\\\x1b[201~\x1b[<35;66;20M\x1b[<64;66;20M\x1b[0n");
-    assert_eq!(framer.host_color_replies_received(), 1);
-    framer.push(b"\x1b]10;rgb:1111/2222/3333\x07\x1b]4;246;rgb:9494/9494/9494\x1b\\");
-    assert_eq!(framer.host_color_replies_received(), 3);
-}
-
-#[test]
 fn focus_and_unsolicited_appearance_do_not_arm_the_query_window() {
     let mut framer = RawInputByteFramer::default();
     let events = parse_framed_input(&framer.push(b"\x1b[I\x1b[?997;1n\x1b[?997;2n").concat());

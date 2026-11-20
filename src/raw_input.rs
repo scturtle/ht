@@ -94,8 +94,6 @@ pub(crate) struct RawInputByteFramer {
     timed_out_mouse_prefix: Option<Vec<u8>>,
     lone_escape_recently_flushed: bool,
     host_color_replies_awaited: u64,
-    // Lifetime completion count, independent of the live Escape timeout.
-    host_color_replies_received: u64,
     host_cell_size_replies_awaited: u16,
     /// Last query sent or reply received. Hosts may answer only part of a
     /// query (or none of it), so the reply counters alone never expire.
@@ -139,7 +137,7 @@ impl RawInputByteFramer {
             // Bytes after the idle limit are never part of the abandoned reply.
             self.drop_abandoned_host_color_reply();
         }
-        let chunks = self.push_without_idle_expiry(data);
+        let chunks = self.push_bytes(data);
         if !data.is_empty() {
             self.partial_host_color_reply_read_at =
                 starts_with_incomplete_default_color_response(&self.buffer).then(Instant::now);
@@ -147,9 +145,7 @@ impl RawInputByteFramer {
         chunks
     }
 
-    /// The shutdown drain has its own deadline. Preserve the live reader's
-    /// partial replies even if their normal keyboard-latency window has ended.
-    pub(crate) fn push_without_idle_expiry(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+    fn push_bytes(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
         self.buffer.extend_from_slice(data);
         if let Some(prefix_len) = self.awaiting_mouse_tail_after.take() {
             if !continues_escape_sequence(&self.buffer) {
@@ -177,7 +173,6 @@ impl RawInputByteFramer {
 
     fn record_host_color_replies(&mut self, count: u64) {
         self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_sub(count);
-        self.host_color_replies_received = self.host_color_replies_received.saturating_add(count);
     }
 
     /// Whether a buffered unfinished OSC 10/11 reply has waited past its idle
@@ -217,10 +212,6 @@ impl RawInputByteFramer {
             && self
                 .host_reply_activity_at
                 .is_some_and(|at| at.elapsed() < HOST_REPLY_QUIET_WINDOW)
-    }
-
-    pub(crate) fn host_color_replies_received(&self) -> u64 {
-        self.host_color_replies_received
     }
 
     /// Stop expecting replies the host never sent, so their reply handling no

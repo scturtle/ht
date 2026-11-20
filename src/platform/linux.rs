@@ -2,6 +2,7 @@
 use std::{io::Write, os::fd::RawFd};
 // Platform support for the Core TUI: terminal I/O, input, files, and notifications.
 use std::process::{Command, Stdio};
+use tokio::signal::unix::{signal, Signal, SignalKind};
 
 pub(crate) use super::unix_common::{create_remote_private_dir, create_remote_ssh_config_file};
 
@@ -18,6 +19,31 @@ pub(crate) fn replace_file(
 
 #[cfg(test)]
 mod config_file_tests;
+
+pub(crate) struct TerminationSignals {
+    interrupt: Signal,
+    terminate: Signal,
+    hangup: Signal,
+}
+
+impl TerminationSignals {
+    /// Register on the client runtime so an idle UI can wake on any of these signals.
+    pub(crate) fn new() -> std::io::Result<Self> {
+        Ok(Self {
+            interrupt: signal(SignalKind::interrupt())?,
+            terminate: signal(SignalKind::terminate())?,
+            hangup: signal(SignalKind::hangup())?,
+        })
+    }
+
+    pub(crate) async fn recv(&mut self) {
+        tokio::select! {
+            _ = self.interrupt.recv() => {},
+            _ = self.terminate.recv() => {},
+            _ = self.hangup.recv() => {},
+        }
+    }
+}
 
 pub fn open_url(url: &str) -> std::io::Result<Option<std::process::Child>> {
     Command::new("xdg-open")

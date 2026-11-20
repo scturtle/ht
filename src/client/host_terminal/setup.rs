@@ -86,7 +86,6 @@ fn restore_terminal_state_once(
     restore_claimed: &AtomicBool,
     reset_keyboard_enhancements: bool,
     reset_modify_other_keys: bool,
-    drain_input: impl FnOnce(),
     #[cfg(test)] test_restore: Option<&TestRestore>,
 ) -> io::Result<()> {
     // Claim before any I/O. An error (or panic) must never cause a second stack pop.
@@ -95,35 +94,19 @@ fn restore_terminal_state_once(
     }
     #[cfg(test)]
     if let Some(restore) = test_restore {
-        drain_input();
         return restore(reset_keyboard_enhancements, reset_modify_other_keys);
     }
-    restore_terminal_state(
-        reset_keyboard_enhancements,
-        reset_modify_other_keys,
-        drain_input,
-    )
-}
-
-fn restore_terminal_state(
-    reset_keyboard_enhancements: bool,
-    reset_modify_other_keys: bool,
-    drain_input: impl FnOnce(),
-) -> io::Result<()> {
     restore_terminal_state_with(
         &mut io::stdout(),
         reset_keyboard_enhancements,
         reset_modify_other_keys,
         |writer| clear_received_kitty_graphics(writer),
-        || {
-            drain_input();
-            ratatui::try_restore()
-        },
+        ratatui::try_restore,
     )
 }
 
-/// Stop input-report producers before draining in raw mode, then restore the
-/// tty and cursor. Raw restore errors take priority over cursor errors.
+/// Stop input reporting before restoring the tty and cursor.
+/// Raw restore errors take priority over cursor errors.
 pub(super) fn restore_terminal_state_with<W: io::Write>(
     writer: &mut W,
     reset_keyboard_enhancements: bool,
@@ -148,8 +131,8 @@ pub(super) fn restore_terminal_state_with<W: io::Write>(
         DisableBracketedPaste
     );
     let _ = set_mouse_capture_with(writer, false, false);
-    // Leave the alternate screen before the drain so Kitty also stops
-    // translating wheel events to arrow keys.
+    // Leave the alternate screen before returning the tty so Kitty also
+    // stops translating wheel events to arrow keys.
     let _ = execute!(&mut *writer, LeaveAlternateScreen);
 
     let restore_result = restore_terminal();
@@ -171,12 +154,11 @@ impl TerminalGuard {
         }
     }
 
-    fn restore_state(&self, drain_input: impl FnOnce()) -> io::Result<()> {
+    fn restore_state(&self) -> io::Result<()> {
         restore_terminal_state_once(
             &self.restore_claimed,
             self.reset_keyboard_enhancements,
             self.modify_other_keys_sequence.is_some(),
-            drain_input,
             #[cfg(test)]
             self.test_restore.as_deref(),
         )
@@ -232,23 +214,20 @@ impl TerminalGuard {
                 &restore_claimed,
                 reset_keyboard_enhancements,
                 reset_modify_other_keys,
-                || {},
                 #[cfg(test)]
                 test_restore.as_deref(),
             );
         }
     }
 
-    /// Normal exit drains pending input while the tty is still raw. Drop and
-    /// panic restore never wait for terminal replies.
-    pub(in crate::client) fn restore(self, drain_input: impl FnOnce()) -> io::Result<()> {
-        self.restore_state(drain_input)
+    pub(in crate::client) fn restore(self) -> io::Result<()> {
+        self.restore_state()
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = self.restore_state(|| {});
+        let _ = self.restore_state();
     }
 }
 

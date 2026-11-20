@@ -70,7 +70,6 @@ use notifications::handle_shell_notification_effects;
 
 use std::collections::HashMap;
 use std::io::{self, Write as _};
-use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -93,17 +92,8 @@ pub fn run_core_client() -> io::Result<()> {
         .with_startup_config_diagnostic(crate::config::config_diagnostic_summary(
             &loaded_config.diagnostics,
         ));
-    let mut loop_config = ClientLoopConfig {
-        mouse_capture_active: true,
-        host_escape_disambiguation_active: false,
-        host_sgr_pixel_mouse: None,
-        initial_host_input: Vec::new(),
-        host_color_replies_expected: Default::default(),
-        shell_config,
-    };
 
     crate::logging::startup("client");
-    info!(socket_override = ?core_options.socket, "connecting to Core");
 
     // Get one coherent geometry snapshot before raw mode changes the terminal.
     let (cols, rows, cell_width_px, cell_height_px, exact_cell_size) =
@@ -113,12 +103,17 @@ pub fn run_core_client() -> io::Result<()> {
         eprintln!("ht: failed to set up terminal: {err}");
         err
     })?;
-    loop_config.host_escape_disambiguation_active =
-        terminal_guard.host_escape_disambiguation_active();
-    loop_config.host_sgr_pixel_mouse = terminal_guard.host_sgr_pixel_mouse();
-    loop_config.initial_host_input = terminal_guard.take_buffered_host_input();
+    let loop_config = ClientLoopConfig {
+        mouse_capture_active: true,
+        host_escape_disambiguation_active: terminal_guard.host_escape_disambiguation_active(),
+        host_sgr_pixel_mouse: terminal_guard.host_sgr_pixel_mouse(),
+        initial_host_input: terminal_guard.take_buffered_host_input(),
+        host_color_replies_expected: Default::default(),
+        shell_config,
+    };
 
     let shell_surface_size = loop_config.shell_config.initial_surface_size(cols, rows);
+    info!(socket_override = ?core_options.socket, "connecting to Core");
     let (initial, endpoint_methods) = core::prepare(
         core_options,
         shell_surface_size,
@@ -140,53 +135,30 @@ pub fn run_core_client() -> io::Result<()> {
         .build()
         .map_err(io::Error::other)?;
 
-    let should_quit = Arc::new(AtomicBool::new(false));
+    let termination = {
+        let _runtime = rt.enter();
+        crate::platform::TerminationSignals::new()?
+    };
 
-    // ctrlc's "termination" feature also catches SIGTERM/SIGHUP so direct
-    // termination signals still run the quit path and TerminalGuard::Drop.
-    let quit_flag = should_quit.clone();
-    if let Err(err) = ctrlc::set_handler(move || {
-        quit_flag.store(true, Ordering::Release);
-    }) {
-        warn!(%err, "failed to install termination handler; terminal restore relies on TerminalGuard::Drop and the panic hook");
-    }
-
-    let host_color_replies_expected = Arc::clone(&loop_config.host_color_replies_expected);
     let mut stdin_reader = None;
-    let result = rt.block_on(async {
-        run_client_loop(
-            initial,
-            endpoint_methods,
-            cols,
-            rows,
-            cell_width_px,
-            cell_height_px,
-            exact_cell_size,
-            should_quit,
-            loop_config,
-            &terminal_guard,
-            &mut stdin_reader,
-        )
-        .await
-    });
+    let result = rt.block_on(run_client_loop(
+        initial,
+        endpoint_methods,
+        cols,
+        rows,
+        cell_width_px,
+        cell_height_px,
+        exact_cell_size,
+        termination,
+        loop_config,
+        &terminal_guard,
+        &mut stdin_reader,
+    ));
 
     // The UI has dropped its receiver, unblocking a backpressured sender.
-    // Join and take the framer only now, after the last possible host query.
-    let input_framer = stdin_reader.as_mut().and_then(input::StdinReader::finish);
+    // Join the reader before handing stdin back to the outer shell.
     drop(stdin_reader);
-    let terminal_restore_failed = terminal_guard
-        .restore(move || {
-            if let Some(mut framer) = input_framer {
-                let stdin = io::stdin();
-                let reader = stdin.lock();
-                host_terminal::drain_pending_host_replies(
-                    reader.as_raw_fd(),
-                    &mut framer,
-                    host_color_replies_expected.load(Ordering::Acquire),
-                );
-            }
-        })
-        .is_err();
+    let terminal_restore_failed = terminal_guard.restore().is_err();
 
     if let Err(err) = result {
         let _ = writeln!(io::stderr(), "herdr: {err}");
@@ -240,16 +212,17 @@ async fn run_client_loop(
     initial_cell_width_px: u32,
     initial_cell_height_px: u32,
     initial_pixel_geometry_exact: bool,
-    should_quit: Arc<AtomicBool>,
+    mut termination: crate::platform::TerminationSignals,
     mut config: ClientLoopConfig,
     _terminal_guard: &TerminalGuard,
     stdin_reader: &mut Option<input::StdinReader>,
 ) -> Result<(), ClientError> {
+    let should_quit = Arc::new(AtomicBool::new(false));
     let mut state = ClientState {
         blit_encoder: render_ansi::BlitEncoder::new(),
         image_files: image_files::FileTransport::from_environment(),
         mouse_capture_active: config.mouse_capture_active,
-        host_color_replies_expected: Arc::clone(&config.host_color_replies_expected),
+        host_color_replies_expected: config.host_color_replies_expected,
         endpoint_mouse_capture_requested: false,
         endpoint_sgr_pixels_requested: false,
         shell_mouse_capture_preference: config.mouse_capture_active,
@@ -350,7 +323,7 @@ async fn run_client_loop(
 
     // Main event loop.
     let mut client_timer = timer::ClientLoopTimer::new();
-    while !should_quit.load(Ordering::Acquire) {
+    loop {
         {
             let shell = &mut state.shell;
             let cleanup = shell.take_pending_graphics_cleanup();
@@ -367,12 +340,10 @@ async fn run_client_loop(
         let timer_deadline = client_timer.deadline(std::time::Instant::now(), timer_delay);
         let event = tokio::select! {
             biased;
-            _=tokio::time::sleep_until(timer_deadline.into())=>ClientLoopEvent::Timer,
-            ev=event_rx.recv()=>ev.unwrap_or(ClientLoopEvent::Timer),
+            _ = termination.recv() => break,
+            _ = tokio::time::sleep_until(timer_deadline.into()) => ClientLoopEvent::Timer,
+            ev = event_rx.recv() => ev.unwrap_or(ClientLoopEvent::Timer),
         };
-        if should_quit.load(Ordering::Acquire) {
-            break;
-        }
         let now = std::time::Instant::now();
 
         match event {
@@ -1004,9 +975,9 @@ async fn run_client_loop(
         }
     }
 
-    // Clean exit (Ctrl+C). Send Detach before closing.
-    let detach = ClientMessage::Detach;
-    connection.send(&detach);
+    // A termination signal stops the host input workers and detaches only this UI.
+    should_quit.store(true, Ordering::Release);
+    connection.send(&ClientMessage::Detach);
     let _ = io::stdout().flush();
 
     Ok(())

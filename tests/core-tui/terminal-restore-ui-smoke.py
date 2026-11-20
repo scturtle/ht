@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Real TUI -> outer shell handoff with delayed, split host palette replies.
-
-The delay/fragmentation is synthetic, not an actual SSH/WAN measurement. Every
-case owns a private Core and PTY; no inherited session is touched.
-"""
+"""Real TUI -> outer shell handoff on a private PTY that never answers color queries."""
 
 import json
 import os
@@ -22,6 +18,11 @@ PROOF = b"SHELL_INPUT_PRESERVED"
 COLOR_QUERY = re.compile(rb"\x1b\](10|11|4;[0-9]+);\?\x1b\\")
 FULL_QUERY = [b"10", b"11"] + [f"4;{i}".encode() for i in range(256)]
 PAINT_END = b"\x1b[?2026l"
+EXIT_SIGNALS = {
+    "sigint": signal.SIGINT,
+    "sigterm": signal.SIGTERM,
+    "sighup": signal.SIGHUP,
+}
 
 
 def wait_for(viewer, check, description, timeout=8):
@@ -34,20 +35,9 @@ def wait_for(viewer, check, description, timeout=8):
     )
 
 
-def observe_shell(viewer, seconds):
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        viewer.read()
-    return PROMPT in viewer.output
-
-
-def shutdown_fence(output):
-    return re.search(rb"\x1bP\+q([0-9a-f]+)\x1b\\", output)
-
-
-def reporting_modes_at_fence(output):
+def reporting_modes_at_exit(output):
     modes = {}
-    prefix = output[: shutdown_fence(output).start()]
+    prefix = output[: output.index(b"HT_EXIT_STATUS=")]
     for match in re.finditer(rb"\x1b\[\?([0-9;]+)([hl])", prefix):
         for value in match[1].split(b";"):
             modes[int(value)] = match[2] == b"h"
@@ -78,7 +68,6 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
 """)
     wrapper.chmod(0o700)
     viewer = None
-    result = {}
     try:
         viewer = H.Viewer(env, binary=wrapper)
         wait_for(
@@ -94,128 +83,26 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
             viewer.resize(92, 25)
             wait_for(viewer, lambda out: PAINT_END in out[start:], "paint after host resize")
             viewer.send(b"\x1b[O\x1b[I\x1b[?997;2n")
-            assert not observe_shell(viewer, 0.25)
-            assert COLOR_QUERY.findall(viewer.output) == FULL_QUERY
             viewer.send(b"\x1b[17~")  # F6, explicit config reload.
             wait_for(viewer, lambda out: COLOR_QUERY.findall(out) == FULL_QUERY * 2,
                      "one more full color query batch after reload")
             batches = 2
-        if kind in ("last-pane-aged", "last-pane-slow"):
-            # The live parser's one-second ambiguity window is not evidence
-            # that an unanswered query completed across SSH.
-            observe_shell(viewer, 1.2)
-        # The existing slow case also exercises an aged OSC 11 prefix.
-        first = (
-            b"\x1b]11;rgb:0000/0000/0000\x1b\\"
-            if kind == "last-pane-slow"
-            else b"\x1b]4;0;rgb:0000/afaf/d7d7\x1b\\"
-        )
-        prefix_len = 8
-        if kind != "unanswered":
-            # Default colors and cell-size replies do not remain outstanding.
-            data = b"\x1b]10;rgb:ffff/ffff/ffff\x07\x1b]11;rgb:0000/0000/0000\x07"
-            data += b"\x1b[6;16;8t"
-            if kind == "detach":
-                # Dispatch detach before buffering the partial OSC reply.
-                data += b"\x1b[21~"
-            elif kind.startswith("last-pane"):
-                # Close the actual shell in the only pane, not the ht process.
-                if kind in ("last-pane-aged", "last-pane-slow"):
-                    data = b""
-                data += b"\x04"
-            viewer.send(
-                data + (b"" if kind == "last-pane-early-ack" else first[:prefix_len])
-            )
+
         started = time.monotonic()
-        if kind in ("signal", "unanswered"):
-            os.kill(int(pid_file.read_text()), signal.SIGTERM)
-
-        early_shell = False
-        delayed_bytes = 0
-        wait_for(viewer, shutdown_fence, f"{kind}: uniquely identified shutdown query")
-        fence = shutdown_fence(viewer.read())
-        fence_reply = b"\x1bP0+r" + fence[1] + b"\x1b\\"
-        modes = reporting_modes_at_fence(viewer.read())
-        capture_at_fence = any(modes.get(mode, False) for mode in (9, 1000, 1002, 1003))
-        alt_at_fence = modes.get(1049, False)
-        assert not alt_at_fence, "alternate-screen wheel-to-arrow producer still active"
-        assert not capture_at_fence, "mouse capture must stop before the shutdown fence"
-        wheel = b"\x1b[<64;66;20M\x1b[<65;66;20M\x1b[<65;66;20M"
-        if kind == "last-pane-early-ack":
-            # A status response is not a per-query color acknowledgement. Keep
-            # the palette tail in flight after it while motion packets arrive.
-            viewer.send(b"\x1b[0n\x1b[3n" + fence_reply)
-        if kind != "unanswered":
-            # Delay the response to the fresh fence independently of the live
-            # parser's expired query window, including an SSH-like >1s stall.
-            early_shell |= observe_shell(
-                viewer, 1.1 if kind == "last-pane-slow" else 0.15
-            )
-            tail = (
-                first if kind == "last-pane-early-ack" else first[prefix_len:]
-            ) + b"".join(
-                f"\x1b]4;{index};rgb:0000/afaf/d7d7\x1b\\".encode()
-                for index in range(0 if kind == "last-pane-slow" else 1, 256)
-            )
-            if kind in ("last-pane-aged", "last-pane-slow"):
-                tail += b"\x1b]10;rgb:ffff/ffff/ffff\x07"
-                if kind != "last-pane-slow":
-                    tail += b"\x1b]11;rgb:0000/0000/0000\x07"
-                tail += b"\x1b[6;16;8t"
-            delayed_bytes = len(tail)
-            # Split the first reply's ST between ESC and backslash, then cross a
-            # 4096-byte read boundary with the rest of the 256-entry palette.
-            limits = [len(first) - prefix_len - 1, 1, 4096, len(tail)]
-            for limit in limits:
-                chunk, tail = tail[:limit], tail[limit:]
-                if chunk:
-                    viewer.send(chunk)
-                if tail:
-                    early_shell |= observe_shell(viewer, 0.05)
-            assert not tail
-            # Even complete color counts cannot release the tty before the
-            # terminal confirms the ordering fence. Split that reply too.
-            if kind != "last-pane-early-ack":
-                early_shell |= observe_shell(viewer, 0.1)
-                if kind == "last-pane-wheel":
-                    # Reports generated before capture-disable can still be in flight.
-                    for chunk in [wheel[:1], wheel[1:3], wheel[3:11], wheel[11:]]:
-                        viewer.send(chunk)
-                        viewer.read()
-                viewer.send(fence_reply[:2])
-                early_shell |= observe_shell(viewer, 0.05)
-                viewer.send(fence_reply[2:])
-            if kind == "detach":
-                # One query batch plus the fence is not enough after a reload.
-                early_shell |= observe_shell(viewer, 0.15)
-                reload_replies = b"\x1b]10;rgb:aaaa/aaaa/aaaa\x07\x1b]11;rgb:1111/1111/1111\x07"
-                reload_replies += b"".join(
-                    f"\x1b]4;{index};rgb:1111/2222/3333\x1b\\".encode()
-                    for index in range(256)
-                )
-                delayed_bytes += len(reload_replies)
-                viewer.send(reload_replies)
-
-        wait_for(
-            viewer, lambda out: PROMPT in out, f"{kind}: outer shell handoff", timeout=4
-        )
+        if kind in EXIT_SIGNALS:
+            os.kill(int(pid_file.read_text()), EXIT_SIGNALS[kind])
+        else:
+            viewer.send(b"\x1b[21~" if kind == "detach" else b"\x04")
+        # Send no color or other terminal replies: handoff must not wait for them.
+        wait_for(viewer, lambda out: PROMPT in out,
+                 f"{kind}: outer shell handoff without terminal replies", timeout=1.8)
         elapsed = time.monotonic() - started
         output = viewer.read()
-        shell_output = output[output.index(PROMPT) :]
         assert b"HT_EXIT_STATUS=0 TTY_RESTORED=True" in output, output[-500:]
+        modes = reporting_modes_at_exit(output)
+        assert not any(modes.get(mode, False) for mode in (9, 1000, 1002, 1003, 1004, 1049, 2004)), modes
+        assert b"\x1bP+q" not in output, "client must not send a handoff query"
         assert not re.search(rb"\x1b\[\?(996n|2031[hl])", output)
-        client_log = (home / "c" / "herdr-client.log").read_text()
-        assert "terminal.shutdown_fence" in client_log, client_log
-        assert f"expected_colors={258 * batches}" in client_log, client_log
-        assert f"confirmed={str(kind != 'unanswered').lower()}" in client_log, (
-            client_log
-        )
-        if kind != "unanswered":
-            assert "pending_colors=0" in client_log, client_log
-        assert not early_shell, "shell resumed before requested replies arrived"
-        assert b"rgb:" not in shell_output, shell_output[-500:]
-        assert b";66;20M" not in shell_output, shell_output[-500:]
-        assert elapsed < 3.5, f"shutdown was not bounded: {elapsed:.3f}s"
         assert COLOR_QUERY.findall(output) == FULL_QUERY * batches, (
             "unexpected color query outside startup and reload"
         )
@@ -231,46 +118,30 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
             lambda out: PROOF + b"\r\n" in out,
             "first shell command survives input ownership handoff",
         )
-        result = dict(
-            case=kind,
-            color_query_batches=batches,
-            delayed_reply_bytes=delayed_bytes,
-            shell_rgb_leak=False,
-            shell_mouse_leak=False,
-            shell_input_preserved=True,
-            shutdown_fence_answered=kind != "unanswered",
-            mouse_capture_at_fence=capture_at_fence,
-            alternate_screen_at_fence=alt_at_fence,
-            shutdown_seconds=round(elapsed, 3),
-        )
         viewer.send(b"exit 0\n")
         viewer.wait_exit()
     finally:
         if viewer is not None:
             if viewer.pid and PROMPT in viewer.output:
-                # Only this gate-owned shell: abort synthetic input, never run it.
                 viewer.send(b"\x03exit 0\n")
             viewer.cleanup()
         H.stop_private_core(env)
-    result["private_core_stopped"] = not H.private_socket(env).exists()
-    return result
+    return dict(
+        case=kind,
+        color_query_batches=batches,
+        tty_restored=True,
+        shell_input_preserved=True,
+        shutdown_seconds=round(elapsed, 3),
+        private_core_stopped=not H.private_socket(env).exists(),
+    )
 
 
 def main():
     results = []
-    for kind in (
-        "signal",
-        "detach",
-        "last-pane",
-        "last-pane-aged",
-        "last-pane-slow",
-        "last-pane-wheel",
-        "last-pane-early-ack",
-        "unanswered",
-    ):
+    for kind in (*EXIT_SIGNALS, "detach", "last-pane"):
         with tempfile.TemporaryDirectory(prefix="ht-exit-", dir="/var/tmp") as scratch:
             results.append(run_case(kind, Path(scratch)))
-    print(json.dumps(dict(delayed_host_reply_handoff=True, cases=results)))
+    print(json.dumps(dict(terminal_handoff_without_replies=True, cases=results)))
 
 
 if __name__ == "__main__":

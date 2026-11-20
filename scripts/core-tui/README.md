@@ -109,13 +109,13 @@ UI 默认使用宿主终端的默认色和 ANSI 色，`[theme.custom]` 只覆盖
 
 客户端日志为状态目录下的 `herdr-client.log`：隔离启动时在 `CORE_UI_HOME` 下；直接启动
 默认在 `$XDG_STATE_HOME/herdr/core-client-v1/`（无 XDG 设置时用 `~/.local/state`）。
-排查退出时的回包问题，可查看 `terminal.shutdown_fence` 日志中的 `confirmed` 和
-`pending_colors`。
+退出时会先停止 stdin 读取、关闭终端报告模式，再恢复 tty；不等待宿主颜色回复。
+仍在传输中的回包可能在交还 tty 后到达。
 
 ```sh
 just core-launcher-test         # stdin 和隔离会话选择
 just smoke                      # 真实 TUI，通过私有 Core/PTY 串行验证
-just smoke terminal-restore    # 回包清理、超时、TTY 交还
+just smoke terminal-restore    # 不等宿主回包，验证 TTY 交还
 just smoke keyboard graphics   # 只运行指定烟测
 just bench-render-scale        # 固定几何下比较 1 与 15+ Pane
 just bench-render-stages       # 测量渲染各阶段

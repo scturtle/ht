@@ -47,32 +47,13 @@ marker, so replay bytes and live bytes are not distinguished and semantic input
 is not gated on a boundary; unit coverage for the frame contract lives in
 `src/client/core` instead of a relay fixture.
 
-`terminal-restore-ui-smoke.py` checks the real TUI's handoff back to an outer
-shell. Synthetic delayed/split OSC 4 replies must be consumed before normal
-detach, SIGTERM, or Ctrl+D closing the last pane returns the terminal. Replies
-cross the 4096-byte read boundary and split an ST terminator. The Ctrl+D cases
-also age the live parser's query window past one second and stall replies for
-more than one second during shutdown: parser expiry is not query completion.
-After the UI has ended, restoration joins the reader and takes its framer,
-disables input-reporting protocols and leaves the alternate screen while keeping
-the tty raw. Leaving the screen matters: Kitty's alternate-scroll behavior still
-produces arrow keys from wheel events even after mouse capture is disabled.
-Restoration then queries a unique unknown XTGETTCAP capability. Only its exact,
-complete echoed response acknowledges this shutdown; stale DSR 0n/3n or another
-shutdown's acknowledgement cannot match. Completion also requires the registered
-default/palette color-query attempts to be accounted for by lifetime reply counts.
-Neither these counts nor buffered reply prefixes expire during the drain. An
-early matching ACK must not abandon later colors. The detach case verifies that
-only startup and manual reload query colors, and the drain waits for both
-batches. The gate also checks that report producers are off before the fence,
-split in-flight wheel reports are drained, and the first shell command works.
-Unit coverage includes tracking-off before encoding resets, keyboard pop at
-most once, drain/raw-restore ordering and pasted/OSC-embedded fence lookalikes.
-
-After the fence is written, drain waits at most two seconds for replies;
-join and output I/O are outside that bound. An unanswered terminal logs
-`terminal.shutdown_fence` with `confirmed=false`. Late replies beyond that
-limit remain possible. This tests SSH-like timing, not actual WAN latency.
+`terminal-restore-ui-smoke.py` checks real TUI handoff to an outer shell on a
+private PTY that never answers color queries. Detach, SIGINT/SIGTERM/SIGHUP, and
+Ctrl+D closing the last pane must exit without waiting for replies or sending
+a handoff query. The gate checks that the tty settings are restored, input
+reporting and the alternate screen are off, and the first shell command is
+preserved. It also checks that colors are queried only at startup and on
+manual config reload.
 
 `kitty-exit-ui-smoke.py` is the separate **actual Kitty + SSH** gate. Run
 `just smoke kitty-exit`; it requires Kitty/kitten, Xvfb, libX11/libXtst and
@@ -82,13 +63,12 @@ SSH listener/keys, never connects to the user's display, SSH service or Core.
 A TCP proxy adds 300ms each way by default (600ms RTT;
 `CORE_TUI_SSH_DELAY_SECONDS` overrides the per-direction delay). Twelve Ctrl+D
 exits (`CORE_TUI_KITTY_EXIT_RUNS`) vary early/normal timing and continuous motion,
-wheel or both. After every client exit a raw receiver preserves and captures
-input for 1.5 seconds without flushing: **any** late byte fails, including wheel
-reports translated to arrow keys, not just recognizable `rgb:`/SGR strings.
-Each handoff must log the unique ACK and zero outstanding color replies.
-Owned processes/Core are stopped in `finally`; logs and captures remain in the
-printed `/var/tmp/ht-kitty-*` directory. This is actual loopback SSH under
-controlled latency, not verification of every external SSH network or terminal.
+wheel or both. Each run checks the exit code and restored tty settings. A
+post-exit raw receiver records later input for 1.5 seconds without flushing;
+in-flight terminal reports can arrive after handoff, so the capture is
+diagnostic rather than required to be empty. Owned processes/Core are stopped
+in `finally`; logs and captures stay in the printed `/var/tmp/ht-kitty-*`
+directory. This is loopback SSH under controlled latency.
 
 `reconnect-ui-smoke.py` is the reconnect gate. `server restart` must not end the
 TUI: the dead relay is replaced, panes re-attach, screens come back from Core's

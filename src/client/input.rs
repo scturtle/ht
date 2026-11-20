@@ -15,29 +15,17 @@ use crate::raw_input::RawInputByteFramer;
 /// shell's first keystrokes.
 pub(super) struct StdinReader {
     should_quit: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<RawInputByteFramer>>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl StdinReader {
     pub(super) fn spawn(
         should_quit: Arc<AtomicBool>,
-        read: impl FnOnce() -> RawInputByteFramer + Send + 'static,
+        read: impl FnOnce() + Send + 'static,
     ) -> Self {
         Self {
             should_quit,
             thread: Some(std::thread::spawn(read)),
-        }
-    }
-
-    /// Called after the UI ends. Preserve partial replies for the final drain.
-    pub(super) fn finish(&mut self) -> Option<RawInputByteFramer> {
-        self.should_quit.store(true, Ordering::Release);
-        match self.thread.take()?.join() {
-            Ok(framer) => Some(framer),
-            Err(_) => {
-                tracing::debug!("stdin reader panicked before shutdown");
-                None
-            }
         }
     }
 }
@@ -50,7 +38,13 @@ impl Drop for StdinReader {
         if std::thread::panicking() {
             return;
         }
-        let _ = self.finish();
+        if self
+            .thread
+            .take()
+            .is_some_and(|thread| thread.join().is_err())
+        {
+            tracing::debug!("stdin reader panicked before shutdown");
+        }
     }
 }
 
@@ -73,7 +67,7 @@ pub fn stdin_reader_loop(
     initial_host_input: Vec<u8>,
     direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
     direct_response_active: Arc<AtomicBool>,
-) -> RawInputByteFramer {
+) {
     let stdin = io::stdin();
     let reader = stdin.lock();
     let mut framer = RawInputByteFramer::for_host_input();
@@ -93,7 +87,6 @@ pub fn stdin_reader_loop(
         &reader,
         &mut framer,
     );
-    framer
 }
 
 fn unix_stdin_reader_loop(
@@ -251,8 +244,8 @@ fn unix_stdin_reader_loop(
 }
 
 /// Both probe-buffered and newly read input use the same two-stage idle wait.
-/// Stop before either flush when the UI closes so the final drain can use
-/// the same buffered prefixes. Injecting readiness makes this testable off-tty.
+/// Stop before flushing when the UI closes. Injecting readiness makes this
+/// testable off-tty.
 fn flush_idle_input(
     framer: &mut crate::raw_input::RawInputByteFramer,
     event_tx: &mpsc::Sender<ClientLoopEvent>,
@@ -448,8 +441,7 @@ fn stdin_read_ready<R: AsRawFd>(reader: &R, timeout_ms: i32) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    // Framing and reader ownership are testable without the host tty; real-PTY
-    // gates also verify that delayed reports are consumed before handoff.
+    // Framing and reader ownership are testable without the host tty.
 
     #[test]
     fn stdin_reader_drop_joins_the_worker_before_returning() {
@@ -461,7 +453,6 @@ mod tests {
                 std::thread::yield_now();
             }
             done_tx.send(()).unwrap();
-            RawInputByteFramer::default()
         });
         drop(reader);
         assert!(quit.load(Ordering::Acquire));
@@ -480,27 +471,11 @@ mod tests {
                 .blocking_send(super::ClientLoopEvent::StdinInput(vec![2]))
                 .is_err());
             done_tx.send(()).unwrap();
-            RawInputByteFramer::default()
         });
         drop(rx); // run_client_loop's receiver drops before its outer reader owner.
         drop(reader);
         done_rx.try_recv().unwrap();
         assert!(quit.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn joined_reader_hands_a_partial_wheel_report_to_restoration() {
-        let quit = Arc::new(AtomicBool::new(false));
-        let mut reader = super::StdinReader::spawn(Arc::clone(&quit), || {
-            let mut framer = crate::raw_input::RawInputByteFramer::default();
-            assert!(framer.push(b"\x1b[<64;66;20").is_empty());
-            framer
-        });
-        let mut framer = reader.finish().unwrap();
-        assert!(reader.finish().is_none());
-        drop(reader);
-        assert!(quit.load(Ordering::Acquire));
-        assert_eq!(framer.push(b"M"), vec![b"\x1b[<64;66;20M".to_vec()]);
     }
 
     #[test]
@@ -514,7 +489,6 @@ mod tests {
                     .recv_timeout(std::time::Duration::from_secs(2))
                     .unwrap();
                 done_tx.send(()).unwrap();
-                RawInputByteFramer::default()
             });
             panic!("injected main-loop panic");
         });
@@ -530,7 +504,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn handoff_during_second_idle_wait_preserves_the_probe_prefix() {
+    fn shutdown_stops_during_second_idle_wait() {
         for close_ui in [false, true] {
             let (tx, mut rx) = mpsc::channel(1);
             let quit = AtomicBool::new(false);
@@ -558,10 +532,7 @@ mod tests {
                 },
             ));
             assert_eq!(waits, 2);
-            assert_eq!(
-                framer.push_without_idle_expiry(b"]11;rgb:1111/2222/3333\x07"),
-                vec![b"\x1b]11;rgb:1111/2222/3333\x07".to_vec()]
-            );
+            assert!(rx.try_recv().is_err());
         }
     }
 
