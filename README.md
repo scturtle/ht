@@ -78,6 +78,19 @@ open the first shared tab.
 Set `HC_SOCKET` to attach to an already-running Core at a specific socket.
 Recovery after a disconnect never starts Core.
 
+### Core state and runtime directories
+
+- `XDG_STATE_HOME` defaults to `~/.local/state`; Core stores each session under
+  `$XDG_STATE_HOME/herdr-core/<session>/`. If several machines share a home
+  directory, use a distinct state home on each host (for example,
+  `XDG_STATE_HOME="$HOME/.local/state/$(hostname -s)"`) so their sessions do not
+  share state.
+- Core sockets normally live under `/run/user/<uid>/herdr-core/` on Linux.
+  Set `XDG_RUNTIME_DIR` to a private, host-local directory other than
+  `/run/user/<uid>` to put the sockets under `$XDG_RUNTIME_DIR/herdr-core/` and
+  start Core and its holders without systemd user services. This does not
+  guarantee they will survive logout.
+
 ## Configuration
 
 Edit `~/.config/herdr/config.toml` (or `HERDR_CONFIG_PATH`).
