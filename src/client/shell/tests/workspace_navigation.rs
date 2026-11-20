@@ -96,10 +96,10 @@ fn picker_digits_follow_workspace_group_order() {
 
 #[test]
 fn active_preview_is_not_retargeted_by_deletion_or_reboot() {
-    for invalidation in ["deleted", "boot", "generation"] {
+    for invalidation in ["deleted", "boot"] {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         let mut local = workspaces(2);
-        state.set_endpoint_snapshot_for_generation(7, Box::new(local.clone()));
+        state.set_snapshot(Box::new(local.clone()));
         state.set_pane_surface(surface());
         state.compose(100, 28).unwrap();
         enter_navigation(&mut state);
@@ -114,8 +114,7 @@ fn active_preview_is_not_retargeted_by_deletion_or_reboot() {
             }
             _ => {}
         }
-        let generation = if invalidation == "generation" { 8 } else { 7 };
-        state.set_endpoint_snapshot_for_generation(generation, Box::new(local));
+        state.set_snapshot(Box::new(local));
         assert_eq!(state.navigate_workspace_id, selected);
         preview_key(&mut state, b"\r");
         assert_eq!(state.mode, ClientShellMode::Navigate);
@@ -271,7 +270,7 @@ fn failed_local_navigation_releases_only_its_own_highlight() {
 
 #[test]
 fn pending_navigation_highlight_does_not_survive_identity_changes() {
-    for change in ["disconnect", "boot", "generation", "deleted"] {
+    for change in ["disconnect", "boot", "deleted"] {
         let mut state = local_navigation_state(false);
         let request_id = request_local_navigation(&mut state, 2);
         state.handle_endpoint_result(
@@ -290,9 +289,6 @@ fn pending_navigation_highlight_does_not_survive_identity_changes() {
             "boot" => {
                 snapshot.boot_id = "replacement-boot".into();
                 state.set_snapshot(Box::new(snapshot));
-            }
-            "generation" => {
-                state.set_endpoint_snapshot_for_generation(1, Box::new(snapshot));
             }
             "deleted" => {
                 snapshot.workspaces.pop();

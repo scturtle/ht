@@ -495,7 +495,7 @@ fn reconnect_word_selection_tracks_content_changes() {
         }
         let snapshot = state.endpoint.snapshot.as_ref().unwrap().clone();
         state.mark_endpoint_disconnected();
-        state.set_endpoint_snapshot_for_generation(1, snapshot);
+        state.set_snapshot(snapshot);
         state.set_pane_surface(next_surface);
 
         assert_eq!(state.selection.is_some(), !content_changed);

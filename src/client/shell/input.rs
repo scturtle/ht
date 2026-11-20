@@ -233,10 +233,7 @@ impl ClientShellState {
                     self.outer_focused = Some(true);
                     outcome.repaint |= self.config.redraw_on_focus_gained;
                     if let Some(surface) = self.pane_surface.clone() {
-                        outcome.repaint |= self.acknowledge_active_surface_agents(
-                            &surface,
-                            self.pane_surface_generation,
-                        );
+                        outcome.repaint |= self.acknowledge_active_surface_agents(&surface);
                     }
                     outcome
                         .requests

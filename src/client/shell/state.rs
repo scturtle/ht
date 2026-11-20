@@ -478,7 +478,6 @@ pub(super) struct ClientCopyModeState {
 
 pub(crate) struct ClientShellState {
     pub(super) config: ClientShellConfig,
-    pub(super) pane_surface_generation: Option<u64>,
     pub(super) pane_surface: Option<PaneSurfaceFrame>,
     /// A future projection surface waits here until its matching snapshot arrives. The visible
     /// pane surface always remains an exact snapshot pair.
@@ -563,7 +562,6 @@ impl ClientShellState {
         let local_config_diagnostic = config.startup_config_diagnostic.take();
         Self {
             config,
-            pane_surface_generation: None,
             pane_surface: None,
             pending_pane_surface: None,
             graphics: crate::kitty_graphics::surface::ClientState::new(),
@@ -717,21 +715,10 @@ impl ClientShellState {
         self.host_mouse_pixels = None;
     }
 
-    pub(super) fn apply_snapshot(
-        &mut self,
-        snapshot: Box<ClientShellSnapshot>,
-        generation: Option<u64>,
-    ) {
+    pub(super) fn apply_snapshot(&mut self, snapshot: Box<ClientShellSnapshot>) {
         let graphics_scope = snapshot.boot_id.clone();
         let endpoint_boot_changed =
             self.endpoint.snapshot.is_some() && self.graphics.scope() != graphics_scope;
-        let generation_changed = self.endpoint.snapshot_generation != generation;
-        // Screen revisions restart per connection. Keep the displayed surface for selection
-        // content comparisons, but retire speculative frames from the old connection.
-        if generation_changed {
-            self.pending_pane_surface = None;
-        }
-        self.endpoint.snapshot_generation = generation;
         self.graphics.set_scope(&graphics_scope);
         self.config_diagnostic = super::config::merged_config_diagnostic(
             self.local_config_diagnostic.as_deref(),
@@ -921,8 +908,7 @@ impl ClientShellState {
             return;
         }
         if self.pane_surface.as_ref().is_some_and(|current| {
-            self.pane_surface_generation == self.endpoint.snapshot_generation
-                && current.boot_id == surface.boot_id
+            current.boot_id == surface.boot_id
                 && (surface.projection_revision < current.projection_revision
                     || (surface.projection_revision == current.projection_revision
                         && surface.surface_revision < current.surface_revision))
@@ -950,8 +936,7 @@ impl ClientShellState {
             || surface.projection_revision < snapshot.revision
             || (!retain_future && surface.projection_revision != snapshot.revision)
             || self.pane_surface.as_ref().is_some_and(|current| {
-                self.pane_surface_generation == self.endpoint.snapshot_generation
-                    && current.boot_id == surface.boot_id
+                current.boot_id == surface.boot_id
                     && (surface.projection_revision < current.projection_revision
                         || (surface.projection_revision == current.projection_revision
                             && surface.surface_revision < current.surface_revision))
@@ -964,7 +949,7 @@ impl ClientShellState {
         if surface.projection_revision != snapshot.revision {
             self.hits = ShellHitMap::default();
         }
-        self.acknowledge_active_surface_agents(&surface, self.endpoint.snapshot_generation);
+        self.acknowledge_active_surface_agents(&surface);
         let selection_pane = match &self.word_selection_gesture {
             Some(gesture) => Some(&gesture.pane_id),
             None => self.selection.as_ref().map(|selection| &selection.pane_id),
@@ -1056,7 +1041,6 @@ impl ClientShellState {
         self.graphics
             .set_scene(std::mem::take(&mut surface.graphics));
         self.pane_surface = Some(surface);
-        self.pane_surface_generation = self.endpoint.snapshot_generation;
         self.invalidate_link_hover();
         self.resume_mobile_switcher_if_ready();
     }

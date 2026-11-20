@@ -164,15 +164,12 @@ impl ClientShellState {
             return Some(self.compose_unavailable(cols, rows).into());
         }
         let snapshot = self.endpoint.snapshot.as_deref()?;
-        // Do not compose a retained surface while waiting for its matching snapshot or
-        // connection generation.
-        if self.pending_pane_surface.is_some()
-            || self.pane_surface_generation != self.endpoint.snapshot_generation
-        {
+        // Do not compose a retained surface while waiting for its matching snapshot.
+        if self.pending_pane_surface.is_some() {
             return None;
         }
         let surface = self.pane_surface.as_ref()?;
-        if snapshot.revision != surface.projection_revision {
+        if snapshot.boot_id != surface.boot_id || snapshot.revision != surface.projection_revision {
             return None;
         }
         let layout = self.layout(cols, rows);

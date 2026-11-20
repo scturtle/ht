@@ -5,7 +5,6 @@ use super::*;
 pub(super) struct WorkspaceNavigationTarget {
     pub(super) workspace_id: String,
     boot_id: String,
-    generation: Option<u64>,
 }
 
 /// Display-only continuity while a direct focus request awaits its authoritative snapshot.
@@ -59,7 +58,6 @@ impl ClientShellState {
         Some(WorkspaceNavigationTarget {
             workspace_id: workspace_id.to_owned(),
             boot_id: snapshot.boot_id.clone(),
-            generation: endpoint.snapshot_generation,
         })
     }
 
@@ -75,7 +73,6 @@ impl ClientShellState {
 
     pub(super) fn navigation_target_valid(&self, target: &WorkspaceNavigationTarget) -> bool {
         self.endpoint.status == ClientEndpointStatus::Online
-            && self.endpoint.snapshot_generation == target.generation
             && self.endpoint.snapshot.as_deref().is_some_and(|s| {
                 s.boot_id == target.boot_id
                     && s.workspaces
@@ -103,7 +100,6 @@ impl ClientShellState {
                 targets.push(WorkspaceNavigationTarget {
                     workspace_id: snapshot.workspaces[entry.index].workspace_id.clone(),
                     boot_id: snapshot.boot_id.clone(),
-                    generation: endpoint.snapshot_generation,
                 });
             }
         }

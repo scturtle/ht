@@ -26,8 +26,8 @@ pub(super) fn dispatch_client_shell_actions(
     for action in actions {
         match action {
             shell::ClientShellAction::Endpoint { boot_id, request } => {
-                if let Some(generation) = endpoints.generation() {
-                    commands.enqueue(generation, boot_id, request);
+                if endpoints.is_connected() {
+                    commands.enqueue(boot_id, request);
                 } else {
                     repaint |= shell.cancel_endpoint_request(&request.id);
                 }
@@ -92,13 +92,13 @@ pub(super) fn install_client_shell_snapshot(
     snapshot: Box<crate::protocol::ClientShellSnapshot>,
     endpoints: &mut connection::EndpointConnection,
 ) -> Result<(), ClientError> {
-    let Some(generation) = endpoints.generation() else {
+    if !endpoints.is_connected() {
         return Ok(());
-    };
+    }
     let pixels = state.pixel_mouse_available();
     let shell = &mut state.shell;
     let previous = shell.surface_size(state.reported_size.0, state.reported_size.1);
-    let epoch_changed = shell.set_endpoint_snapshot_for_generation(generation, snapshot);
+    let epoch_changed = shell.set_snapshot(snapshot);
     let cleanup = shell.take_pending_graphics_cleanup();
     let next = shell.surface_size(state.reported_size.0, state.reported_size.1);
     let resize = (previous != next).then(|| {
@@ -216,7 +216,7 @@ mod tests {
     fn failed_ui_send_leaves_failure_for_the_lifecycle_loop_without_retrying() {
         let (handle, probe) = super::super::core::test_support::endpoint();
         probe.fail(io::Error::new(io::ErrorKind::BrokenPipe, "queue closed"));
-        let mut connection = connection::EndpointConnection::new(handle, 7);
+        let mut connection = connection::EndpointConnection::new(handle);
         let mut state = ClientState::test_new();
         let outcome = state.shell.handle_raw_events(vec![
             crate::raw_input::RawInputEvent::HostDefaultColor {
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn host_color_reaches_server_before_first_snapshot() {
         let (handle, probe) = super::super::core::test_support::endpoint();
-        let mut endpoints = connection::EndpointConnection::new(handle, 1);
+        let mut endpoints = connection::EndpointConnection::new(handle);
         let mut state = ClientState::test_new();
         assert!(!state.shell.endpoint_is_online());
         let outcome = state.shell.handle_raw_events(vec![

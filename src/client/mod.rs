@@ -306,7 +306,7 @@ async fn run_client_loop(
     });
 
     let endpoint = core::start(initial, &event_tx).map_err(ClientError::ConnectionFailed)?;
-    let mut connection = connection::EndpointConnection::new(endpoint, 1);
+    let mut connection = connection::EndpointConnection::new(endpoint);
     connection.send(&ClientMessage::ClientShellFocus { focused: true });
 
     // Main event loop.
@@ -374,16 +374,10 @@ async fn run_client_loop(
                 }
             }
             ClientLoopEvent::DirectGraphicsResponse(response) => {
-                let pending_key = state
+                let Some(asset) = state
                     .pending_surface_graphics
-                    .keys()
-                    .find(|(_, transfer_id, image_id)| {
-                        *transfer_id == response.transfer_id && *image_id == response.image_id
-                    })
-                    .copied();
-                let pending =
-                    pending_key.and_then(|key| state.pending_surface_graphics.remove(&key));
-                let Some(asset) = pending else {
+                    .remove(&(response.transfer_id, response.image_id))
+                else {
                     // Raw/non-surface transfers retain their existing response handling.
                     continue;
                 };
@@ -505,50 +499,18 @@ async fn run_client_loop(
                 );
                 connection.send(&msg);
             }
-            ClientLoopEvent::ServerMessage {
-                generation,
-                message,
-            } => {
-                if !connection.accepts(generation) {
+            ClientLoopEvent::ServerMessage(message) => {
+                if !connection.is_connected() {
                     continue;
                 }
-                // Retirements belong to the exact live connection, even after deactivation.
-                // These still precede the presentation-specific asset checks.
-                if matches!(
-                    message.as_ref(),
-                    ServerMessage::GraphicsTransmissionRetired { .. }
-                ) {
-                    if let ServerMessage::GraphicsTransmissionRetired {
-                        transfer_id,
-                        image_id,
-                    } = message.as_ref()
-                    {
-                        let owner_active = connection.is_connected();
-                        state.receive_graphics_retirement(
-                            generation,
-                            *transfer_id,
-                            *image_id,
-                            owner_active,
-                        );
-                    }
-                    continue;
-                }
-                let endpoint_active = connection.is_connected();
                 match *message {
                     ServerMessage::ClientShellSnapshot(snapshot) => {
-                        for id in endpoint_commands.observe_snapshot(generation, &snapshot.boot_id)
-                        {
-                            {
-                                let shell = &mut state.shell;
-                                shell.cancel_endpoint_request(&id);
-                            }
+                        for id in endpoint_commands.observe_snapshot(&snapshot.boot_id) {
+                            state.shell.cancel_endpoint_request(&id);
                         }
                         install_client_shell_snapshot(&mut state, snapshot, &mut connection)?;
                     }
                     ServerMessage::PaneSurface(surface) => {
-                        if !endpoint_active {
-                            continue;
-                        }
                         let composed = {
                             let shell = &mut state.shell;
                             shell.set_pane_surface(surface);
@@ -628,8 +590,7 @@ async fn run_client_loop(
                         control,
                         surface_asset,
                     } => {
-                        let retirement =
-                            state.match_retired_direct_graphics(generation, transfer_id, image_id);
+                        let retirement = state.match_retired_direct_graphics(transfer_id, image_id);
                         if retirement == RetiredDirectGraphicsMatch::Exact {
                             continue;
                         }
@@ -644,8 +605,7 @@ async fn run_client_loop(
                         });
                         let native_valid = !native
                             || surface_asset.as_ref().is_some_and(|asset| {
-                                state.disabled_native_graphics != Some(generation)
-                                    && connection.is_connected()
+                                !state.disabled_native_graphics
                                     && leading.is_empty()
                                     && asset.format == crate::protocol::SurfaceGraphicsFormat::Rgba
                                     && expected_len == asset.data_len
@@ -701,7 +661,7 @@ async fn run_client_loop(
                             if let Some(asset) = surface_asset {
                                 state
                                     .pending_surface_graphics
-                                    .insert((generation, transfer_id, image_id), asset);
+                                    .insert((transfer_id, image_id), asset);
                             }
                             if let Ok(mut matcher) = state.direct_graphics_response.lock() {
                                 matcher.start(transfer_id);
@@ -712,11 +672,9 @@ async fn run_client_loop(
                             };
                             connection.send(&started);
                         } else {
-                            state.pending_surface_graphics.remove(&(
-                                generation,
-                                transfer_id,
-                                image_id,
-                            ));
+                            state
+                                .pending_surface_graphics
+                                .remove(&(transfer_id, image_id));
                             if let Ok(mut matcher) = state.direct_graphics_response.lock() {
                                 if valid {
                                     matcher.retire(transfer_id);
@@ -732,8 +690,15 @@ async fn run_client_loop(
                             connection.send(&result);
                         }
                     }
-                    ServerMessage::GraphicsTransmissionRetired { .. } => {
-                        unreachable!("retirements are handled before presentation gating")
+                    ServerMessage::GraphicsTransmissionRetired {
+                        transfer_id,
+                        image_id,
+                    } => {
+                        state.receive_graphics_retirement(
+                            transfer_id,
+                            image_id,
+                            connection.is_connected(),
+                        );
                     }
                     ServerMessage::ServerShutdown { reason } => {
                         return Err(ClientError::ServerShutdown { reason });
@@ -773,27 +738,16 @@ async fn run_client_loop(
                         if request_id.starts_with("client-shell-surface:") {
                             continue;
                         }
-                        let completed = endpoint_commands.receive_response(
-                            generation,
-                            &boot_id,
-                            &request_id,
-                            result,
-                        );
-                        let Some(completed) = completed else {
+                        let Some(completed) =
+                            endpoint_commands.receive_response(&boot_id, &request_id, result)
+                        else {
                             continue;
                         };
-                        let (repaint, actions) = if completed.generation == generation {
-                            state.shell.handle_endpoint_result(
-                                &completed.boot_id,
-                                &completed.request_id,
-                                completed.result,
-                            )
-                        } else {
-                            (
-                                state.shell.cancel_endpoint_request(&completed.request_id),
-                                Vec::new(),
-                            )
-                        };
+                        let (repaint, actions) = state.shell.handle_endpoint_result(
+                            &completed.boot_id,
+                            &completed.request_id,
+                            completed.result,
+                        );
                         let (replay_mouse, dispatch_repaint) = dispatch_client_shell_actions(
                             actions,
                             &mut endpoint_commands,
@@ -881,10 +835,7 @@ async fn run_client_loop(
                     }
                 }
             }
-            ClientLoopEvent::ServerDisconnected { generation } => {
-                if !connection.accepts(generation) {
-                    continue;
-                }
+            ClientLoopEvent::ServerDisconnected => {
                 connection.fail(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "connection was lost",
@@ -903,11 +854,7 @@ async fn run_client_loop(
                     return Err(ClientError::ConnectionLost(error));
                 }
                 {
-                    let expired_endpoints = endpoint_commands
-                        .expire(now)
-                        .into_iter()
-                        .filter(|expired| connection.accepts(expired.generation))
-                        .collect::<Vec<_>>();
+                    let expired_endpoints = endpoint_commands.expire(now);
                     let (effects, outcome, frame) = {
                         let shell = &mut state.shell;
                         let mut outcome = shell.tick_selection_autoscroll(now);

@@ -1,13 +1,12 @@
 use super::*;
 
 /// This client's sole accepted UI snapshot and its Core connection metadata.
-/// Pane surfaces are paired separately by generation, boot and projection revision.
+/// Pane surfaces are paired separately by boot ID and projection revision.
 #[derive(Debug)]
 pub(crate) struct ClientShellEndpoint {
     pub(crate) label: String,
     pub(crate) status: ClientEndpointStatus,
     pub(crate) snapshot: Option<Box<ClientShellSnapshot>>,
-    pub(crate) snapshot_generation: Option<u64>,
     pub(crate) agent_recency: HashMap<String, u64>,
     pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) methods: Option<HashSet<String>>,
@@ -61,29 +60,24 @@ impl ClientShellState {
     }
     /// Admit and project a snapshot once, before changing UI state. Stale updates
     /// cannot alter completion history, recency, or the accepted allocation.
-    fn receive_snapshot(
-        &mut self,
-        mut snapshot: Box<ClientShellSnapshot>,
-        generation: Option<u64>,
-    ) -> bool {
+    /// Returns whether the accepted scope changed and needs a full host redraw.
+    pub(crate) fn set_snapshot(&mut self, mut snapshot: Box<ClientShellSnapshot>) -> bool {
         if self.endpoint.status != ClientEndpointStatus::Online {
             self.set_endpoint_status(ClientEndpointStatus::Online);
         }
-        if self.endpoint.snapshot_generation == generation
-            && self
-                .endpoint
-                .snapshot
-                .as_deref()
-                .is_some_and(|s| s.boot_id == snapshot.boot_id && s.revision > snapshot.revision)
+        if self
+            .endpoint
+            .snapshot
+            .as_deref()
+            .is_some_and(|s| s.boot_id == snapshot.boot_id && s.revision > snapshot.revision)
         {
             return false;
         }
-        let epoch_changed = self.endpoint.snapshot_generation != generation
-            || self
-                .endpoint
-                .snapshot
-                .as_ref()
-                .is_none_or(|old| old.boot_id != snapshot.boot_id);
+        let epoch_changed = self
+            .endpoint
+            .snapshot
+            .as_ref()
+            .is_none_or(|old| old.boot_id != snapshot.boot_id);
         if self
             .endpoint
             .snapshot
@@ -95,11 +89,7 @@ impl ClientShellState {
         self.endpoint
             .agent_presentation
             .project_snapshot(&mut snapshot);
-        if let Some(surface) = self
-            .pane_surface
-            .as_ref()
-            .filter(|_| self.pane_surface_generation == generation)
-        {
+        if let Some(surface) = self.pane_surface.as_ref() {
             self.endpoint.agent_presentation.acknowledge_surface(
                 &mut snapshot,
                 surface,
@@ -122,35 +112,16 @@ impl ClientShellState {
         }
         recency.retain(|id, _| snapshot.agents.iter().any(|a| &a.pane_id == id));
         self.endpoint.agent_recency = recency;
-        self.apply_snapshot(snapshot, generation);
+        self.apply_snapshot(snapshot);
         epoch_changed
     }
-    pub(crate) fn acknowledge_active_surface_agents(
-        &mut self,
-        surface: &PaneSurfaceFrame,
-        generation: Option<u64>,
-    ) -> bool {
-        if generation != self.endpoint.snapshot_generation {
-            return false;
-        }
+    pub(crate) fn acknowledge_active_surface_agents(&mut self, surface: &PaneSurfaceFrame) -> bool {
         let Some(snapshot) = self.endpoint.snapshot.as_deref_mut() else {
             return false;
         };
         self.endpoint
             .agent_presentation
             .acknowledge_surface(snapshot, surface, self.outer_focused)
-    }
-    /// Return whether the accepted scope changed and needs a full host redraw.
-    pub(crate) fn set_endpoint_snapshot_for_generation(
-        &mut self,
-        generation: u64,
-        snapshot: Box<ClientShellSnapshot>,
-    ) -> bool {
-        self.receive_snapshot(snapshot, Some(generation))
-    }
-    #[cfg(test)]
-    pub(crate) fn set_snapshot(&mut self, snapshot: Box<ClientShellSnapshot>) {
-        self.receive_snapshot(snapshot, None);
     }
 }
 pub(super) fn endpoint_status_presentation(
@@ -169,7 +140,6 @@ pub(super) fn local_endpoint() -> ClientShellEndpoint {
         label: "Local".into(),
         status: ClientEndpointStatus::Connecting,
         snapshot: None,
-        snapshot_generation: None,
         agent_recency: HashMap::new(),
         agent_presentation: Default::default(),
         methods: None,

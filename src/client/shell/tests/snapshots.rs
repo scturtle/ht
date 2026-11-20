@@ -39,7 +39,7 @@ fn snapshot_install_preserves_the_incoming_allocation_for_presentation() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let incoming = Box::new(snapshot());
     let allocation = std::ptr::from_ref(incoming.as_ref());
-    assert!(state.set_endpoint_snapshot_for_generation(7, incoming));
+    assert!(state.set_snapshot(incoming));
     assert!(
         std::ptr::eq(state.endpoint.snapshot.as_deref().unwrap(), allocation),
         "receiving a snapshot must move, not clone, its UI data"
@@ -56,8 +56,8 @@ fn surface_acknowledgement_updates_the_presented_snapshot_in_place() {
     use crate::actions::AgentStatus::{Done, Idle, Working};
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.outer_focused = Some(false);
-    state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Working, 1, 1)));
-    state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Done, 2, 2)));
+    state.set_snapshot(Box::new(agent_snapshot(Working, 1, 1)));
+    state.set_snapshot(Box::new(agent_snapshot(Done, 2, 2)));
     let surface = paint(2);
     state.set_pane_surface(surface.clone());
     assert_eq!(
@@ -66,30 +66,42 @@ fn surface_acknowledgement_updates_the_presented_snapshot_in_place() {
     );
     let allocation = std::ptr::from_ref(state.endpoint.snapshot.as_deref().unwrap());
     state.outer_focused = Some(true);
-    assert!(state.acknowledge_active_surface_agents(&surface, Some(7)));
+    assert!(state.acknowledge_active_surface_agents(&surface));
     let accepted = state.endpoint.snapshot.as_deref().unwrap();
     assert!(std::ptr::eq(accepted, allocation));
     assert_eq!(accepted.agents[0].agent_status, Idle);
     assert_eq!(accepted.tabs[0].agent_status, Idle);
     assert_eq!(accepted.workspaces[0].agent_status, Idle);
-    assert!(!state.acknowledge_active_surface_agents(&surface, Some(7)));
+    assert!(!state.acknowledge_active_surface_agents(&surface));
 }
 
 #[test]
-fn a_replacement_generation_cannot_acknowledge_an_old_matching_surface() {
+fn a_replacement_boot_cannot_acknowledge_an_old_matching_revision() {
     use crate::actions::AgentStatus::{Done, Idle, Working};
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Working, 1, 1)));
+    state.set_snapshot(Box::new(agent_snapshot(Working, 1, 1)));
     state.set_pane_surface(paint(1));
     assert!(state.compose(100, 28).is_some());
-    // Same boot/revision, but a different delivery generation. The old pixels
-    // cannot mark this new completion as seen or become the new generation's paint.
-    assert!(state.set_endpoint_snapshot_for_generation(8, Box::new(agent_snapshot(Done, 2, 1))));
+    state.set_pane_surface(paint(2));
+    assert!(state.pending_pane_surface.is_some());
+
+    // A new boot can reuse the same revisions. Neither retained nor delayed
+    // pixels from the old boot may be used as presentation evidence.
+    let mut replacement = agent_snapshot(Working, 1, 1);
+    replacement.boot_id = "replacement".into();
+    assert!(state.set_snapshot(Box::new(replacement)));
+    assert!(state.pane_surface.is_none());
+    assert!(state.pending_pane_surface.is_none());
+
+    let mut completed = agent_snapshot(Done, 2, 2);
+    completed.boot_id = "replacement".into();
+    state.set_snapshot(Box::new(completed));
+    state.set_pane_surface(paint(2));
     assert_eq!(
         state.endpoint.snapshot.as_ref().unwrap().agents[0].agent_status,
         Done
     );
-    assert!(state.compose(100, 28).is_none());
+    assert!(state.pane_surface.is_none());
     state.handle_raw_events(vec![
         RawInputEvent::OuterFocusLost,
         RawInputEvent::OuterFocusGained,
@@ -98,7 +110,9 @@ fn a_replacement_generation_cannot_acknowledge_an_old_matching_surface() {
         state.endpoint.snapshot.as_ref().unwrap().agents[0].agent_status,
         Done
     );
-    state.set_pane_surface(paint(1));
+    let mut current_surface = paint(2);
+    current_surface.boot_id = "replacement".into();
+    state.set_pane_surface(current_surface);
     assert_eq!(
         state.endpoint.snapshot.as_ref().unwrap().agents[0].agent_status,
         Idle
@@ -111,16 +125,16 @@ fn future_surfaces_only_acknowledge_their_exact_snapshot() {
     use crate::actions::AgentStatus::{Done, Idle, Working};
     for future in [3, 4] {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Working, 1, 1)));
+        state.set_snapshot(Box::new(agent_snapshot(Working, 1, 1)));
         state.set_pane_surface(paint(1));
-        state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Done, 2, 2)));
+        state.set_snapshot(Box::new(agent_snapshot(Done, 2, 2)));
         state.set_pane_surface(paint(future));
         assert_eq!(
             state.endpoint.snapshot.as_ref().unwrap().agents[0].agent_status,
             Done
         );
         assert!(state.compose(100, 28).is_none());
-        state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Idle, 2, future)));
+        state.set_snapshot(Box::new(agent_snapshot(Idle, 2, future)));
         assert_eq!(
             state.endpoint.snapshot.as_ref().unwrap().agents[0].agent_status,
             Idle
@@ -134,12 +148,12 @@ fn future_surfaces_only_acknowledge_their_exact_snapshot() {
 fn navigation_initialization_uses_the_new_snapshot_scope() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.mode = ClientShellMode::Navigate;
-    state.set_endpoint_snapshot_for_generation(7, Box::new(snapshot()));
+    state.set_snapshot(Box::new(snapshot()));
     assert!(state.navigation_target_valid(state.navigate_workspace_id.as_ref().unwrap()));
     state.navigate_workspace_id = None;
     let mut replacement = snapshot();
     replacement.boot_id = "replacement".into();
-    state.set_endpoint_snapshot_for_generation(8, Box::new(replacement));
+    state.set_snapshot(Box::new(replacement));
     let target = state.navigate_workspace_id.as_ref().unwrap();
     assert!(state.navigation_target_valid(target));
     assert_eq!(target.workspace_id, "ws_1");
@@ -149,11 +163,11 @@ fn navigation_initialization_uses_the_new_snapshot_scope() {
 fn stale_snapshots_cannot_replace_the_allocation_or_change_completion_history() {
     use crate::actions::AgentStatus::{Done, Idle, Working};
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Working, 5, 5)));
+    state.set_snapshot(Box::new(agent_snapshot(Working, 5, 5)));
     state.set_pane_surface(paint(5));
     let allocation = std::ptr::from_ref(state.endpoint.snapshot.as_deref().unwrap());
     let recency = state.endpoint.agent_recency.clone();
-    assert!(!state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Idle, 99, 4))));
+    assert!(!state.set_snapshot(Box::new(agent_snapshot(Idle, 99, 4))));
     assert!(std::ptr::eq(
         state.endpoint.snapshot.as_deref().unwrap(),
         allocation
@@ -163,7 +177,7 @@ fn stale_snapshots_cannot_replace_the_allocation_or_change_completion_history() 
         state.endpoint.snapshot.as_ref().unwrap().agents[0].agent_status,
         Working
     );
-    state.set_endpoint_snapshot_for_generation(7, Box::new(agent_snapshot(Done, 6, 6)));
+    state.set_snapshot(Box::new(agent_snapshot(Done, 6, 6)));
     assert_eq!(
         state.endpoint.snapshot.as_ref().unwrap().agents[0].agent_status,
         Done

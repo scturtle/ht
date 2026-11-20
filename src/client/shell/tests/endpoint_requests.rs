@@ -5,21 +5,21 @@ fn a_new_projection_epoch_accepts_restarted_revisions_but_its_stale_updates_do_n
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut old = snapshot();
     old.revision = 80;
-    assert!(state.set_endpoint_snapshot_for_generation(1, Box::new(old)));
+    assert!(state.set_snapshot(Box::new(old)));
     let mut paint = surface();
     paint.projection_revision = 80;
     state.set_pane_surface(paint);
     assert!(state.compose(100, 28).is_some());
     let mut fresh = snapshot();
     fresh.boot_id = "replacement-projection".into();
-    assert!(state.set_endpoint_snapshot_for_generation(1, Box::new(fresh.clone())));
+    assert!(state.set_snapshot(Box::new(fresh.clone())));
     assert_eq!(state.endpoint.snapshot.as_ref().unwrap().revision, 1);
     let mut paint = surface();
     paint.boot_id = fresh.boot_id.clone();
     state.set_pane_surface(paint);
     assert!(state.compose(100, 28).is_some());
     fresh.revision = 0;
-    assert!(!state.set_endpoint_snapshot_for_generation(1, Box::new(fresh)));
+    assert!(!state.set_snapshot(Box::new(fresh)));
     assert_eq!(state.endpoint.snapshot.as_ref().unwrap().revision, 1);
 }
 
@@ -264,7 +264,7 @@ fn dispatcher_cancels_requests_when_the_endpoint_worker_fails() {
         let actions = workspace_focus_actions(&mut state, "ws_1");
         let (handle, probe) = crate::client::core::test_support::endpoint();
         probe.fail(std::io::ErrorKind::BrokenPipe.into());
-        let mut endpoints = EndpointConnection::new(handle, 1);
+        let mut endpoints = EndpointConnection::new(handle);
         let mut commands = EndpointCommands::default();
         let (replay, repaint) = crate::client::shell_runtime::dispatch_client_shell_actions(
             actions,
@@ -286,7 +286,7 @@ fn dispatcher_cancels_requests_when_the_endpoint_worker_fails() {
 }
 
 #[test]
-fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
+fn old_boot_queued_request_is_cancelled_without_blocking_the_current_boot() {
     use crate::client::connection::EndpointConnection;
     use crate::client::endpoint_commands::EndpointCommands;
 
@@ -294,24 +294,25 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
     state.set_pane_surface(surface());
     let actions = workspace_focus_actions(&mut state, "ws_stale");
     let stale_id = request_id(&actions).to_owned();
+    let mut replacement = snapshot();
+    replacement.boot_id = "replacement".into();
+    state.set_snapshot(Box::new(replacement));
     let current = workspace_focus_actions(&mut state, "ws_1");
     let current_id = request_id(&current).to_owned();
     let mut commands = EndpointCommands::default();
-    for (generation, actions) in [(1, actions), (2, current)] {
-        for action in actions {
-            let ClientShellAction::Endpoint { boot_id, request } = action else {
-                panic!("expected endpoint request");
-            };
-            commands.enqueue(generation, boot_id, request);
-        }
+    for action in actions.into_iter().chain(current) {
+        let ClientShellAction::Endpoint { boot_id, request } = action else {
+            panic!("expected endpoint request");
+        };
+        commands.enqueue(boot_id, request);
     }
     let (handle, probe) = crate::client::core::test_support::endpoint();
-    let mut endpoints = EndpointConnection::new(handle, 2);
-    let cancelled = commands.send_next(&mut endpoints);
-    assert_eq!(cancelled, vec![stale_id.clone()]);
+    let mut endpoints = EndpointConnection::new(handle);
+    assert_eq!(commands.observe_snapshot("replacement"), [stale_id.clone()]);
     state.cancel_endpoint_request(&stale_id);
-    assert!(!commands.accepts_response(1, "boot-1", &stale_id));
-    assert!(commands.accepts_response(2, "boot-1", &current_id));
+    assert!(commands.send_next(&mut endpoints).is_empty());
+    assert!(!commands.accepts_response("boot-1", &stale_id));
+    assert!(commands.accepts_response("replacement", &current_id));
     assert!(state.pending_requests.contains_key(&current_id));
     assert_eq!(probe.drain().len(), 1, "only the current request is queued");
     drop(probe);

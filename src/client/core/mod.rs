@@ -209,10 +209,7 @@ fn emit(
     message: ServerMessage,
 ) -> io::Result<()> {
     events
-        .blocking_send(ClientLoopEvent::ServerMessage {
-            generation: 1,
-            message: Box::new(message),
-        })
+        .blocking_send(ClientLoopEvent::ServerMessage(Box::new(message)))
         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "client stopped"))
 }
 
@@ -398,7 +395,7 @@ pub(super) fn start(
                 }
             }
             stopped.store(true, Ordering::Release);
-            let _ = events.blocking_send(ClientLoopEvent::ServerDisconnected { generation: 1 });
+            let _ = events.blocking_send(ClientLoopEvent::ServerDisconnected);
             // Dropping only the relay leaves Core's holders and programs alive.
         })?;
     Ok(endpoint)

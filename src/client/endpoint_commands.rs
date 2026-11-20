@@ -14,18 +14,15 @@ use std::{
 const ENDPOINT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_RETIRED_REQUESTS: usize = 128;
 struct QueuedCommand {
-    generation: u64,
     boot_id: String,
     request: Box<ActionRequest>,
 }
 struct InFlightCommand {
-    generation: u64,
     boot_id: String,
     request_id: String,
     sent_at: Instant,
 }
 pub(super) struct EndpointCommandResult {
-    pub(super) generation: u64,
     pub(super) boot_id: String,
     pub(super) request_id: String,
     pub(super) result: Result<ActionResult, ClientShellEndpointError>,
@@ -34,20 +31,11 @@ pub(super) struct EndpointCommandResult {
 pub(super) struct EndpointCommands {
     queued: VecDeque<QueuedCommand>,
     in_flight: Option<InFlightCommand>,
-    retired: VecDeque<(u64, String, String)>,
+    retired: VecDeque<(String, String)>,
 }
 impl EndpointCommands {
-    pub(super) fn enqueue(
-        &mut self,
-        generation: u64,
-        boot_id: String,
-        request: Box<ActionRequest>,
-    ) {
-        self.queued.push_back(QueuedCommand {
-            generation,
-            boot_id,
-            request,
-        });
+    pub(super) fn enqueue(&mut self, boot_id: String, request: Box<ActionRequest>) {
+        self.queued.push_back(QueuedCommand { boot_id, request });
     }
     pub(super) fn send_next(&mut self, connection: &mut EndpointConnection) -> Vec<String> {
         let mut cancelled = Vec::new();
@@ -56,7 +44,7 @@ impl EndpointCommands {
         }
         while let Some(command) = self.queued.pop_front() {
             let request_id = command.request.id.clone();
-            if !connection.accepts(command.generation) {
+            if !connection.is_connected() {
                 cancelled.push(request_id);
                 continue;
             }
@@ -69,7 +57,6 @@ impl EndpointCommands {
                 continue;
             }
             self.in_flight = Some(InFlightCommand {
-                generation: command.generation,
                 boot_id: command.boot_id,
                 request_id,
                 sent_at: Instant::now(),
@@ -78,41 +65,36 @@ impl EndpointCommands {
         }
         cancelled
     }
-    fn matches(&self, generation: u64, boot: &str, id: &str) -> bool {
+    fn matches(&self, boot: &str, id: &str) -> bool {
         self.in_flight
             .as_ref()
-            .is_some_and(|c| c.generation == generation && c.boot_id == boot && c.request_id == id)
+            .is_some_and(|c| c.boot_id == boot && c.request_id == id)
     }
     #[cfg(test)]
-    pub(super) fn accepts_response(&self, generation: u64, boot: &str, id: &str) -> bool {
-        self.matches(generation, boot, id)
+    pub(super) fn accepts_response(&self, boot: &str, id: &str) -> bool {
+        self.matches(boot, id)
     }
     /// Queue and in-flight state for tests that assert the lane stays idle.
     #[cfg(test)]
     pub(super) fn diagnostic_snapshot(&self) -> serde_json::Value {
         serde_json::json!({"queued":self.queued.len(),"retired":self.retired.len(),
-            "in_flight":self.in_flight.as_ref().map(|c|serde_json::json!({"generation":c.generation,"boot_id":c.boot_id,"request_id":c.request_id,"elapsed_ms":c.sent_at.elapsed().as_millis()}))})
+            "in_flight":self.in_flight.as_ref().map(|c|serde_json::json!({"boot_id":c.boot_id,"request_id":c.request_id,"elapsed_ms":c.sent_at.elapsed().as_millis()}))})
     }
     /// A replacement Core cannot inherit actions issued to an older boot.
     /// Retire uncertain in-flight delivery; never replay the old request.
-    pub(super) fn observe_snapshot(&mut self, generation: u64, boot: &str) -> Vec<String> {
+    pub(super) fn observe_snapshot(&mut self, boot: &str) -> Vec<String> {
         let mut cancelled = Vec::new();
-        if self
-            .in_flight
-            .as_ref()
-            .is_some_and(|c| c.generation != generation || c.boot_id != boot)
-        {
+        if self.in_flight.as_ref().is_some_and(|c| c.boot_id != boot) {
             if let Some(c) = self.in_flight.take() {
                 if self.retired.len() == MAX_RETIRED_REQUESTS {
                     self.retired.pop_front();
                 }
-                self.retired
-                    .push_back((c.generation, c.boot_id, c.request_id.clone()));
+                self.retired.push_back((c.boot_id, c.request_id.clone()));
                 cancelled.push(c.request_id);
             }
         }
         self.queued.retain(|c| {
-            if c.generation == generation && c.boot_id == boot {
+            if c.boot_id == boot {
                 true
             } else {
                 cancelled.push(c.request.id.clone());
@@ -135,13 +117,9 @@ impl EndpointCommands {
         if self.retired.len() == MAX_RETIRED_REQUESTS {
             self.retired.pop_front();
         }
-        self.retired.push_back((
-            command.generation,
-            command.boot_id.clone(),
-            command.request_id.clone(),
-        ));
+        self.retired
+            .push_back((command.boot_id.clone(), command.request_id.clone()));
         vec![EndpointCommandResult {
-            generation: command.generation,
             boot_id: command.boot_id,
             request_id: command.request_id,
             result: Err(ClientShellEndpointError {
@@ -154,25 +132,19 @@ impl EndpointCommands {
     }
     pub(super) fn receive_response(
         &mut self,
-        generation: u64,
         boot: &str,
         id: &str,
         result: Result<Box<ActionResult>, crate::protocol::EndpointResponseError>,
     ) -> Option<EndpointCommandResult> {
-        if let Some(index) = self
-            .retired
-            .iter()
-            .position(|(g, b, i)| *g == generation && b == boot && i == id)
-        {
+        if let Some(index) = self.retired.iter().position(|(b, i)| b == boot && i == id) {
             self.retired.remove(index);
             return None;
         }
-        if !self.matches(generation, boot, id) {
+        if !self.matches(boot, id) {
             return None;
         }
         let command = self.in_flight.take()?;
         Some(EndpointCommandResult {
-            generation: command.generation,
             boot_id: command.boot_id,
             request_id: command.request_id,
             result: result.map(|r| *r).map_err(|e| ClientShellEndpointError {
@@ -189,7 +161,6 @@ mod tests {
     fn commands() -> EndpointCommands {
         EndpointCommands {
             in_flight: Some(InFlightCommand {
-                generation: 1,
                 boot_id: "boot-a".into(),
                 request_id: "request-a".into(),
                 sent_at: Instant::now(),
@@ -200,18 +171,14 @@ mod tests {
     #[test]
     fn response_completion_is_correlated_and_clears_the_lane() {
         let mut c = commands();
-        for (generation, boot, id) in [
-            (2, "boot-a", "request-a"),
-            (1, "boot-b", "request-a"),
-            (1, "boot-a", "request-b"),
-        ] {
+        for (boot, id) in [("boot-b", "request-a"), ("boot-a", "request-b")] {
             assert!(c
-                .receive_response(generation, boot, id, Ok(Box::new(ActionResult::Ok {})))
+                .receive_response(boot, id, Ok(Box::new(ActionResult::Ok {})))
                 .is_none());
             assert!(c.in_flight.is_some());
         }
         assert!(c
-            .receive_response(1, "boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
+            .receive_response("boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
             .is_some());
         assert!(c.in_flight.is_none());
     }
@@ -221,7 +188,6 @@ mod tests {
         let selection = "selected".repeat(160_000);
         let completed = c
             .receive_response(
-                1,
                 "boot-a",
                 "request-a",
                 Ok(Box::new(ActionResult::PaneSelection {
@@ -245,24 +211,23 @@ mod tests {
             .expire(Instant::now() + ENDPOINT_COMMAND_TIMEOUT)
             .is_empty());
         c.in_flight = Some(InFlightCommand {
-            generation: 1,
             boot_id: "boot-a".into(),
             request_id: "next".into(),
             sent_at: Instant::now(),
         });
         assert!(c
-            .receive_response(1, "boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
+            .receive_response("boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
             .is_none());
-        assert!(c.accepts_response(1, "boot-a", "next"));
+        assert!(c.accepts_response("boot-a", "next"));
     }
     #[test]
     fn replacement_boot_retires_uncertain_delivery_without_replaying_it() {
         let mut c = commands();
-        assert_eq!(c.observe_snapshot(1, "boot-b"), ["request-a"]);
+        assert_eq!(c.observe_snapshot("boot-b"), ["request-a"]);
         assert!(c.in_flight.is_none() && c.queued.is_empty());
-        assert!(c.observe_snapshot(1, "boot-b").is_empty());
+        assert!(c.observe_snapshot("boot-b").is_empty());
         assert!(c
-            .receive_response(1, "boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
+            .receive_response("boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
             .is_none());
     }
     #[test]
@@ -270,7 +235,6 @@ mod tests {
         let mut c = commands();
         for n in 0..300 {
             c.in_flight = Some(InFlightCommand {
-                generation: 1,
                 boot_id: "boot-a".into(),
                 request_id: n.to_string(),
                 sent_at: Instant::now(),

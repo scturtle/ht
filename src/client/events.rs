@@ -7,12 +7,7 @@ pub(super) enum ClientLoopEvent {
     DirectGraphicsResponse(direct_graphics::Response),
     Resize(u16, u16, u32, u32, bool),
     TerminalUnavailable(io::Error),
-    ServerMessage {
-        generation: u64,
-        message: Box<ServerMessage>,
-    },
-    ServerDisconnected {
-        generation: u64,
-    },
+    ServerMessage(Box<ServerMessage>),
+    ServerDisconnected,
     Timer,
 }
