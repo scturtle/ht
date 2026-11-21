@@ -59,6 +59,11 @@ impl EndpointConnection {
         endpoint.disconnect();
         self.failure = Some(error);
     }
+    /// Accept a clean worker exit without sending another detach or waiting for a
+    /// flush. If transport already failed, leave that failure for the UI loop.
+    pub(super) fn accept_detach(&mut self) -> bool {
+        self.endpoint.take().is_some()
+    }
     pub(crate) fn take_failure(&mut self) -> Option<io::Error> {
         let error = self
             .endpoint
@@ -88,8 +93,7 @@ mod tests {
     #[test]
     fn clean_worker_stop_does_not_turn_late_mouse_input_into_failure() {
         let (mut endpoint, probe) = endpoint();
-        // Same shared state as a worker that published graceful ServerShutdown
-        // and stopped before the UI dequeues it.
+        // The worker can stop before its detach event reaches the UI.
         endpoint.disconnect();
         let mut connection = EndpointConnection::new(endpoint);
         for bytes in [b"\x1b[<35;66;20M".as_slice(), b"\x1b[<64;66;20M", b"\x1b[A"] {
@@ -102,10 +106,8 @@ mod tests {
         }
         assert!(probe.drain().is_empty());
         assert!(connection.take_failure().is_none());
-        assert!(
-            connection.is_connected(),
-            "queued shutdown must still be accepted"
-        );
+        assert!(connection.accept_detach(), "the UI must accept the detach");
+        assert!(!connection.is_connected());
     }
 
     #[test]
@@ -118,6 +120,10 @@ mod tests {
                 data: b"\x1b[<64;66;20M".to_vec()
             }),
             SendOutcome::NotSent
+        );
+        assert!(
+            !connection.accept_detach(),
+            "a late detach must not hide the recorded failure"
         );
         let failure = connection.take_failure().unwrap();
         assert_eq!(failure.kind(), io::ErrorKind::TimedOut);

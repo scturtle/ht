@@ -4,7 +4,7 @@ use super::view;
 use super::*;
 
 impl Session {
-    pub fn consume(&mut self, frame: Frame) -> io::Result<Vec<ServerMessage>> {
+    pub fn consume(&mut self, frame: Frame) -> io::Result<Vec<EndpointEvent>> {
         let mut messages = Vec::new();
         if Some(frame.channel) == self.core.events_channel && frame.kind == DATA {
             if self.events.len() + frame.payload.len() > 2 * 1024 * 1024 {

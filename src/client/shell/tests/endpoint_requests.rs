@@ -308,7 +308,10 @@ fn old_boot_queued_request_is_cancelled_without_blocking_the_current_boot() {
     }
     let (handle, probe) = crate::client::core::test_support::endpoint();
     let mut endpoints = EndpointConnection::new(handle);
-    assert_eq!(commands.observe_snapshot("replacement"), [stale_id.clone()]);
+    assert_eq!(
+        commands.observe_snapshot("replacement").as_slice(),
+        std::slice::from_ref(&stale_id)
+    );
     state.cancel_endpoint_request(&stale_id);
     assert!(commands.send_next(&mut endpoints).is_empty());
     assert!(!commands.accepts_response("boot-1", &stale_id));

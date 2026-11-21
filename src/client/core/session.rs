@@ -13,6 +13,7 @@ use super::{
     model::{invalid, Model},
     transport::{CoreRelay, Frame, CLOSE, RESIZE},
     view::{self, Renderer, View},
+    EndpointEvent,
 };
 use crate::layout::PaneId;
 use crate::protocol::*;
@@ -517,7 +518,7 @@ impl Session {
         self.update_synchronized_deadline();
     }
 
-    pub fn publish(&mut self) -> io::Result<Vec<ServerMessage>> {
+    pub fn publish(&mut self) -> io::Result<Vec<EndpointEvent>> {
         if self.synchronized_deadline.is_some() {
             self.expire_synchronized(Instant::now());
         }
@@ -527,27 +528,25 @@ impl Session {
         let mut out = Vec::new();
         let snapshot_changed = self.snapshot_dirty;
         if self.snapshot_dirty {
-            out.push(ServerMessage::ClientShellSnapshot(Box::new(
-                self.model.snapshot(),
-            )));
+            out.push(EndpointEvent::Snapshot(Box::new(self.model.snapshot())));
             self.snapshot_dirty = false;
         }
         if self.dirty {
             let surface = self.renderer.compose(&self.model, &self.views, self.size)?;
-            out.push(ServerMessage::PaneSurface(surface));
+            out.push(EndpointEvent::PaneSurface(surface));
             let view = self
                 .model
                 .focused()
                 .and_then(|id| self.views.get(&id))
                 .filter(|view| !view.closed);
-            out.push(ServerMessage::ClientShellKeyboardReportAll {
+            out.push(EndpointEvent::KeyboardReportAll {
                 enabled: view.is_some_and(|view| {
                     view.terminal
                         .keyboard_protocol(crate::input::KeyboardProtocol::Legacy)
                         .reports_all_keys()
                 }),
             });
-            out.push(ServerMessage::MouseCapture {
+            out.push(EndpointEvent::MouseCapture {
                 enabled: view.is_some_and(|view| view.terminal.mouse_reporting_enabled()),
                 sgr_pixels: view.is_some_and(|view| view.terminal.sgr_pixel_mouse_enabled()),
             });
@@ -556,7 +555,7 @@ impl Session {
             self.dirty = self.renderer.graphics_pending();
         } else if snapshot_changed {
             if let Some(surface) = self.renderer.retain_projection(&self.model) {
-                out.push(ServerMessage::PaneSurface(surface));
+                out.push(EndpointEvent::PaneSurface(surface));
             }
         }
         Ok(out)

@@ -1,15 +1,16 @@
 //! Live terminal effects, separate from presentation invalidation and human input.
-use crate::{pane::ProcessBytesResult, protocol::ServerMessage};
+use super::EndpointEvent;
+use crate::pane::ProcessBytesResult;
 use base64::Engine as _;
 
-pub(super) fn append(result: &ProcessBytesResult, messages: &mut Vec<ServerMessage>) {
+pub(super) fn append(result: &ProcessBytesResult, messages: &mut Vec<EndpointEvent>) {
     if result.terminal_bells > 0 {
-        messages.push(ServerMessage::TerminalBell {
+        messages.push(EndpointEvent::TerminalBell {
             count: result.terminal_bells,
         });
     }
     for bytes in &result.clipboard_writes {
-        messages.push(ServerMessage::Clipboard {
+        messages.push(EndpointEvent::Clipboard {
             data: base64::engine::general_purpose::STANDARD.encode(bytes),
         });
     }
@@ -34,9 +35,9 @@ mod tests {
         append(&result, &mut messages);
         assert!(matches!(
             messages[0],
-            ServerMessage::TerminalBell { count: 1 }
+            EndpointEvent::TerminalBell { count: 1 }
         ));
-        assert!(matches!(&messages[1],ServerMessage::Clipboard{data} if data=="Y2xpcGJvYXJk"));
+        assert!(matches!(&messages[1],EndpointEvent::Clipboard{data} if data=="Y2xpcGJvYXJk"));
         view.visible = true;
         let done = view.process_output(PaneId::from_raw(1), b"\x1b[?2026l");
         assert!(done.request_render);

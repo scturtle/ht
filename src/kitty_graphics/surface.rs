@@ -533,11 +533,8 @@ impl ClientState {
         self.reset_pending = true;
     }
 
-    pub(crate) fn accepts_direct_asset(
-        &self,
-        key: &SurfaceGraphicsAssetKey,
-        image_id: u32,
-    ) -> bool {
+    #[cfg(test)]
+    fn accepts_direct_asset(&self, key: &SurfaceGraphicsAssetKey, image_id: u32) -> bool {
         if matches!(key.source, SurfaceGraphicsSource::Terminal { .. }) {
             return !self.stale_images.contains(&image_id)
                 && !self.forced_delete_images.contains(&image_id)
@@ -564,6 +561,7 @@ impl ClientState {
         image_id == host_image_id(&self.scope, key)
     }
 
+    #[cfg(test)]
     pub(crate) fn trust_direct_asset(
         &mut self,
         key: &SurfaceGraphicsAssetKey,
@@ -591,6 +589,7 @@ impl ClientState {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn retire_direct_image(&mut self, image_id: u32) {
         self.trusted_direct
             .retain(|_, trusted| *trusted != image_id);
@@ -800,7 +799,7 @@ impl ClientState {
     }
 }
 
-pub(crate) const NATIVE_TRANSFER_BIT: u64 = 1 << 63;
+#[cfg(test)]
 pub(crate) const NATIVE_SLOT_BIT: u32 = 1 << 29;
 
 pub(crate) fn native_host_image_id(scope: &str, key: &SurfaceGraphicsAssetKey) -> u32 {

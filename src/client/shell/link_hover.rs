@@ -307,6 +307,7 @@ impl ClientShellState {
         Some(regions)
     }
 
+    #[cfg(test)]
     pub(super) fn link_hover_blocks_patch(
         &self,
         patch: &crate::protocol::PaneSurfacePatch,

@@ -362,12 +362,8 @@ fn host_placement_id(source_key: &HostSourceKey, placement: &KittyImagePlacement
     1 + ((hasher.finish() as u32) % 900_000)
 }
 
-pub(crate) fn encode_kitty_regular_file(
-    out: &mut Vec<u8>,
-    leading: &[u8],
-    control: &str,
-    path: &str,
-) {
+#[cfg(test)]
+fn encode_kitty_regular_file(out: &mut Vec<u8>, leading: &[u8], control: &str, path: &str) {
     let payload = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
     out.extend_from_slice(b"\x1b7");
     out.extend_from_slice(leading);

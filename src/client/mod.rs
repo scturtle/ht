@@ -6,7 +6,6 @@
 mod clipboard_forwarding;
 pub(crate) mod connection;
 mod core;
-mod direct_graphics;
 mod endpoint_commands;
 mod errors;
 mod events;
@@ -25,11 +24,10 @@ mod state;
 mod timer;
 
 use clipboard_forwarding::forward_clipboard;
-use events::ClientLoopEvent;
+use events::{ClientLoopEvent, EndpointEvent};
 use loop_config::ClientLoopConfig;
 use shell_runtime::*;
 use state::ClientState;
-use state::RetiredDirectGraphicsMatch;
 
 use host_terminal::{
     current_terminal_geometry, effective_mouse_capture, effective_sgr_pixel_mouse,
@@ -58,29 +56,22 @@ fn refresh_host_keyboard_protocol(
 }
 
 pub use errors::ClientError;
+use frame_output::write_encoded_frame_with_graphics;
 #[cfg(test)]
-use frame_output::{clear_received_kitty_graphics, kitty_graphics_image_ids};
 use frame_output::{
-    contains_kitty_graphics_bytes, record_received_kitty_graphics,
-    write_encoded_frame_with_graphics,
+    clear_received_kitty_graphics, kitty_graphics_image_ids, record_received_kitty_graphics,
 };
-#[cfg(test)]
-use notifications::handle_notify_with_notifiers;
 use notifications::handle_shell_notification_effects;
 
-use std::collections::HashMap;
 use std::io::{self, Write as _};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Duration;
 
 use tracing::{debug, info, warn};
 
 use crate::protocol::render_ansi;
-#[cfg(test)]
-use crate::protocol::NotifyKind;
-use crate::protocol::{ClientMessage, ServerMessage};
+use crate::protocol::ClientMessage;
 
 pub fn run_core_client() -> io::Result<()> {
     let core_options = core::Options::from_environment()?;
@@ -160,29 +151,17 @@ pub fn run_core_client() -> io::Result<()> {
     drop(stdin_reader);
     let terminal_restore_failed = terminal_guard.restore().is_err();
 
-    if let Err(err) = result {
+    if let Err(err) = &result {
         let _ = writeln!(io::stderr(), "herdr: {err}");
-        rt.shutdown_timeout(Duration::from_millis(100));
-        crate::logging::shutdown("client");
-
-        let detached = matches!(
-            &err,
-            ClientError::ServerShutdown {
-                reason: Some(reason)
-            } if reason == "detached"
-        );
-        let connection_lost_during_terminal_hangup =
-            terminal_restore_failed && matches!(&err, ClientError::ConnectionLost(_));
-        if detached || connection_lost_during_terminal_hangup {
-            return Ok(());
-        }
-
-        std::process::exit(1);
     }
-
     rt.shutdown_timeout(Duration::from_millis(100));
     crate::logging::shutdown("client");
-    Ok(())
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(ClientError::ConnectionLost(_)) if terminal_restore_failed => Ok(()),
+        Err(_) => std::process::exit(1),
+    }
 }
 
 /// The main client event loop.
@@ -190,7 +169,7 @@ pub fn run_core_client() -> io::Result<()> {
 /// Uses a threaded architecture:
 /// - stdin reader thread → sends raw input bytes to main loop
 /// - resize poller thread → sends resize events to main loop
-/// - server reader thread → reads ServerMessages and sends to main loop
+/// - Core adapter thread → publishes typed endpoint events to the main loop
 /// - main loop: coordinates input, output, and server communication
 async fn run_client_loop(
     initial: Box<core::Session>,
@@ -221,11 +200,6 @@ async fn run_client_loop(
         kitty_graphics_enabled: true,
         pixel_geometry_exact: initial_pixel_geometry_exact,
         host_sgr_pixel_mouse: config.host_sgr_pixel_mouse,
-        direct_graphics_response: Arc::new(Mutex::new(direct_graphics::ResponseMatcher::default())),
-        retired_direct_graphics: None,
-        disabled_native_graphics: Default::default(),
-        pending_native_cleanup: Vec::new(),
-        pending_surface_graphics: HashMap::new(),
         repaint_pending: false,
         detached_process_children: Vec::new(),
         shell: shell::ClientShellState::new(config.shell_config),
@@ -243,7 +217,7 @@ async fn run_client_loop(
     let reported_cell_size = Arc::new(AtomicU64::new(0));
     let host_sgr_pixels_active = Arc::new(AtomicBool::new(false));
 
-    // Channel for events from the resize and server reader threads.
+    // Shared queue for stdin, resize, and Core adapter events.
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<ClientLoopEvent>(256);
     let stdin_tx = event_tx.clone();
 
@@ -259,11 +233,6 @@ async fn run_client_loop(
     let stdin_sgr_pixels_active = host_sgr_pixels_active.clone();
     let stdin_escape_disambiguation_active = config.host_escape_disambiguation_active;
     let stdin_initial_host_input = std::mem::take(&mut config.initial_host_input);
-    let stdin_direct_response = state.direct_graphics_response.clone();
-    let stdin_direct_response_active = stdin_direct_response
-        .lock()
-        .map(|matcher| matcher.active_handle())
-        .unwrap_or_default();
     *stdin_reader = Some(input::StdinReader::spawn(should_quit.clone(), move || {
         input::stdin_reader_loop(
             stdin_tx,
@@ -274,8 +243,6 @@ async fn run_client_loop(
             stdin_sgr_pixels_active,
             stdin_escape_disambiguation_active,
             stdin_initial_host_input,
-            stdin_direct_response,
-            stdin_direct_response_active,
         )
     }));
 
@@ -317,9 +284,8 @@ async fn run_client_loop(
             let cleanup = shell.take_pending_graphics_cleanup();
             state.present_graphics(&cleanup);
         }
-        // Idle sessions wake once a second at most. The tick still reaps detached
-        // children and expires graphics/health state; those deadlines are seconds
-        // away, so a finer timer would only repaint frames that draw nothing.
+        // Idle sessions wake once a second to reap detached children and
+        // service endpoint health and expiring UI state.
         const HOUSEKEEPING_TICK: Duration = Duration::from_secs(1);
         let timer_delay = state
             .shell
@@ -372,60 +338,6 @@ async fn run_client_loop(
                 )? {
                     return Ok(());
                 }
-            }
-            ClientLoopEvent::DirectGraphicsResponse(response) => {
-                let Some(asset) = state
-                    .pending_surface_graphics
-                    .remove(&(response.transfer_id, response.image_id))
-                else {
-                    // Raw/non-surface transfers retain their existing response handling.
-                    continue;
-                };
-                let eligible = response.success
-                    && connection.is_connected()
-                    && state
-                        .shell
-                        .accepts_direct_graphics_asset(&asset, response.image_id);
-                let size = state.reported_size;
-                let prepared = eligible
-                    .then(|| {
-                        let shell = &mut state.shell;
-                        let checkpoint = shell.direct_graphics_checkpoint();
-                        if !shell.trust_direct_graphics_asset(&asset, response.image_id) {
-                            shell.restore_direct_graphics_checkpoint(checkpoint);
-                            return None;
-                        }
-                        match shell.compose(size.0, size.1) {
-                            Some(frame) => Some((frame, checkpoint)),
-                            None => {
-                                shell.restore_direct_graphics_checkpoint(checkpoint);
-                                None
-                            }
-                        }
-                    })
-                    .flatten();
-                let accepted = if let Some((frame, checkpoint)) = prepared {
-                    if state.try_present_frame(frame) {
-                        true
-                    } else {
-                        state.shell.restore_direct_graphics_checkpoint(checkpoint);
-                        false
-                    }
-                } else {
-                    false
-                };
-                if !accepted {
-                    // The upload may have reached the terminal even when its response, owner, or
-                    // composed swap cannot be accepted. Never leave that unowned image resident.
-                    // Restoring the checkpoint also restores old-bank stale-image bookkeeping.
-                    state.queue_native_image_cleanup(response.image_id);
-                }
-                let message = ClientMessage::GraphicsTransmissionResult {
-                    transfer_id: response.transfer_id,
-                    image_id: response.image_id,
-                    success: accepted,
-                };
-                connection.send(&message);
             }
             ClientLoopEvent::PixelMouse(data, geometry) => {
                 let (outcome, frame) = {
@@ -499,18 +411,18 @@ async fn run_client_loop(
                 );
                 connection.send(&msg);
             }
-            ClientLoopEvent::ServerMessage(message) => {
+            ClientLoopEvent::Endpoint(event) => {
                 if !connection.is_connected() {
                     continue;
                 }
-                match *message {
-                    ServerMessage::ClientShellSnapshot(snapshot) => {
+                match *event {
+                    EndpointEvent::Snapshot(snapshot) => {
                         for id in endpoint_commands.observe_snapshot(&snapshot.boot_id) {
                             state.shell.cancel_endpoint_request(&id);
                         }
                         install_client_shell_snapshot(&mut state, snapshot, &mut connection)?;
                     }
-                    ServerMessage::PaneSurface(surface) => {
+                    EndpointEvent::PaneSurface(surface) => {
                         let composed = {
                             let shell = &mut state.shell;
                             shell.set_pane_surface(surface);
@@ -520,208 +432,14 @@ async fn run_client_loop(
                             state.present_frame(frame);
                         }
                     }
-                    ServerMessage::PaneSurfacePatch(patch) => {
-                        let patch_started = crate::render_prof::timer();
-                        let apply_started = crate::render_prof::timer();
-                        let outcome = state.shell.apply_pane_surface_patch(patch);
-                        crate::render_prof::duration_since(
-                            "client_surface_patch.apply",
-                            apply_started,
-                        );
-                        let compose_fallback = match outcome {
-                            shell::ClientPaneSurfacePatchOutcome::Applied(Some(patch)) => {
-                                match state.present_surface_patch(patch) {
-                                    Ok(presented) => !presented,
-                                    Err(error) => {
-                                        warn!(%error, "failed to present retained pane surface patch");
-                                        state.request_repaint();
-                                        false
-                                    }
-                                }
-                            }
-                            shell::ClientPaneSurfacePatchOutcome::Applied(None) => true,
-                            shell::ClientPaneSurfacePatchOutcome::Rejected => false,
-                        };
-                        if compose_fallback {
-                            let composed = state
-                                .shell
-                                .compose(state.reported_size.0, state.reported_size.1);
-                            if let Some(frame) = composed {
-                                state.present_frame(frame);
-                            }
-                        }
-                        crate::render_prof::duration_since(
-                            "client_surface_patch.total",
-                            patch_started,
-                        );
-                        crate::render_prof::flush_if_due();
-                    }
-                    ServerMessage::Terminal(frame) => {
-                        if state.kitty_graphics_enabled
-                            && contains_kitty_graphics_bytes(&frame.bytes)
-                        {
-                            record_received_kitty_graphics(&frame.bytes);
-                        }
-                        let mut stdout = io::stdout();
-                        let _ = stdout.write_all(&frame.bytes);
-                        let _ = stdout.flush();
-                    }
-                    ServerMessage::Graphics { bytes } => {
-                        if state.kitty_graphics_enabled {
-                            record_received_kitty_graphics(&bytes);
-                            let mut stdout = io::stdout();
-                            let _ = stdout.write_all(&bytes);
-                            let _ = stdout.flush();
-                        }
-                    }
-                    ServerMessage::TerminalBell { count } => {
+                    EndpointEvent::TerminalBell { count } => {
                         if let Err(err) =
                             crate::terminal_effects::write_terminal_bells(&mut io::stdout(), count)
                         {
                             warn!(err = %err, "failed to emit terminal bell");
                         }
                     }
-                    ServerMessage::GraphicsFile {
-                        path,
-                        expected_len,
-                        image_id,
-                        transfer_id,
-                        leading,
-                        control,
-                        surface_asset,
-                    } => {
-                        let retirement = state.match_retired_direct_graphics(transfer_id, image_id);
-                        if retirement == RetiredDirectGraphicsMatch::Exact {
-                            continue;
-                        }
-                        let surface_asset_valid = surface_asset.as_ref().is_some_and(|asset| {
-                            state.shell.accepts_direct_graphics_asset(asset, image_id)
-                        });
-                        let native = surface_asset.as_ref().is_some_and(|asset| {
-                            matches!(
-                                asset.source,
-                                crate::protocol::SurfaceGraphicsSource::Terminal { .. }
-                            )
-                        });
-                        let native_valid = !native
-                            || surface_asset.as_ref().is_some_and(|asset| {
-                                !state.disabled_native_graphics
-                                    && leading.is_empty()
-                                    && asset.format == crate::protocol::SurfaceGraphicsFormat::Rgba
-                                    && expected_len == asset.data_len
-                                    && control
-                                        == format!(
-                                            "a=t,f=32,s={},v={},i={image_id},q=0",
-                                            asset.image_width, asset.image_height
-                                        )
-                            });
-                        let valid = retirement != RetiredDirectGraphicsMatch::Saturated
-                            && state.kitty_graphics_enabled
-                            && native_valid
-                            && surface_asset_valid
-                            && usize::try_from(expected_len).ok().is_some_and(|len| {
-                                let path = std::path::Path::new(&path);
-                                let valid_source =
-                                    crate::pane_graphics_files::validate_direct_source(path, len)
-                                        .is_ok()
-                                        || (native
-                                            && crate::pane_graphics_files::validate_native_source(
-                                                path, len,
-                                            )
-                                            .is_ok());
-                                valid_source
-                                    && direct_graphics::valid_control(&control, image_id, len)
-                            })
-                            && state
-                                .direct_graphics_response
-                                .lock()
-                                .is_ok_and(|mut matcher| matcher.arm(transfer_id, image_id));
-                        let sent = if valid {
-                            let mut command = Vec::new();
-                            crate::kitty_graphics::encode_kitty_regular_file(
-                                &mut command,
-                                &leading,
-                                &control,
-                                &path,
-                            );
-                            let mut stdout = io::stdout();
-                            let written = state
-                                .flush_native_cleanup(&mut stdout)
-                                .and_then(|()| stdout.write_all(&command))
-                                .and_then(|()| stdout.flush())
-                                .is_ok();
-                            if written {
-                                record_received_kitty_graphics(&command);
-                            }
-                            written
-                        } else {
-                            false
-                        };
-                        if sent {
-                            if let Some(asset) = surface_asset {
-                                state
-                                    .pending_surface_graphics
-                                    .insert((transfer_id, image_id), asset);
-                            }
-                            if let Ok(mut matcher) = state.direct_graphics_response.lock() {
-                                matcher.start(transfer_id);
-                            }
-                            let started = ClientMessage::GraphicsTransmissionStarted {
-                                transfer_id,
-                                image_id,
-                            };
-                            connection.send(&started);
-                        } else {
-                            state
-                                .pending_surface_graphics
-                                .remove(&(transfer_id, image_id));
-                            if let Ok(mut matcher) = state.direct_graphics_response.lock() {
-                                if valid {
-                                    matcher.retire(transfer_id);
-                                } else {
-                                    matcher.cancel(transfer_id);
-                                }
-                            }
-                            let result = ClientMessage::GraphicsTransmissionResult {
-                                transfer_id,
-                                image_id,
-                                success: false,
-                            };
-                            connection.send(&result);
-                        }
-                    }
-                    ServerMessage::GraphicsTransmissionRetired {
-                        transfer_id,
-                        image_id,
-                    } => {
-                        state.receive_graphics_retirement(
-                            transfer_id,
-                            image_id,
-                            connection.is_connected(),
-                        );
-                    }
-                    ServerMessage::ServerShutdown { reason } => {
-                        return Err(ClientError::ServerShutdown { reason });
-                    }
-                    ServerMessage::Notify { .. } => {}
-                    ServerMessage::SemanticNotification(event) => {
-                        let (effects, frame) = {
-                            let shell = &mut state.shell;
-                            let (effects, repaint) =
-                                shell.receive_notification(event, std::time::Instant::now());
-                            let frame = repaint
-                                .then(|| {
-                                    shell.compose(state.reported_size.0, state.reported_size.1)
-                                })
-                                .flatten();
-                            (effects, frame)
-                        };
-                        handle_shell_notification_effects(effects);
-                        if let Some(frame) = frame {
-                            state.present_frame(frame);
-                        }
-                    }
-                    ServerMessage::ClientShellError { message } => {
+                    EndpointEvent::Error { message } => {
                         let shell = &mut state.shell;
                         if shell.receive_endpoint_error(message) {
                             let frame = shell.compose(state.reported_size.0, state.reported_size.1);
@@ -730,14 +448,11 @@ async fn run_client_loop(
                             }
                         }
                     }
-                    ServerMessage::ClientShellEndpointResponse {
+                    EndpointEvent::Response {
                         boot_id,
                         request_id,
                         result,
                     } => {
-                        if request_id.starts_with("client-shell-surface:") {
-                            continue;
-                        }
                         let Some(completed) =
                             endpoint_commands.receive_response(&boot_id, &request_id, result)
                         else {
@@ -789,7 +504,7 @@ async fn run_client_loop(
                             }
                         }
                     }
-                    ServerMessage::Clipboard { data } => {
+                    EndpointEvent::Clipboard { data } => {
                         if forward_clipboard(&data) {
                             let (width, height) = state.reported_size;
                             let frame = state
@@ -803,7 +518,7 @@ async fn run_client_loop(
                         }
                         let _ = io::stdout().flush();
                     }
-                    ServerMessage::MouseCapture {
+                    EndpointEvent::MouseCapture {
                         enabled,
                         sgr_pixels,
                     } => {
@@ -825,17 +540,21 @@ async fn run_client_loop(
                         host_mouse_capture_active.store(enabled, Ordering::Release);
                         host_sgr_pixels_active.store(next_sgr_pixels, Ordering::Release);
                     }
-                    ServerMessage::DirectTerminalKeyboardProtocol { .. } => {}
-                    ServerMessage::ClientShellKeyboardReportAll { enabled } => {
+                    EndpointEvent::KeyboardReportAll { enabled } => {
                         state.pane_keyboard_report_all = enabled;
                         sync_client_shell_keyboard_report_all(&mut state)?;
                     }
-                    ServerMessage::ClientShellEndpointMethods { methods } => {
+                    EndpointEvent::Methods { methods } => {
                         install_client_shell_methods(&mut state, methods);
                     }
                 }
             }
-            ClientLoopEvent::ServerDisconnected => {
+            ClientLoopEvent::EndpointDetached => {
+                if connection.accept_detach() {
+                    return Ok(());
+                }
+            }
+            ClientLoopEvent::EndpointFailed => {
                 connection.fail(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "connection was lost",
@@ -843,9 +562,7 @@ async fn run_client_loop(
             }
             ClientLoopEvent::Timer => {
                 client_timer.fired();
-                if let Ok(mut matcher) = state.direct_graphics_response.lock() {
-                    matcher.expire();
-                }
+                crate::render_prof::flush_if_due();
                 state
                     .detached_process_children
                     .retain_mut(|child| child.try_wait().ok().flatten().is_none());

@@ -174,7 +174,7 @@ fn ctrl_hover_content_patch_removes_all_old_underlines() {
     };
     assert!(matches!(
         state.apply_pane_surface_patch(patch),
-        ClientPaneSurfacePatchOutcome::Applied(None)
+        super::super::surface_patch::ClientPaneSurfacePatchOutcome::Applied(None)
     ));
     assert!(state.link_hover.is_none());
     let frame = state.compose(106, 20).unwrap();
@@ -220,10 +220,13 @@ fn ctrl_hover_preserves_fast_patches_for_other_panes() {
         panes: vec![other],
         cursor: None,
     };
-    assert!(matches!(
-        state.apply_pane_surface_patch(patch),
-        ClientPaneSurfacePatchOutcome::Applied(Some(_))
-    ));
+    let super::super::surface_patch::ClientPaneSurfacePatchOutcome::Applied(Some(composed)) =
+        state.apply_pane_surface_patch(patch)
+    else {
+        panic!("expected a retained patch outside the hovered pane");
+    };
+    assert_eq!(composed.rows.len(), 1);
+    assert_eq!(composed.cursor, None);
     assert!(!state.link_hover.as_ref().unwrap().regions.is_empty());
 }
 

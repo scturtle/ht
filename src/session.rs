@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
-#[cfg(test)]
-pub const SESSION_ENV_VAR: &str = "HERDR_SESSION";
 
 /// Set once at startup from `--core-home`. Kept out of the environment so a
 /// client cannot silently retarget its Core because an enclosing process

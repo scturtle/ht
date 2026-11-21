@@ -1,6 +1,7 @@
 use super::*;
 
 const MAX_QUEUED_NOTIFICATIONS: usize = 8;
+#[cfg(test)]
 const COMPLETION_EVIDENCE_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 pub(super) const COMPLETION_RECHECK_INTERVAL: std::time::Duration =
     std::time::Duration::from_millis(50);
@@ -79,6 +80,7 @@ impl ClientShellState {
         );
     }
 
+    #[cfg(test)]
     pub(crate) fn receive_notification(
         &mut self,
         event: SemanticNotification,

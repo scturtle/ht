@@ -1,38 +1,4 @@
 use super::*;
-use std::ffi::OsString;
-use std::sync::{Mutex, OnceLock};
-
-fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-fn restore_env_var(key: &str, value: Option<OsString>) {
-    if let Some(value) = value {
-        std::env::set_var(key, value);
-    } else {
-        std::env::remove_var(key);
-    }
-}
-
-struct EnvVarGuard {
-    key: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-        let previous = std::env::var_os(key);
-        std::env::set_var(key, value);
-        Self { key, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        restore_env_var(self.key, self.previous.clone());
-    }
-}
 
 #[test]
 fn graphics_bytes_are_written_inside_synchronized_blit_with_saved_cursor() {
@@ -86,22 +52,7 @@ fn client_error_display_connection_failed() {
 }
 
 #[test]
-fn client_error_display_detached_ignores_retired_session_environment() {
-    let _guard = env_lock().lock().unwrap();
-    let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
-    let err = ClientError::ServerShutdown {
-        reason: Some("detached".into()),
-    };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("Run `ht` to reattach") && !msg.contains("session attach"),
-        "retired session environment must not suggest a removed command: {msg}"
-    );
-}
-
-#[test]
-fn client_error_display_remote_connection_lost_has_reattach_hint() {
-    let _guard = env_lock().lock().unwrap();
+fn client_error_display_connection_lost_has_reattach_hint() {
     let err = ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
     let msg = err.to_string();
     assert!(
@@ -115,71 +66,5 @@ fn client_error_display_remote_connection_lost_has_reattach_hint() {
     assert!(
         msg.contains("Run `ht` to reattach") && !msg.contains("--remote"),
         "must show the supported Core reattach command: {msg}"
-    );
-}
-
-#[test]
-fn toast_notify_from_server_is_emitted_even_when_attach_config_was_off() {
-    let mut emitted = None;
-
-    handle_notify_with_notifiers(
-        NotifyKind::Toast,
-        "pi finished",
-        Some("workspace 1"),
-        |title, body| {
-            emitted = Some((title.to_string(), body.map(str::to_string)));
-            Ok(true)
-        },
-        |_, _| Ok(false),
-    );
-
-    assert_eq!(
-        emitted,
-        Some(("pi finished".to_string(), Some("workspace 1".to_string())))
-    );
-}
-
-#[test]
-fn system_toast_notify_from_server_uses_system_notifier() {
-    let mut emitted = None;
-
-    handle_notify_with_notifiers(
-        NotifyKind::SystemToast,
-        "pi finished",
-        Some("workspace 1"),
-        |_, _| Ok(false),
-        |title, body| {
-            emitted = Some((title.to_string(), body.map(str::to_string)));
-            Ok(true)
-        },
-    );
-
-    assert_eq!(
-        emitted,
-        Some(("pi finished".to_string(), Some("workspace 1".to_string())))
-    );
-}
-
-#[test]
-fn system_toast_notify_preserves_colon_in_title() {
-    let mut emitted = None;
-
-    handle_notify_with_notifiers(
-        NotifyKind::SystemToast,
-        "build: failed",
-        Some("api workspace"),
-        |_, _| Ok(false),
-        |title, body| {
-            emitted = Some((title.to_string(), body.map(str::to_string)));
-            Ok(true)
-        },
-    );
-
-    assert_eq!(
-        emitted,
-        Some((
-            "build: failed".to_string(),
-            Some("api workspace".to_string())
-        ))
     );
 }

@@ -99,6 +99,8 @@ os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], env)
         elapsed = time.monotonic() - started
         output = viewer.read()
         assert b"HT_EXIT_STATUS=0 TTY_RESTORED=True" in output, output[-500:]
+        assert b"herdr: detached from Core" not in output, output[-500:]
+        assert b"herdr: lost connection to Core" not in output, output[-500:]
         modes = reporting_modes_at_exit(output)
         assert not any(modes.get(mode, False) for mode in (9, 1000, 1002, 1003, 1004, 1049, 2004)), modes
         assert b"\x1bP+q" not in output, "client must not send a handoff query"

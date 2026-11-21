@@ -70,20 +70,17 @@ fn graphics_over_budget_finish_without_another_input_or_core_event() {
         theme: Default::default(),
         display: json!({}),
     };
-    let assets = |messages: Vec<ServerMessage>| {
+    let assets = |messages: Vec<EndpointEvent>| {
         messages
             .into_iter()
             .filter_map(|m| match m {
-                ServerMessage::PaneSurface(surface) => Some(surface.graphics.assets.len()),
+                EndpointEvent::PaneSurface(surface) => Some(surface.graphics.assets.len()),
                 _ => None,
             })
             .sum::<usize>()
     };
     let first = session.publish().unwrap();
-    assert!(matches!(
-        first.first(),
-        Some(ServerMessage::ClientShellSnapshot(_))
-    ));
+    assert!(matches!(first.first(), Some(EndpointEvent::Snapshot(_))));
     assert_eq!(assets(first), 1);
     assert!(
         !super::super::should_wait_for_work(false, &session),

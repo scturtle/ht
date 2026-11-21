@@ -1,5 +1,5 @@
 //! Same semantic input and Ghostty encoders as pane input, without a PTY writer.
-use super::view::View;
+use super::{view::View, EndpointEvent};
 use crate::protocol::{ClientMousePosition, ClientPaneInputEvent};
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
 
@@ -23,10 +23,7 @@ pub(super) fn continuation_only(events: &[ClientPaneInputEvent]) -> bool {
     })
 }
 
-pub(super) fn rejection(
-    events: &[ClientPaneInputEvent],
-    reason: &str,
-) -> crate::protocol::ServerMessage {
+pub(super) fn rejection(events: &[ClientPaneInputEvent], reason: &str) -> EndpointEvent {
     let action = if events
         .iter()
         .any(|event| matches!(event, ClientPaneInputEvent::Paste(_)))
@@ -35,7 +32,7 @@ pub(super) fn rejection(
     } else {
         "Input"
     };
-    crate::protocol::ServerMessage::ClientShellError {
+    EndpointEvent::Error {
         message: format!("{action} rejected: {reason}"),
     }
 }

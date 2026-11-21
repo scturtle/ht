@@ -166,7 +166,7 @@ fn foreground_event_updates_nested_facts_not_the_program_identity() {
     }
 }
 
-fn data(session: &mut Session, id: PaneId, bytes: &[u8]) -> Vec<ServerMessage> {
+fn data(session: &mut Session, id: PaneId, bytes: &[u8]) -> Vec<EndpointEvent> {
     session
         .consume(Frame {
             channel: session.views[&id].channel,
@@ -181,7 +181,7 @@ fn surface(session: &mut Session) -> Option<PaneSurfaceFrame> {
         .unwrap()
         .into_iter()
         .find_map(|m| match m {
-            ServerMessage::PaneSurface(s) => Some(s),
+            EndpointEvent::PaneSurface(s) => Some(s),
             _ => None,
         })
 }
@@ -376,14 +376,14 @@ fn synchronized_effects_and_input_protocols_are_not_gated_on_paint() {
     );
     assert!(effects
         .iter()
-        .any(|m| matches!(m, ServerMessage::TerminalBell { .. })));
+        .any(|m| matches!(m, EndpointEvent::TerminalBell { .. })));
     assert!(effects
         .iter()
-        .any(|m| matches!(m, ServerMessage::Clipboard { .. })));
+        .any(|m| matches!(m, EndpointEvent::Clipboard { .. })));
     let messages = s.publish().unwrap();
     assert!(messages
         .iter()
-        .any(|m| matches!(m, ServerMessage::MouseCapture { enabled: true, .. })));
+        .any(|m| matches!(m, EndpointEvent::MouseCapture { enabled: true, .. })));
     assert!(!s.dirty);
 }
 

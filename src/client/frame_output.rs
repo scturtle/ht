@@ -100,10 +100,6 @@ pub(super) fn write_encoded_frame_with_graphics(
     writer.write_all(&encoded[insertion..])
 }
 
-pub(super) fn contains_kitty_graphics_bytes(bytes: &[u8]) -> bool {
-    bytes.windows(3).any(|window| window == b"\x1b_G")
-}
-
 pub(super) fn record_received_kitty_graphics(bytes: &[u8]) {
     let ids = kitty_graphics_image_ids(bytes);
     if ids.is_empty() {

@@ -22,8 +22,8 @@ pub(in crate::client) mod view;
 mod wake;
 mod writer;
 
-use super::events::ClientLoopEvent;
-use crate::protocol::{ClientMessage, ServerMessage};
+use super::events::{ClientLoopEvent, EndpointEvent};
+use crate::protocol::ClientMessage;
 #[cfg(test)]
 pub(in crate::client) use endpoint::test_support;
 pub(super) use endpoint::EndpointHandle;
@@ -206,10 +206,10 @@ fn drain_input(receiver: &mpsc::Receiver<WorkerCommand>, queued: &AtomicUsize) -
 /// Deliver adapter output through the existing client event loop.
 fn emit(
     events: &tokio::sync::mpsc::Sender<ClientLoopEvent>,
-    message: ServerMessage,
+    message: EndpointEvent,
 ) -> io::Result<()> {
     events
-        .blocking_send(ClientLoopEvent::ServerMessage(Box::new(message)))
+        .blocking_send(ClientLoopEvent::Endpoint(Box::new(message)))
         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "client stopped"))
 }
 
@@ -229,12 +229,6 @@ fn run_connection(
         }
         if session.is_closed() {
             // Last-pane closure leaves the TUI, but never stops Core.
-            emit(
-                events,
-                ServerMessage::ServerShutdown {
-                    reason: Some("detached".into()),
-                },
-            )?;
             return Ok(());
         }
         let mut worked = false;
@@ -249,14 +243,7 @@ fn run_connection(
                 queued.fetch_sub(batch.bytes, Ordering::AcqRel);
                 for message in batch.messages {
                     if matches!(message, ClientMessage::Detach) {
-                        session.save()?;
-                        emit(
-                            events,
-                            ServerMessage::ServerShutdown {
-                                reason: Some("detached".into()),
-                            },
-                        )?;
-                        return Ok(());
+                        return session.save();
                     }
                     for reply in session.message(message)? {
                         emit(events, reply)?;
@@ -379,7 +366,7 @@ pub(super) fn start(
                         // Re-gate the shell before publishing the replacement projection.
                         if let Err(failed) = emit(
                             &events,
-                            ServerMessage::ClientShellEndpointMethods {
+                            EndpointEvent::Methods {
                                 methods: session.advertised_methods(),
                             },
                         ) {
@@ -388,14 +375,20 @@ pub(super) fn start(
                     }
                 }
             };
-            if let Err(failed) = result {
-                tracing::warn!(error = %failed, "Core endpoint failed");
-                if let Ok(mut slot) = error.lock() {
-                    *slot = Some(failed);
+            let event = match result {
+                Ok(()) => ClientLoopEvent::EndpointDetached,
+                Err(failed) => {
+                    tracing::warn!(error = %failed, "Core endpoint failed");
+                    if let Ok(mut slot) = error.lock() {
+                        *slot = Some(failed);
+                    }
+                    ClientLoopEvent::EndpointFailed
                 }
-            }
+            };
+            // Close input before publishing the outcome: late input must not enter a
+            // stopped worker, and a clean detach must not look like a transport failure.
             stopped.store(true, Ordering::Release);
-            let _ = events.blocking_send(ClientLoopEvent::ServerDisconnected);
+            let _ = events.blocking_send(event);
             // Dropping only the relay leaves Core's holders and programs alive.
         })?;
     Ok(endpoint)

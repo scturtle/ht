@@ -28,6 +28,7 @@ mod notifications;
 mod overlay_input;
 mod render;
 mod state;
+#[cfg(test)]
 mod surface_patch;
 mod text_editor;
 mod word_selection;
@@ -35,7 +36,6 @@ use text_editor::TextEditor;
 use word_selection::ClientWordSelection;
 
 pub(crate) use state::*;
-pub(super) use surface_patch::{ClientComposedSurfacePatch, ClientPaneSurfacePatchOutcome};
 
 use crossterm::event::KeyCode;
 #[cfg(test)]

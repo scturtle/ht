@@ -4,6 +4,7 @@ use super::{
     model::{invalid, status, MAX_PANES},
     session::Session,
     transport::DATA,
+    EndpointEvent,
 };
 use crate::{actions, layout::PaneId, protocol::*};
 use serde_json::{json, Value};
@@ -208,7 +209,7 @@ impl Session {
         }
     }
 
-    pub fn message(&mut self, message: ClientMessage) -> io::Result<Vec<ServerMessage>> {
+    pub fn message(&mut self, message: ClientMessage) -> io::Result<Vec<EndpointEvent>> {
         let mut out = Vec::new();
         match message {
             ClientMessage::ClientShellResize {
@@ -305,7 +306,7 @@ impl Session {
                         })
                     }
                 };
-                out.push(ServerMessage::ClientShellEndpointResponse {
+                out.push(EndpointEvent::Response {
                     boot_id,
                     request_id,
                     result: response,

@@ -44,9 +44,8 @@ impl EndpointHandle {
         )
     }
 
-    /// `false` means a cleanly stopped worker no longer accepts input. Its
-    /// graceful shutdown notification is already queued for the UI; late mouse
-    /// events must not turn that notification into a transport failure.
+    /// `false` means a cleanly stopped worker no longer accepts input. The UI
+    /// learns about the detach separately; late input is not a transport failure.
     pub(in crate::client) fn send(&mut self, message: &ClientMessage) -> io::Result<bool> {
         if self.stopped.load(Ordering::Acquire) {
             if self.error.lock().is_ok_and(|error| error.is_none()) {

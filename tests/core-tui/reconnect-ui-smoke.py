@@ -241,7 +241,9 @@ def main():
             gave_up_after = time.monotonic() - stopped_at
             # Give a would-be auto-start every chance to appear before asserting.
             time.sleep(3.0)
-            view.read()
+            output = view.read()
+            assert view.process.returncode == 1, output[-500:]
+            assert b"herdr: lost connection to Core" in output, output[-500:]
             assert not socket.exists(), "a recovery probe resurrected the stopped Core"
             assert not core_processes(socket), "a stopped Core left processes behind"
             assert gave_up_after < ABSENT_WINDOW + 12, gave_up_after

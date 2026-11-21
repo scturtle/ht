@@ -479,16 +479,6 @@ pub enum ClientMessage {
         modifiers: u8,
     },
 
-    /// Result of the one armed Herdr-owned direct Kitty transmission.
-    GraphicsTransmissionResult {
-        transfer_id: u64,
-        image_id: u32,
-        success: bool,
-    },
-
-    /// The direct command was written and flushed; terminal response timing starts now.
-    GraphicsTransmissionStarted { transfer_id: u64, image_id: u32 },
-
     /// Resize the pane viewport of a client-owned shell.
     ClientShellResize {
         cell_width_px: u32,
@@ -1119,30 +1109,6 @@ pub struct PaneSurfacePatch {
     pub cursor: Option<CursorState>,
 }
 
-/// Terminal ANSI bytes encoded by the server for network-efficient clients.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TerminalFrame {
-    /// Monotonic per-client frame sequence.
-    pub seq: u64,
-    /// Frame width in columns.
-    pub width: u16,
-    /// Frame height in rows.
-    pub height: u16,
-    /// Whether bytes contain a full redraw rather than an incremental diff.
-    pub full: bool,
-    /// Terminal escape bytes ready to write directly to stdout.
-    pub bytes: Vec<u8>,
-}
-
-/// Notification kind forwarded from server to client.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NotifyKind {
-    /// Display a toast message through the outer terminal.
-    Toast,
-    /// Display a toast message through the host OS notification service.
-    SystemToast,
-}
-
 /// A client-rendered notification category. The server reports the semantic
 /// event; each connected shell client chooses how (or whether) to present it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1202,107 +1168,6 @@ pub fn queued_message_cost(message: &ClientMessage) -> usize {
 pub struct EndpointResponseError {
     pub code: Option<String>,
     pub message: String,
-}
-
-/// Messages sent from the Core adapter to the client shell as typed values.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ServerMessage {
-    /// Terminal bytes to write directly for a terminal-ANSI client.
-    Terminal(TerminalFrame),
-
-    /// Client-local Kitty graphics bytes to write directly to the host terminal.
-    Graphics {
-        /// Raw Kitty graphics protocol bytes.
-        bytes: Vec<u8>,
-    },
-
-    /// Server is shutting down. Clients should exit gracefully.
-    ServerShutdown {
-        /// Optional reason for the shutdown.
-        reason: Option<String>,
-    },
-
-    /// A notification event to be rendered locally by the client.
-    Notify {
-        /// What kind of notification.
-        kind: NotifyKind,
-        /// Human-readable title.
-        message: String,
-        /// Optional human-readable notification body.
-        body: Option<String>,
-    },
-
-    /// OSC 52 clipboard data forwarded from a PTY through the server.
-    Clipboard {
-        /// Base64-encoded clipboard data.
-        data: String,
-    },
-
-    /// Whether the client should currently capture host mouse input.
-    MouseCapture {
-        /// True when Herdr mouse UI is enabled or the focused pane app requests mouse reporting.
-        enabled: bool,
-        /// True only while the focused pane requests DEC SGR pixel mode 1016.
-        sgr_pixels: bool,
-    },
-
-    /// Ring the foreground client's outer terminal for pane-originated BEL characters.
-    TerminalBell {
-        /// Number of BEL characters parsed from one PTY read.
-        count: u16,
-    },
-
-    /// One validated Herdr-owned Kitty regular-file RGBA transmission.
-    GraphicsFile {
-        path: String,
-        expected_len: u64,
-        image_id: u32,
-        transfer_id: u64,
-        leading: Vec<u8>,
-        control: String,
-        /// ClientShell upload identity. `None` targets a direct terminal client.
-        surface_asset: Option<SurfaceGraphicsAssetKey>,
-    },
-
-    /// Suppress a direct command that expired before terminal delivery.
-    GraphicsTransmissionRetired { transfer_id: u64, image_id: u32 },
-
-    /// Initial metadata for a client-owned shell.
-    ClientShellSnapshot(Box<ClientShellSnapshot>),
-
-    /// Active-tab pane content rendered at a client-requested origin-relative size.
-    PaneSurface(PaneSurfaceFrame),
-
-    /// Ephemeral semantic notification delivered over the private control lane.
-    /// It is sent only to currently connected client-rendered shells.
-    SemanticNotification(SemanticNotification),
-
-    /// Immediate endpoint error that the client-rendered shell must show regardless of notification policy.
-    ClientShellError { message: String },
-
-    /// Exact Kitty keyboard flags requested by a directly attached terminal.
-    /// Zero restores the host terminal's previous keyboard mode.
-    DirectTerminalKeyboardProtocol {
-        flags: u16,
-        modify_other_keys_level: u8,
-    },
-
-    /// Whether the focused pane or popup needs the shell host to report every key.
-    ClientShellKeyboardReportAll { enabled: bool },
-
-    /// Action names this connection's Core actually implements. Re-sent whenever a
-    /// replacement connection changes the advertised set.
-    ClientShellEndpointMethods { methods: Vec<String> },
-
-    /// Final result of one endpoint operation.
-    ClientShellEndpointResponse {
-        boot_id: String,
-        request_id: String,
-        result: Result<Box<crate::actions::ActionResult>, EndpointResponseError>,
-    },
-
-    /// Incremental terminal-cell update for a previously committed pane surface.
-    PaneSurfacePatch(PaneSurfacePatch),
 }
 
 // ---------------------------------------------------------------------------
