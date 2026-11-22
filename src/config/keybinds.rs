@@ -70,13 +70,6 @@ impl BindingConfig {
         }
     }
 
-    pub(crate) fn into_values(self) -> Vec<String> {
-        match self {
-            Self::One(value) => vec![value],
-            Self::Many(values) => values,
-        }
-    }
-
     pub(crate) fn has_values(&self) -> bool {
         self.values().iter().any(|value| !value.trim().is_empty())
     }
@@ -463,40 +456,26 @@ impl Config {
                     $source
                 );
             };
-            (indexed($legacy:ident), $field:ident, $source:expr) => {
-                // A legacy [keys.indexed] entry displaces the modern default, not a user binding.
-                if $source == BindingSource::User || self.keys.indexed.$legacy.trim().is_empty() {
-                    apply_binding!(
-                        parse_indexed_bindings,
-                        registry,
-                        keybinds.$field,
-                        $field,
-                        $source
-                    );
-                }
+            (indexed, $field:ident, $source:expr) => {
+                apply_binding!(
+                    parse_indexed_bindings,
+                    registry,
+                    keybinds.$field,
+                    $field,
+                    $source
+                );
             };
         }
         macro_rules! apply_key_fields {
             (($source:expr); $( $section:ident {
-                $( $(#[$attr:meta])* $field:ident: $ty:ty = $default:expr => $kind:ident $(($target:ident))?; )*
+                $( $(#[$attr:meta])* $field:ident: $ty:ty = $default:expr => $kind:ident; )*
             } )*) => {
-                $($( apply_key_field!($kind $(($target))?, $field, $source); )*)*
+                $($( apply_key_field!($kind, $field, $source); )*)*
             };
         }
 
         for source in [BindingSource::User, BindingSource::Default] {
             key_fields!(apply_key_fields source);
-
-            if source == field_source!(indexed) {
-                append_legacy_indexed_bindings(
-                    &mut keybinds.switch_tab,
-                    "keys.indexed.tabs",
-                    &self.keys.indexed.tabs,
-                    &mut registry,
-                    &mut diagnostics,
-                    source,
-                );
-            }
         }
 
         (prefix_diag, prefix, diagnostics, keybinds)
@@ -603,46 +582,6 @@ fn push_indexed_binding(
         trigger: binding.trigger,
         label: binding.label,
     });
-}
-
-fn append_legacy_indexed_bindings(
-    target: &mut Vec<IndexedKeybind>,
-    field: &'static str,
-    configured_label: &str,
-    registry: &mut BindingRegistry,
-    diagnostics: &mut Vec<String>,
-    source: BindingSource,
-) {
-    if configured_label.trim().is_empty() {
-        return;
-    }
-    let Some(modifiers) = parse_modifier_combo(configured_label) else {
-        let diag = format!(
-            "invalid indexed keybinding: {field} = {configured_label:?}; disabling binding"
-        );
-        warn!(message = %diag, "config diagnostic");
-        diagnostics.push(diag);
-        return;
-    };
-
-    for idx in 1..=9 {
-        let combo = (
-            KeyCode::Char(char::from_digit(idx, 10).unwrap_or('1')),
-            modifiers,
-        );
-        let binding = ResolvedBinding {
-            trigger: BindingTrigger::Direct(combo),
-            label: format!("{}+{idx}", configured_label.trim()),
-        };
-        if reject_binding(field, &binding, registry, diagnostics, source) {
-            continue;
-        }
-        registry.register(&binding, field, source);
-        target.push(IndexedKeybind {
-            trigger: binding.trigger,
-            label: binding.label,
-        });
-    }
 }
 
 fn reject_binding(
@@ -1574,11 +1513,11 @@ switch_tab = "prefix+shift+1..9"
     }
 
     #[test]
-    fn legacy_indexed_user_bindings_displace_modern_defaults() {
+    fn direct_indexed_bindings_replace_the_default_prefix_range() {
         let config: Config = toml::from_str(
             r#"
-[keys.indexed]
-tabs = "ctrl"
+[keys]
+switch_tab = "ctrl+1..9"
 "#,
         )
         .unwrap();
@@ -1593,25 +1532,6 @@ tabs = "ctrl"
             BindingTrigger::Direct((KeyCode::Char('1'), KeyModifiers::CONTROL))
         );
         assert_eq!(kb.switch_tab[0].label, "ctrl+1");
-    }
-
-    #[test]
-    fn invalid_legacy_indexed_user_binding_displaces_modern_default() {
-        let config: Config = toml::from_str(
-            r#"
-[keys.indexed]
-tabs = "bogus"
-"#,
-        )
-        .unwrap();
-
-        let diagnostics = config.collect_diagnostics();
-        let kb = config.keybinds();
-
-        assert!(kb.switch_tab.is_empty());
-        assert!(diagnostics.iter().any(|diag| {
-            diag.contains("invalid indexed keybinding") && diag.contains("keys.indexed.tabs")
-        }));
     }
 
     #[test]

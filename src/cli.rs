@@ -33,11 +33,11 @@ fn config_check(args: &[String]) -> std::io::Result<i32> {
     match args {
         [] => {}
         [flag] if matches!(flag.as_str(), "help" | "--help" | "-h") => {
-            eprintln!("usage: herdr config check");
+            eprintln!("usage: ht config check");
             return Ok(0);
         }
         _ => {
-            eprintln!("usage: herdr config check");
+            eprintln!("usage: ht config check");
             return Ok(2);
         }
     }
@@ -57,14 +57,14 @@ fn config_check(args: &[String]) -> std::io::Result<i32> {
 
 fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr config reset-keys");
+        eprintln!("usage: ht config reset-keys");
         return Ok(2);
     }
 
     let path = crate::config::config_path();
     if !path.exists() {
         println!(
-            "No config file found at {}. Built-in v2 keybindings already apply.",
+            "No config file found at {}. Built-in keybindings already apply.",
             path.display()
         );
         return Ok(0);
@@ -91,7 +91,7 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
 
     if !table.contains_key("keys") {
         println!(
-            "No [keys] config found in {}. Built-in v2 keybindings already apply.",
+            "No [keys] config found in {}. Built-in keybindings already apply.",
             path.display()
         );
         return Ok(0);
@@ -118,9 +118,8 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
     std::fs::write(&path, updated)?;
 
     println!("Created backup: {}", backup_path.display());
-    println!("Removed [keys] and [keys.indexed] from {}.", path.display());
-    println!("Built-in v2 keybindings will apply after Herdr restarts or reloads config.");
-    println!("If a Herdr server is running, run `herdr server reload-config` to apply this now.");
+    println!("Removed [keys] and its subtables from {}.", path.display());
+    println!("Built-in keybindings will apply after ht restarts or reloads config.");
     println!(
         "To restore: cp {} {}",
         backup_path.display(),
@@ -150,7 +149,7 @@ fn key_config_backup_path(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn print_config_help() {
-    eprintln!("herdr config commands:");
-    eprintln!("  herdr config check  validate config.toml and print diagnostics");
-    eprintln!("  herdr config reset-keys  back up config.toml and remove custom keybindings");
+    eprintln!("ht config commands:");
+    eprintln!("  ht config check  validate config.toml and print diagnostics");
+    eprintln!("  ht config reset-keys  back up config.toml and remove custom keybindings");
 }

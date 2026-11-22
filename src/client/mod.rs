@@ -571,11 +571,11 @@ async fn run_client_loop(
                     return Err(ClientError::ConnectionLost(error));
                 }
                 {
-                    let expired_endpoints = endpoint_commands.expire(now);
+                    let expired_endpoint = endpoint_commands.expire(now);
                     let (effects, outcome, frame) = {
                         let shell = &mut state.shell;
                         let mut outcome = shell.tick_selection_autoscroll(now);
-                        for expired in expired_endpoints {
+                        if let Some(expired) = expired_endpoint {
                             let (repaint, actions) = shell.handle_endpoint_result(
                                 &expired.boot_id,
                                 &expired.request_id,

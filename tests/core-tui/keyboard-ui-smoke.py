@@ -10,8 +10,9 @@ import subprocess
 import sys
 import tempfile
 
+import harness as UI
+
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent
 
 
 def load(name, path):
@@ -22,7 +23,6 @@ def load(name, path):
     return result
 
 
-UI = load("keyboard_existing_ui", HERE / "existing-ui-smoke.py")
 ORG = load("keyboard_organization_ui", HERE / "organization-ui-smoke.py")
 
 

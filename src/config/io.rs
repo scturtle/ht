@@ -4,8 +4,7 @@ use tracing::warn;
 
 use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
-const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] =
-    &["advanced", "keys", "terminal", "theme", "ui", "update"];
+const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &["advanced", "keys", "terminal", "theme", "ui"];
 
 pub fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
@@ -191,7 +190,7 @@ pub fn config_diagnostic_summary(diagnostics: &[String]) -> Option<String> {
         ""
     };
 
-    Some(format!("{target}{impact}; herdr config check"))
+    Some(format!("{target}{impact}; ht config check"))
 }
 
 pub fn load_live_config() -> Result<LoadedConfig, Vec<String>> {
@@ -528,7 +527,7 @@ mod tests {
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml; herdr config check")
+            Some("config.toml; ht config check")
         );
     }
 
@@ -541,7 +540,7 @@ mod tests {
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml has unknown keys; herdr config check")
+            Some("config.toml has unknown keys; ht config check")
         );
     }
 
@@ -554,7 +553,7 @@ mod tests {
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml; herdr config check")
+            Some("config.toml; ht config check")
         );
     }
 
@@ -567,7 +566,7 @@ mod tests {
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml invalid; using defaults; herdr config check")
+            Some("config.toml invalid; using defaults; ht config check")
         );
     }
 
@@ -576,14 +575,14 @@ mod tests {
         let startup = vec!["config read error: permission denied; using defaults".to_string()];
         assert_eq!(
             config_diagnostic_summary(&startup).as_deref(),
-            Some("config.toml unreadable; using defaults; herdr config check")
+            Some("config.toml unreadable; using defaults; ht config check")
         );
 
         let reload =
             vec!["config read error: permission denied; keeping current config".to_string()];
         assert_eq!(
             config_diagnostic_summary(&reload).as_deref(),
-            Some("config.toml unreadable; keeping current config; herdr config check")
+            Some("config.toml unreadable; keeping current config; ht config check")
         );
     }
 
@@ -596,7 +595,7 @@ mod tests {
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml invalid; keeping current config; herdr config check")
+            Some("config.toml invalid; keeping current config; ht config check")
         );
     }
 
@@ -648,6 +647,8 @@ headless_rows = "unused"
 [session]
 resume_agents_on_restore = "unused"
 startup_per_agent_delay_ms = -1
+[update]
+channel = "unused"
 [terminal]
 default_shell = "fish"
 shell_mode = ["unused"]
@@ -663,8 +664,13 @@ scrollback_limit_lines = 5000
 [ui]
 mobile_width_threshold = 32
 redraw_on_focus_gained = false
+[ui.toast]
+enabled = true
 [keys]
 detach = "f10"
+extra_prefixes = "ctrl+plus"
+[keys.indexed]
+tabs = "ctrl"
 "#;
         std::fs::write(&path, content).unwrap();
         let previous = std::env::var_os(CONFIG_PATH_ENV_VAR);
@@ -679,13 +685,19 @@ detach = "f10"
         std::fs::remove_file(&path).unwrap();
         assert_eq!(unchanged, content);
 
-        let mut expected = ["experimental", "remote", "server", "session"]
+        let mut expected = ["experimental", "remote", "server", "session", "update"]
             .map(|section| format!("unknown config section [{section}]; ignoring section"))
             .to_vec();
-        expected.push("unknown config key onboarding; ignoring key".into());
         expected.extend(
-            ["terminal.shell_mode", "terminal.new_cwd"]
-                .map(|key| format!("unknown config key {key}; ignoring key")),
+            [
+                "onboarding",
+                "keys.extra_prefixes",
+                "keys.indexed",
+                "terminal.shell_mode",
+                "terminal.new_cwd",
+                "ui.toast.enabled",
+            ]
+            .map(|key| format!("unknown config key {key}; ignoring key")),
         );
         expected.sort();
         for loaded in [startup, live.unwrap()] {
@@ -697,13 +709,15 @@ detach = "f10"
             assert_eq!(loaded.config.advanced.scrollback_limit_lines, 5000);
             assert_eq!(loaded.config.ui.mobile_width_threshold, 32);
             assert!(!loaded.config.ui.redraw_on_focus_gained);
-            assert!(loaded
-                .config
-                .keybinds()
-                .detach
-                .bindings
-                .iter()
-                .any(|binding| binding.label == "f10"));
+            assert_eq!(
+                loaded.config.ui.toast.delivery,
+                super::super::ToastDelivery::Off
+            );
+            assert_eq!(loaded.config.prefix_keys(), Config::default().prefix_keys());
+            let bindings = loaded.config.keybinds();
+            assert_eq!(bindings.detach.labels(), ["f10"]);
+            assert_eq!(bindings.switch_tab.len(), 9);
+            assert_eq!(bindings.switch_tab[0].label, "prefix+1");
         }
     }
 
@@ -839,7 +853,7 @@ agents = "alt"
         assert_eq!(keys.new_tab.labels(), ["f3"]);
         assert_eq!(keys.last_pane.labels(), ["prefix+tab"]);
         assert_eq!(keys.switch_tab.len(), 9);
-        assert_eq!(loaded.diagnostics.len(), 10);
+        assert_eq!(loaded.diagnostics.len(), 9);
         for key in [
             "previous_workspace",
             "next_workspace",
@@ -849,8 +863,7 @@ agents = "alt"
             "switch_workspace",
             "cycle_pane_next",
             "cycle_pane_previous",
-            "indexed.workspaces",
-            "indexed.agents",
+            "indexed",
         ] {
             assert!(loaded
                 .diagnostics
@@ -889,6 +902,7 @@ redraw_on_focus_gain = true
 
 [ui.toast]
 enabled = true
+delivery = "herdr"
 delivry = "system"
 
 [ui.sidebar.agents.rows_by_agent]
@@ -914,6 +928,7 @@ claude = [["terminal_title"]]
                 "unknown config key ui.redraw_on_focus_gain; ignoring key",
                 "unknown config key ui.sidebar; ignoring key",
                 "unknown config key ui.toast.delivry; ignoring key",
+                "unknown config key ui.toast.enabled; ignoring key",
             ]
         );
         assert!(loaded.invalid_sections.is_empty());

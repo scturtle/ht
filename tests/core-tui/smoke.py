@@ -9,7 +9,6 @@ def main(names):
     cases = {
         path.name.removesuffix(suffix): path
         for path in sorted(Path(__file__).resolve().parent.glob(f"*{suffix}"))
-        if path.name != "existing-ui-smoke.py"  # compatibility alias for organization
     }
     if not cases:
         sys.exit("No smoke tests found")

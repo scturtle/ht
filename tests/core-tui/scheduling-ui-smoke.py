@@ -4,7 +4,6 @@
 This measures local input-to-host-output latency, NOT WAN RTT or model activity.
 It starts and stops only uniquely named Core sessions under its own temp directory.
 """
-import importlib.util
 import json
 import math
 import os
@@ -16,9 +15,7 @@ import sys
 import tempfile
 import time
 
-SPEC = importlib.util.spec_from_file_location("ui", Path(__file__).with_name("existing-ui-smoke.py"))
-UI = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(UI)
+import harness as UI
 
 
 def counters(pid):

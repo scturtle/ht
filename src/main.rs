@@ -82,11 +82,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # last_pane = ""          # optional, unset by default; bind e.g. "prefix+tab" for global back-and-forth
 # close_pane = "prefix+x"
 
-# Legacy indexed tab shortcut config is still parsed for compatibility.
-# Prefer switch_tab for new configs.
-# [keys.indexed]
-# tabs = ""       # e.g. "ctrl" makes ctrl+1..9 switch tabs directly
-
 [ui]
 # Mouse capture and automatic selection copying are always enabled.
 # The cursor is native. Creation and closing are immediate, without prompts.

@@ -6,7 +6,6 @@ Native desktop clipboard access is disabled; OSC 52 is captured, not executed.
 No default Core/Herdr session, home, config, systemd unit or user clipboard is used.
 """
 import base64
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,11 +13,8 @@ import re
 import subprocess
 import tempfile
 
-SPEC = importlib.util.spec_from_file_location(
-    "existing_ui_smoke", Path(__file__).with_name("existing-ui-smoke.py")
-)
-UI = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(UI)
+import harness as UI
+
 ORACLE = Path(os.environ.get(
     "CORE_UI_ORACLE", Path(__file__).parent / "target/debug/screen-oracle"
 )).resolve()

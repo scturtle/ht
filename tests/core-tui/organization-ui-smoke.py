@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Isolated real default-TUI shared Workspace/Tab/CAS lifecycle gate."""
 import copy
-import importlib.util
 import json
 import os
 import re
@@ -12,9 +11,8 @@ import subprocess
 import tempfile
 import time
 
-SPEC = importlib.util.spec_from_file_location("existing_ui_smoke", Path(__file__).with_name("existing-ui-smoke.py"))
-UI = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(UI)
+import harness as UI
+
 ORACLE = Path(os.environ.get("CORE_UI_ORACLE", Path(__file__).parent / "target/debug/screen-oracle")).resolve()
 DOCUMENT = "herdr-app"
 

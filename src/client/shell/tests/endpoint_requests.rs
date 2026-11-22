@@ -281,7 +281,7 @@ fn dispatcher_cancels_requests_when_the_endpoint_worker_fails() {
             .visible_endpoint_notice
             .as_ref()
             .is_some_and(|notice| { notice.title == "Action interrupted" }));
-        assert_eq!(commands.diagnostic_snapshot()["queued"], 0);
+        assert!(commands.is_idle());
     }
 }
 

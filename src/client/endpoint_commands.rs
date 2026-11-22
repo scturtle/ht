@@ -1,4 +1,4 @@
-//! The one Core command lane. Correlation and retirement survive the removal of federation.
+//! The single Core command lane, correlated by projection boot and request ID.
 use super::{
     connection::{EndpointConnection, SendOutcome},
     shell::ClientShellEndpointError,
@@ -12,7 +12,6 @@ use std::{
     time::{Duration, Instant},
 };
 const ENDPOINT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
-const MAX_RETIRED_REQUESTS: usize = 128;
 struct QueuedCommand {
     boot_id: String,
     request: Box<ActionRequest>,
@@ -31,7 +30,6 @@ pub(super) struct EndpointCommandResult {
 pub(super) struct EndpointCommands {
     queued: VecDeque<QueuedCommand>,
     in_flight: Option<InFlightCommand>,
-    retired: VecDeque<(String, String)>,
 }
 impl EndpointCommands {
     pub(super) fn enqueue(&mut self, boot_id: String, request: Box<ActionRequest>) {
@@ -74,11 +72,9 @@ impl EndpointCommands {
     pub(super) fn accepts_response(&self, boot: &str, id: &str) -> bool {
         self.matches(boot, id)
     }
-    /// Queue and in-flight state for tests that assert the lane stays idle.
     #[cfg(test)]
-    pub(super) fn diagnostic_snapshot(&self) -> serde_json::Value {
-        serde_json::json!({"queued":self.queued.len(),"retired":self.retired.len(),
-            "in_flight":self.in_flight.as_ref().map(|c|serde_json::json!({"boot_id":c.boot_id,"request_id":c.request_id,"elapsed_ms":c.sent_at.elapsed().as_millis()}))})
+    pub(super) fn is_idle(&self) -> bool {
+        self.queued.is_empty() && self.in_flight.is_none()
     }
     /// A replacement Core cannot inherit actions issued to an older boot.
     /// Retire uncertain in-flight delivery; never replay the old request.
@@ -86,10 +82,6 @@ impl EndpointCommands {
         let mut cancelled = Vec::new();
         if self.in_flight.as_ref().is_some_and(|c| c.boot_id != boot) {
             if let Some(c) = self.in_flight.take() {
-                if self.retired.len() == MAX_RETIRED_REQUESTS {
-                    self.retired.pop_front();
-                }
-                self.retired.push_back((c.boot_id, c.request_id.clone()));
                 cancelled.push(c.request_id);
             }
         }
@@ -103,23 +95,13 @@ impl EndpointCommands {
         });
         cancelled
     }
-    pub(super) fn expire(&mut self, now: Instant) -> Vec<EndpointCommandResult> {
-        if self
-            .in_flight
-            .as_ref()
-            .is_none_or(|c| now.saturating_duration_since(c.sent_at) < ENDPOINT_COMMAND_TIMEOUT)
-        {
-            return Vec::new();
+    pub(super) fn expire(&mut self, now: Instant) -> Option<EndpointCommandResult> {
+        let sent_at = self.in_flight.as_ref()?.sent_at;
+        if now.saturating_duration_since(sent_at) < ENDPOINT_COMMAND_TIMEOUT {
+            return None;
         }
-        let Some(command) = self.in_flight.take() else {
-            return Vec::new();
-        };
-        if self.retired.len() == MAX_RETIRED_REQUESTS {
-            self.retired.pop_front();
-        }
-        self.retired
-            .push_back((command.boot_id.clone(), command.request_id.clone()));
-        vec![EndpointCommandResult {
+        let command = self.in_flight.take()?;
+        Some(EndpointCommandResult {
             boot_id: command.boot_id,
             request_id: command.request_id,
             result: Err(ClientShellEndpointError {
@@ -128,7 +110,7 @@ impl EndpointCommands {
                     "Core did not respond to the action; delivery is uncertain and was not retried"
                         .into(),
             }),
-        }]
+        })
     }
     pub(super) fn receive_response(
         &mut self,
@@ -136,10 +118,8 @@ impl EndpointCommands {
         id: &str,
         result: Result<Box<ActionResult>, crate::protocol::EndpointResponseError>,
     ) -> Option<EndpointCommandResult> {
-        if let Some(index) = self.retired.iter().position(|(b, i)| b == boot && i == id) {
-            self.retired.remove(index);
-            return None;
-        }
+        // Request IDs advance for the lifetime of the UI, even across a reconnect.
+        // Once a command leaves the lane, its late reply cannot complete another one.
         if !self.matches(boot, id) {
             return None;
         }
@@ -203,13 +183,16 @@ mod tests {
     #[test]
     fn timeout_does_not_replay_a_command_and_its_late_reply_cannot_complete_the_next_one() {
         let mut c = commands();
-        let expired = c.expire(Instant::now() + ENDPOINT_COMMAND_TIMEOUT);
-        assert_eq!(expired.len(), 1);
-        assert!(c.in_flight.is_none());
-        assert!(c.queued.is_empty());
+        let expired = c.expire(Instant::now() + ENDPOINT_COMMAND_TIMEOUT).unwrap();
+        assert_eq!(expired.request_id, "request-a");
+        assert_eq!(
+            expired.result.unwrap_err().code.as_deref(),
+            Some("endpoint_timeout")
+        );
+        assert!(c.is_idle());
         assert!(c
             .expire(Instant::now() + ENDPOINT_COMMAND_TIMEOUT)
-            .is_empty());
+            .is_none());
         c.in_flight = Some(InFlightCommand {
             boot_id: "boot-a".into(),
             request_id: "next".into(),
@@ -229,18 +212,5 @@ mod tests {
         assert!(c
             .receive_response("boot-a", "request-a", Ok(Box::new(ActionResult::Ok {})))
             .is_none());
-    }
-    #[test]
-    fn retired_uncertain_replies_remain_bounded() {
-        let mut c = commands();
-        for n in 0..300 {
-            c.in_flight = Some(InFlightCommand {
-                boot_id: "boot-a".into(),
-                request_id: n.to_string(),
-                sent_at: Instant::now(),
-            });
-            c.expire(Instant::now() + ENDPOINT_COMMAND_TIMEOUT);
-        }
-        assert_eq!(c.retired.len(), MAX_RETIRED_REQUESTS);
     }
 }

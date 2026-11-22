@@ -123,9 +123,11 @@ fn parse_right_click_passthrough_modifier(value: &str) -> Option<Option<KeyModif
     (!modifiers.is_empty()).then_some(Some(modifiers))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct ToastConfig {
     pub delivery: ToastDelivery,
+    #[serde(deserialize_with = "deserialize_toast_delay")]
     pub delay_seconds: u64,
     pub herdr: HerdrToastConfig,
     pub clipboard: ClipboardToastConfig,
@@ -184,7 +186,7 @@ pub struct LoadedConfig {
 
 macro_rules! define_keys_config {
     ((); $( $section:ident {
-        $( $(#[$attr:meta])* $field:ident: $ty:ty = $default:expr => $kind:ident $(($target:ident))?; )*
+        $( $(#[$attr:meta])* $field:ident: $ty:ty = $default:expr => $kind:ident; )*
     } )*) => {
         #[derive(Debug, Clone, Serialize)]
         pub struct KeysConfig {
@@ -192,8 +194,6 @@ macro_rules! define_keys_config {
             /// array to accept several).
             pub prefix: BindingConfig,
             $($( $(#[$attr])* pub $field: $ty, )*)*
-            /// Optional indexed shortcuts expanded over number keys 1-9.
-            pub indexed: IndexedKeysConfig,
             #[serde(skip_serializing)]
             pub(crate) user_fields: BTreeSet<&'static str>,
         }
@@ -203,7 +203,6 @@ macro_rules! define_keys_config {
                 Self {
                     prefix: BindingConfig::one(format_key_combo(DEFAULT_PREFIX)),
                     $($( $field: $default, )*)*
-                    indexed: IndexedKeysConfig::default(),
                     user_fields: BTreeSet::new(),
                 }
             }
@@ -213,10 +212,7 @@ macro_rules! define_keys_config {
         #[serde(default)]
         struct KeysConfigOverlay {
             prefix: Option<BindingConfig>,
-            // Legacy additional prefixes, merged with the main prefix setting.
-            extra_prefixes: Option<BindingConfig>,
             $($( $(#[$attr])* $field: Option<$ty>, )*)*
-            indexed: Option<IndexedKeysConfig>,
         }
 
         impl KeysConfigOverlay {
@@ -227,9 +223,9 @@ macro_rules! define_keys_config {
                         keys.user_fields.insert(stringify!($field));
                     }
                 )*)*
-                if let Some(indexed) = self.indexed {
-                    keys.indexed = indexed;
-                    keys.user_fields.insert("indexed");
+                if let Some(prefix) = self.prefix {
+                    keys.prefix = prefix;
+                    keys.user_fields.insert("prefix");
                 }
             }
         }
@@ -243,28 +239,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
     where
         D: Deserializer<'de>,
     {
-        let mut input = KeysConfigOverlay::deserialize(deserializer)?;
+        let input = KeysConfigOverlay::deserialize(deserializer)?;
         let mut keys = KeysConfig::default();
-
-        let prefix_was_supplied = input.prefix.is_some() || input.extra_prefixes.is_some();
-        let mut prefix_values = Vec::new();
-        if let Some(prefix) = input.prefix.take() {
-            prefix_values.extend(prefix.into_values());
-        }
-        if let Some(extra) = input.extra_prefixes.take() {
-            prefix_values.extend(extra.into_values());
-        }
-        if prefix_was_supplied {
-            // An explicitly empty list stays empty so prefix validation rejects
-            // it and a reload keeps the current keybindings.
-            keys.prefix = match prefix_values.len() {
-                0 => BindingConfig::Many(Vec::new()),
-                1 => BindingConfig::One(prefix_values.remove(0)),
-                _ => BindingConfig::Many(prefix_values),
-            };
-            keys.user_fields.insert("prefix");
-        }
-
         input.apply_fields(&mut keys);
         Ok(keys)
     }
@@ -274,13 +250,6 @@ impl KeysConfig {
     pub(crate) fn key_field_is_user_configured(&self, field: &str) -> bool {
         self.user_fields.contains(field)
     }
-}
-
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct IndexedKeysConfig {
-    /// Modifier combo for tab shortcuts 1-9. Unset by default.
-    pub tabs: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -377,41 +346,17 @@ impl Default for ClipboardToastConfig {
     }
 }
 
-impl<'de> Deserialize<'de> for ToastConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize, Default)]
-        #[serde(default)]
-        struct RawToastConfig {
-            delivery: Option<ToastDelivery>,
-            enabled: Option<bool>,
-            delay_seconds: Option<u64>,
-            herdr: HerdrToastConfig,
-            clipboard: ClipboardToastConfig,
-        }
-
-        let raw = RawToastConfig::deserialize(deserializer)?;
-        let legacy_delivery = match raw.enabled {
-            Some(true) => ToastDelivery::Herdr,
-            Some(false) | None => ToastDelivery::Off,
-        };
-        let delivery = raw.delivery.unwrap_or(legacy_delivery);
-        let default = Self::default();
-        let delay_seconds = raw.delay_seconds.unwrap_or(default.delay_seconds);
-        if delay_seconds > MAX_TOAST_DELAY_SECONDS {
-            return Err(de::Error::custom(format!(
-                "ui.toast.delay_seconds must be between 0 and {MAX_TOAST_DELAY_SECONDS}"
-            )));
-        }
-        Ok(Self {
-            delivery,
-            delay_seconds,
-            herdr: raw.herdr,
-            clipboard: raw.clipboard,
-        })
+fn deserialize_toast_delay<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let delay = u64::deserialize(deserializer)?;
+    if delay > MAX_TOAST_DELAY_SECONDS {
+        return Err(de::Error::custom(format!(
+            "ui.toast.delay_seconds must be between 0 and {MAX_TOAST_DELAY_SECONDS}"
+        )));
     }
+    Ok(delay)
 }
 
 impl Default for AdvancedConfig {
@@ -527,37 +472,6 @@ right_click_passthrough_modifier = "{value}"
 mouse_scroll_lines = 0
 "#;
         assert!(toml::from_str::<Config>(toml).is_err());
-    }
-
-    #[test]
-    fn toast_config_legacy_enabled_true_maps_to_herdr() {
-        let toml = r#"
-[ui.toast]
-enabled = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Herdr);
-    }
-
-    #[test]
-    fn toast_config_legacy_enabled_false_maps_to_off() {
-        let toml = r#"
-[ui.toast]
-enabled = false
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
-    }
-
-    #[test]
-    fn toast_config_delivery_wins_over_legacy_enabled() {
-        let toml = r#"
-[ui.toast]
-enabled = true
-delivery = "terminal"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
     }
 
     #[test]

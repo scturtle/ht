@@ -37,7 +37,7 @@ macro_rules! key_fields {
                 /// Move the active tab one position toward the back.
                 move_tab_next: BindingConfig = BindingConfig::one("ctrl+alt+period") => action;
                 /// Switch to tab 1-9.
-                switch_tab: BindingConfig = BindingConfig::one("prefix+1..9") => indexed(tabs);
+                switch_tab: BindingConfig = BindingConfig::one("prefix+1..9") => indexed;
                 /// Rename the focused pane.
                 rename_pane: BindingConfig = BindingConfig::one("prefix+shift+p") => action;
                 /// Open the focused pane scrollback in $EDITOR.

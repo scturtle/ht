@@ -86,15 +86,6 @@ mod tests {
             live.keybinds.new_tab.bindings,
             config.keybinds().new_tab.bindings
         );
-        let legacy: Config = toml::from_str(
-            "[keys]\nprefix = 'ctrl+plus'\nextra_prefixes = ['alt+plus']\nnew_tab = 'prefix+plus'",
-        )
-        .unwrap();
-        assert_eq!(legacy.prefix_keys(), live.prefix);
-        assert_eq!(
-            legacy.keybinds().new_tab.bindings,
-            live.keybinds.new_tab.bindings
-        );
     }
 
     #[test]
@@ -119,15 +110,5 @@ mod tests {
 
         let prefix: Config = toml::from_str("[keys]\nprefix = \"n\"").unwrap();
         assert!(prefix.keybinds().next_tab.bindings.is_empty());
-    }
-
-    #[test]
-    fn local_legacy_indexed_bindings_keep_valid_aliases_and_reject_invalid_modifiers() {
-        let config: Config = toml::from_str("[keys.indexed]\ntabs = \"ctrl\"").unwrap();
-        let keys = config.keybinds();
-        assert_eq!(keys.switch_tab.len(), 9);
-        assert!(keys.switch_tab.iter().all(|b| b.label.starts_with("ctrl+")));
-        let invalid: Config = toml::from_str("[keys.indexed]\ntabs = \"bogus\"").unwrap();
-        assert!(invalid.keybinds().switch_tab.is_empty());
     }
 }
