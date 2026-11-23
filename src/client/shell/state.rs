@@ -463,7 +463,6 @@ pub(super) struct ClientCopyModeState {
     pub(super) cursor: crate::actions::PaneTextPoint,
     pub(super) offset_from_bottom: usize,
     pub(super) max_offset_from_bottom: usize,
-    pub(super) entry_offset_from_bottom: usize,
     pub(super) selection: Option<ClientCopySelection>,
     pub(super) search_prompt: Option<ClientCopySearchPrompt>,
     pub(super) search_query: String,

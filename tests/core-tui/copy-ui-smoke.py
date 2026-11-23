@@ -79,7 +79,7 @@ detach = "f10"
             UI.until(lambda: "ECHO_DISABLED" in screen(), "quiet test shell")
             payload = (
                 "\\033[2J\\033[3J\\033[Halpha needle one\\nA中文B\\nbeta needle two\\n\\nend marker\\n"
-                + "history filler\\n" * 80 + "COPY_READY\\n"
+                + "".join(f"history filler {i}\\n" for i in range(80)) + "COPY_READY\\n"
             )
             viewer.send(f"printf '{payload}'\r".encode())
             UI.until(lambda: "COPY_READY" in screen(), "known retained terminal text")
@@ -113,6 +113,41 @@ detach = "f10"
             UI.until(lambda: "A中文".encode() in copied(), "left arrows skip wide trailing cells")
             viewer.send(b"printf 'COPY_EXIT_%s\\n' OK\r")
             UI.until(lambda: "COPY_EXIT_OK" in screen(), "copy-mode exits to terminal input")
+            # Pause the producer between bursts so each checkpoint is deterministic.
+            viewer.send(
+                b"printf 'LIVE_ENTRY_READY\n'; "
+                b"while [ ! -e emit ]; do sleep 0.05; done; "
+                b"for ((i=0;i<40;i++)); do printf 'live update %s\n' \"$i\"; done; "
+                b"printf 'LIVE_BEFORE_ENTER\n'; : > emitted; "
+                b"while [ ! -e resume ]; do sleep 0.05; done; "
+                b"for ((i=0;i<40;i++)); do printf 'resumed update %s\n' \"$i\"; done; "
+                b"printf 'LIVE_AFTER_ENTER\n'\r"
+            )
+            UI.until(lambda: "LIVE_ENTRY_READY" in screen(), "producer ready at the live tail")
+            viewer.send(b"\x1b[<64;10;10M" * 4)
+            UI.until(lambda: "LIVE_ENTRY_READY" not in screen(), "wheel scrolls away from the live tail")
+            viewer.send(b"\x01[")
+            UI.until(lambda: " COPY " in screen(), "enter copy mode from an already scrolled viewport")
+            viewer.send(b"\x1b[5~" * 2)
+            UI.until(lambda: "history filler 10 " in screen(), "Page Up shows older scrollback")
+            (project / "emit").touch()
+            UI.until(lambda: (project / "emitted").exists(), "new output arrives during copy mode")
+            assert "LIVE_BEFORE_ENTER" not in screen(), "copy viewport stays in scrollback"
+            viewer.send(b"\r")
+            UI.until(lambda: "LIVE_BEFORE_ENTER" in screen(), "Enter returns to the latest output")
+            assert " COPY " not in screen(), "Enter exits copy mode"
+            (project / "resume").touch()
+            UI.until(lambda: "LIVE_AFTER_ENTER" in screen(), "viewport follows output again after Enter")
+
+            for name, key in [("q", b"q"), ("Esc", b"\x1b")]:
+                viewer.send(b"\x1b[<64;10;10M" * 4)
+                UI.until(lambda: "LIVE_AFTER_ENTER" not in screen(), f"scroll away before testing {name}")
+                viewer.send(b"\x01[")
+                UI.until(lambda: " COPY " in screen(), f"enter copy mode before testing {name}")
+                viewer.send(key)
+                UI.until(lambda: "LIVE_AFTER_ENTER" in screen(), f"{name} returns to the latest output")
+                assert " COPY " not in screen(), f"{name} exits copy mode"
+
             assert hc("get", address)["pid"] == pid
             assert not (home / "forbidden-old.sock").exists()
             assert not (home / "forbidden-client.sock").exists()
@@ -121,7 +156,8 @@ detach = "f10"
                 "default_entry": True, "real_tui_copy_mode": True,
                 "search_match_copy": True, "word_selection_pipeline": True,
                 "wide_character_motion": True, "scrollback_endpoint_result": True,
-                "exit_restores_terminal_input": True, "same_program_pid": True,
+                "exit_restores_terminal_input": True, "exit_follows_live_output": True,
+                "same_program_pid": True,
                 "clipboard": "captured OSC52 only", "no_old_sockets": True,
                 "full_migration_acceptance": False,
             }))

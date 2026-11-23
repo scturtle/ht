@@ -27,7 +27,6 @@ fn pasted_help_and_copy_queries_normalize_single_line_text() {
         cursor: crate::actions::PaneTextPoint { row: 0, col: 0 },
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
-        entry_offset_from_bottom: 0,
         selection: None,
         search_prompt: Some(ClientCopySearchPrompt {
             direction: crate::actions::PaneCopySearchDirection::Forward,
@@ -277,7 +276,7 @@ fn selection_edge_drag_requests_scroll_and_timer_continues_it() {
 }
 
 #[test]
-fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
+fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_to_bottom() {
     let mut state = state_with_snapshot(snapshot());
     let mut pane_surface = surface();
     pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
@@ -469,6 +468,53 @@ fn press_copy_scroll(state: &mut ClientShellState, key: &[u8], offset: u64) {
         &request.id,
         Ok(pane_scroll_result(offset, 20, 10)),
     );
+}
+
+#[test]
+fn copy_exit_overrides_queued_page_scroll_to_return_to_live_output() {
+    for (entry_offset, key) in [
+        (0, b"\r"),
+        (10, b"\r"),
+        (10, b"y"),
+        (10, b"q"),
+        (10, b"\x1b"),
+    ] {
+        let mut state = copy_viewport_state(TabBarPositionConfig::Bottom, entry_offset, 4);
+        let pages = state.handle_input_bytes(b"\x1b[5~\x1b[5~");
+        let [ClientShellAction::Endpoint { request, .. }] = &pages.actions[..] else {
+            panic!("only the first page scroll should be in flight");
+        };
+        let first_offset = entry_offset + 8;
+        assert!(matches!(
+            &request.action,
+            crate::actions::Action::PaneScroll(params) if params.offset_from_bottom == first_offset
+        ));
+
+        let exit = state.handle_input_bytes(key);
+        assert_eq!(state.mode, ClientShellMode::Terminal);
+        assert!(state.copy_mode.is_none());
+        assert!(
+            exit.actions.is_empty(),
+            "exit should wait for the in-flight scroll"
+        );
+
+        let (_, actions) = state.handle_endpoint_result(
+            "boot-1",
+            &request.id,
+            Ok(pane_scroll_result(first_offset, 20, 10)),
+        );
+        assert!(
+            matches!(
+                &actions[..],
+                [ClientShellAction::Endpoint { request, .. }] if matches!(
+                    &request.action,
+                    crate::actions::Action::PaneScroll(params)
+                        if params.pane_id == "pane_1" && params.offset_from_bottom == 0
+                )
+            ),
+            "exit key {key:?} should return to the live viewport"
+        );
+    }
 }
 
 #[test]
@@ -1864,8 +1910,8 @@ fn reentering_copy_mode_on_the_same_pane_is_a_no_op() {
         state
             .copy_mode
             .as_ref()
-            .map(|copy_mode| copy_mode.entry_offset_from_bottom),
-        Some(0)
+            .map(|copy_mode| copy_mode.offset_from_bottom),
+        Some(10)
     );
 }
 

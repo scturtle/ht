@@ -110,7 +110,6 @@ impl ClientShellState {
             cursor,
             offset_from_bottom: metrics.offset_from_bottom,
             max_offset_from_bottom: metrics.max_offset_from_bottom,
-            entry_offset_from_bottom: metrics.offset_from_bottom,
             selection: None,
             search_prompt: None,
             search_query: String::new(),
@@ -935,11 +934,7 @@ impl ClientShellState {
         }
         self.selection = None;
         self.selection_highlight_clear_deadline = None;
-        self.push_pane_scroll_offset(
-            copy_mode.pane_id,
-            copy_mode.entry_offset_from_bottom,
-            outcome,
-        );
+        self.push_pane_scroll_offset(copy_mode.pane_id, 0, outcome);
         self.mode = ClientShellMode::Terminal;
         outcome.repaint = true;
     }
