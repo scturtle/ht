@@ -4,7 +4,7 @@ use std::collections::HashMap;
 #[path = "events.rs"]
 mod events;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -276,13 +276,11 @@ impl Session {
             })
             .collect::<std::collections::BTreeMap<_, _>>();
         let preferences = json!({"active_workspace":self.model.active_workspace,"active_tabs":self.model.active_tabs,"focus":focus});
-        let path = home.join("app-preferences.json");
-        let temporary = path.with_extension("pending");
-        let mut file = crate::platform::create_private_state_file(&temporary)?;
-        file.write_all(&serde_json::to_vec(&preferences)?)?;
-        file.sync_all()?;
-        drop(file);
-        crate::platform::replace_file(&temporary, &path)
+        // The per-client lock is held for this session's entire lifetime.
+        crate::platform::write_private_state_file(
+            &home.join("app-preferences.json"),
+            &serde_json::to_vec(&preferences)?,
+        )
     }
 
     pub(super) fn sync_views(&mut self) -> io::Result<()> {

@@ -1,20 +1,43 @@
-#[cfg(test)]
-use std::{io::Write, os::fd::RawFd};
 // Platform support for the Core TUI: terminal I/O, input, files, and notifications.
-use std::process::{Command, Stdio};
+#[cfg(test)]
+use std::os::fd::RawFd;
+use std::{
+    fs,
+    io::{self, Write},
+    os::unix::fs::OpenOptionsExt,
+    path::Path,
+    process::{Command, Stdio},
+};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 
-pub(crate) use super::unix_common::{create_remote_private_dir, create_remote_ssh_config_file};
+pub(crate) use super::unix_common::create_remote_private_dir;
 
-pub(crate) fn create_private_state_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
-    create_remote_ssh_config_file(path)
-}
-
-pub(crate) fn replace_file(
-    source: &std::path::Path,
-    destination: &std::path::Path,
-) -> std::io::Result<()> {
-    std::fs::rename(source, destination)
+/// Replace client-local state atomically. The caller holds the exclusive writer
+/// lock, so any pending file belongs to an interrupted or failed save.
+pub(crate) fn write_private_state_file(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let pending = path.with_extension("pending");
+    let create = || {
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&pending)
+    };
+    let mut file = match create() {
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            // Unlink rather than truncate: never follow a stale symlink.
+            fs::remove_file(&pending)?;
+            create()?
+        }
+        result => result?,
+    };
+    let written = file.write_all(contents).and_then(|()| file.sync_all());
+    drop(file);
+    let result = written.and_then(|()| fs::rename(&pending, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&pending);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -96,7 +119,6 @@ pub(crate) fn create_config_temporary(
     path: &std::path::Path,
     private: bool,
 ) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -214,6 +236,27 @@ mod tests {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
     }
+    #[test]
+    fn private_state_save_replaces_a_stale_symlink_without_following_it() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let dir = std::env::temp_dir().join(format!("herdr-state-save-{}", std::process::id()));
+        create_remote_private_dir(&dir).unwrap();
+        let path = dir.join("prefs.json");
+        let pending = path.with_extension("pending");
+        let other = dir.join("other");
+        fs::write(&other, b"untouched").unwrap();
+        symlink(&other, &pending).unwrap();
+
+        write_private_state_file(&path, b"committed").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"committed");
+        assert_eq!(fs::read(&other).unwrap(), b"untouched");
+        assert!(!pending.exists());
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o077, 0);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn desktop_notification_sets_app_name_and_separates_option_like_titles() {
         let _guard = env_lock().lock().unwrap();

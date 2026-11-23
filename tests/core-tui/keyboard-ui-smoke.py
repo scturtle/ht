@@ -106,9 +106,17 @@ def main():
         evidence = [probe(0)]
         current.detach()
         assert facts(env, address)["pid"] == pid
+        # Deterministically reproduce an interrupted detach save. The replacement
+        # must use the last committed preferences, not this incomplete write.
+        preferences = core / "clients" / env["HERDR_CORE_CLIENT_ID"] / "app-preferences.json"
+        pending_preferences = preferences.with_suffix(".pending")
+        assert json.loads(preferences.read_bytes())["active_workspace"] == "keyboard"
+        pending_preferences.write_bytes(b'{"active_workspace":')
         current = UI.Viewer(env)
         viewers.append(current)
         UI.until(lambda: "KEY_PHASE_0_READY" in screen(current), "replacement client full Kitty stack replay")
+        assert not pending_preferences.exists()
+        assert json.loads(preferences.read_bytes())["active_workspace"] == "keyboard"
         for phase in range(1, 4):
             pending = control.with_suffix(".pending")
             pending.write_text(json.dumps({"phase": phase}))
