@@ -359,10 +359,8 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
         KeyCode::Char('v'),
         KeyModifiers::empty(),
     ))]);
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Char('l'),
-        KeyModifiers::empty(),
-    ))]);
+    let motion = state.handle_input_bytes(b"l");
+    finish_copy_right(&mut state, &motion.actions, 1);
     assert!(state
         .selection
         .as_ref()
@@ -432,6 +430,30 @@ fn assert_copy_cursor(state: &ClientShellState, row: u32, col: u16, offset: u64)
     assert_eq!(copy_mode.offset_from_bottom as u64, offset);
 }
 
+fn finish_copy_right(state: &mut ClientShellState, actions: &[ClientShellAction], col: u16) {
+    let [ClientShellAction::Endpoint { request, .. }] = actions else {
+        panic!("expected a copy motion");
+    };
+    let mode = state.copy_mode.as_ref().expect("copy mode");
+    assert!(matches!(
+        &request.action,
+        crate::actions::Action::PaneCopyMotion(params)
+            if params.motion == crate::actions::PaneCopyMotion::Right
+                && params.cursor == mode.cursor
+    ));
+    let (repaint, actions) = state.handle_endpoint_result(
+        "boot-1",
+        &request.id,
+        Ok(crate::actions::ActionResult::PaneCopyMotion {
+            pane_id: mode.pane_id.clone(),
+            cursor: crate::actions::PaneTextPoint { col, ..mode.cursor },
+            content_revision: mode.content_revision,
+        }),
+    );
+    assert!(repaint);
+    assert!(actions.is_empty());
+}
+
 fn press_copy_scroll(state: &mut ClientShellState, key: &[u8], offset: u64) {
     let outcome = state.handle_input_bytes(key);
     assert!(outcome.repaint);
@@ -457,7 +479,8 @@ fn copy_line_scroll_keeps_content_cursor_until_the_viewport_edge() {
         assert_copy_cursor(&state, 14, 1, offset);
     }
 
-    state.handle_input_bytes(b"Hlv");
+    let motion = state.handle_input_bytes(b"Hlv");
+    finish_copy_right(&mut state, &motion.actions, 1);
     press_copy_scroll(&mut state, b"\x05", 9);
     assert_copy_cursor(&state, 11, 1, 9);
     assert!(state
@@ -466,7 +489,8 @@ fn copy_line_scroll_keeps_content_cursor_until_the_viewport_edge() {
         .expect("extended selection")
         .is_visible());
 
-    state.handle_input_bytes(b"Ll");
+    let motion = state.handle_input_bytes(b"Ll");
+    finish_copy_right(&mut state, &motion.actions, 1);
     press_copy_scroll(&mut state, b"K", 10);
     assert_copy_cursor(&state, 19, 1, 10);
 }
@@ -484,7 +508,8 @@ fn copy_viewport_jumps_do_not_scroll_or_land_under_the_mode_bar() {
             let moved = state.handle_input_bytes(key);
             assert!(moved.repaint && moved.actions.is_empty());
             assert_copy_cursor(&state, row, 0, 10);
-            state.handle_input_bytes(b"l");
+            let motion = state.handle_input_bytes(b"l");
+            finish_copy_right(&mut state, &motion.actions, 1);
         }
     }
 }
@@ -680,7 +705,9 @@ fn keyboard_selection_does_not_return_after_resize_or_screen_switch() {
         assert!(state.selection.is_none());
         assert!(state.copy_mode.as_ref().unwrap().selection.is_none());
         state.compose(106, 20).expect("changed frame");
-        state.handle_input_bytes(b"l");
+        let col = state.copy_mode.as_ref().unwrap().cursor.col + 1;
+        let motion = state.handle_input_bytes(b"l");
+        finish_copy_right(&mut state, &motion.actions, col);
         assert!(
             state.selection.is_none(),
             "movement must not resurrect the old anchor"
@@ -1791,7 +1818,7 @@ fn queued_copy_keys_preserve_prefix_order() {
         ClientShellAction::Endpoint { request, .. } => request.id.clone(),
         _ => unreachable!(),
     };
-    state.handle_endpoint_result(
+    let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &motion_id,
         Ok(crate::actions::ActionResult::PaneCopyMotion {
@@ -1800,6 +1827,8 @@ fn queued_copy_keys_preserve_prefix_order() {
             content_revision: 0,
         }),
     );
+    assert_eq!(state.mode, ClientShellMode::Copy);
+    finish_copy_right(&mut state, &actions, origin.col + 1);
     assert_eq!(state.mode, ClientShellMode::Prefix);
     assert_eq!(
         state

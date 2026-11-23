@@ -1313,6 +1313,10 @@ impl Terminal {
         (result == ffi::GhosttyResult_GHOSTTY_SUCCESS).then_some(point.y as usize)
     }
 
+    pub fn screen_cell_width(&self, x: u16, y: u32) -> Result<CellWide, Error> {
+        grid_ref_wide(&self.grid_ref(ghostty_screen_point(x, y))?)
+    }
+
     pub fn screen_cell(&self, x: u16, y: u32) -> Result<(CellWide, Vec<u32>), Error> {
         let grid_ref = self.grid_ref(ghostty_screen_point(x, y))?;
         let wide = grid_ref_wide(&grid_ref)?;

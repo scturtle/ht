@@ -40,6 +40,10 @@ pub(super) fn motion(
         col: params.cursor.col,
     };
     let target = match params.motion {
+        M::Left | M::Right => view
+            .terminal
+            .horizontal_motion_target(origin, params.motion == M::Right)
+            .ok_or_else(|| invalid("copy_motion_unavailable"))?,
         M::LineEnd | M::FirstNonBlank => {
             let selection = crate::selection::Selection::absolute_range(
                 id,
@@ -241,6 +245,27 @@ mod tests {
                 },
                 "{motion:?}"
             );
+        }
+    }
+
+    #[test]
+    fn horizontal_motions_skip_wide_cell_tails_in_scrollback() {
+        let view = view(8, 2, "a中文b中\r\n\r\n\r\n");
+        // Row 0 is retained above the current viewport. Columns 2, 4, and 7
+        // are trailing cells, including the final column at the right margin.
+        for (motion, steps) in [
+            (
+                M::Right,
+                &[(0, 1), (1, 3), (3, 5), (5, 6), (6, 6), (2, 3), (7, 6)][..],
+            ),
+            (
+                M::Left,
+                &[(0, 0), (1, 0), (3, 1), (5, 3), (6, 5), (2, 1), (7, 6)][..],
+            ),
+        ] {
+            for &(from, to) in steps {
+                assert_eq!(move_to(&view, 0, from, motion), P { row: 0, col: to });
+            }
         }
     }
 

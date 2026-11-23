@@ -78,7 +78,7 @@ detach = "f10"
             viewer.send(b"stty -echo; printf 'ECHO_DISABLED\\n'\r")
             UI.until(lambda: "ECHO_DISABLED" in screen(), "quiet test shell")
             payload = (
-                "\\033[2J\\033[3J\\033[Halpha needle one\\nbeta needle two\\n\\nend marker\\n"
+                "\\033[2J\\033[3J\\033[Halpha needle one\\nA中文B\\nbeta needle two\\n\\nend marker\\n"
                 + "history filler\\n" * 80 + "COPY_READY\\n"
             )
             viewer.send(f"printf '{payload}'\r".encode())
@@ -107,6 +107,10 @@ detach = "f10"
             viewer.send(b"g0vwey")
             UI.until(lambda: b"alpha needle" in copied(), "word motion + selection + copy pipeline")
             assert "unexpected" not in screen(), "scrollback/copy must not raise an endpoint result error"
+            viewer.send(b"\x01[g0jlvly")
+            UI.until(lambda: "中文".encode() in copied(), "one l steps over a wide glyph in history")
+            viewer.send(b"\x01[g0j$\x1b[Dv\x1b[D\x1b[Dy")
+            UI.until(lambda: "A中文".encode() in copied(), "left arrows skip wide trailing cells")
             viewer.send(b"printf 'COPY_EXIT_%s\\n' OK\r")
             UI.until(lambda: "COPY_EXIT_OK" in screen(), "copy-mode exits to terminal input")
             assert hc("get", address)["pid"] == pid
@@ -116,7 +120,7 @@ detach = "f10"
             print(json.dumps({
                 "default_entry": True, "real_tui_copy_mode": True,
                 "search_match_copy": True, "word_selection_pipeline": True,
-                "scrollback_endpoint_result": True,
+                "wide_character_motion": True, "scrollback_endpoint_result": True,
                 "exit_restores_terminal_input": True, "same_program_pid": True,
                 "clipboard": "captured OSC52 only", "no_old_sockets": True,
                 "full_migration_acceptance": False,

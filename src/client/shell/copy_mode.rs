@@ -131,6 +131,8 @@ impl ClientShellState {
         key: &crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
     ) {
+        use crate::actions::PaneCopyMotion;
+
         if self.route_copy_search_prompt_key(key, outcome) {
             return;
         }
@@ -168,19 +170,19 @@ impl ClientShellState {
                 return;
             }
             KeyCode::Left => {
-                self.move_copy_cursor(0, -1, outcome);
+                self.request_copy_motion(PaneCopyMotion::Left, outcome);
                 return;
             }
             KeyCode::Down => {
-                self.move_copy_cursor(1, 0, outcome);
+                self.move_copy_cursor_row(1, outcome);
                 return;
             }
             KeyCode::Up => {
-                self.move_copy_cursor(-1, 0, outcome);
+                self.move_copy_cursor_row(-1, outcome);
                 return;
             }
             KeyCode::Right => {
-                self.move_copy_cursor(0, 1, outcome);
+                self.request_copy_motion(PaneCopyMotion::Right, outcome);
                 return;
             }
             KeyCode::PageUp => {
@@ -244,10 +246,10 @@ impl ClientShellState {
             }
             'v' | ' ' => self.begin_copy_selection(false),
             'V' => self.begin_copy_selection(true),
-            'h' => self.move_copy_cursor(0, -1, outcome),
-            'j' => self.move_copy_cursor(1, 0, outcome),
-            'k' => self.move_copy_cursor(-1, 0, outcome),
-            'l' => self.move_copy_cursor(0, 1, outcome),
+            'h' => self.request_copy_motion(PaneCopyMotion::Left, outcome),
+            'j' => self.move_copy_cursor_row(1, outcome),
+            'k' => self.move_copy_cursor_row(-1, outcome),
+            'l' => self.request_copy_motion(PaneCopyMotion::Right, outcome),
             'J' => self.scroll_copy_line(1, outcome),
             'K' => self.scroll_copy_line(-1, outcome),
             'H' => self.move_copy_to_viewport_line(CopyViewportLine::Top),
@@ -528,26 +530,13 @@ impl ClientShellState {
             .cloned()
     }
 
-    fn move_copy_cursor(&mut self, row_delta: i16, col_delta: i16, outcome: &mut ClientShellInput) {
+    fn move_copy_cursor_row(&mut self, row_delta: i16, outcome: &mut ClientShellInput) {
         let Some(copy_mode) = self.copy_mode.as_mut() else {
             return;
         };
-        let (width, height) = copy_mode.geometry;
-        if col_delta < 0 {
-            copy_mode.cursor.col = copy_mode
-                .cursor
-                .col
-                .saturating_sub(col_delta.unsigned_abs());
-        } else if col_delta > 0 {
-            copy_mode.cursor.col = copy_mode
-                .cursor
-                .col
-                .saturating_add(col_delta as u16)
-                .min(width.saturating_sub(1));
-        }
         let total_rows = copy_mode
             .max_offset_from_bottom
-            .saturating_add(height as usize)
+            .saturating_add(copy_mode.geometry.1 as usize)
             .max(1);
         if row_delta < 0 {
             copy_mode.cursor.row = copy_mode

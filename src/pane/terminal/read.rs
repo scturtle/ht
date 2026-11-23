@@ -33,6 +33,34 @@ impl PaneTerminal {
         )
     }
 
+    pub(crate) fn horizontal_motion_target(
+        &self,
+        origin: TerminalTextPoint,
+        right: bool,
+    ) -> Option<TerminalTextPoint> {
+        let core = self.ghostty.core.lock().ok()?;
+        let last_col = core.terminal.cols().ok()?.checked_sub(1)?;
+        let next = if right {
+            origin.col.saturating_add(1).min(last_col)
+        } else {
+            origin.col.saturating_sub(1)
+        };
+        // A wide glyph's trailing cell is not a cursor stop. At the right
+        // margin stay on its leading cell rather than wrapping to the next row.
+        let col = if core.terminal.screen_cell_width(next, origin.row).ok()?
+            == crate::ghostty::CellWide::SpacerTail
+        {
+            if right && next < last_col {
+                next + 1
+            } else {
+                next.saturating_sub(1)
+            }
+        } else {
+            next
+        };
+        Some(TerminalTextPoint { col, ..origin })
+    }
+
     pub(crate) fn word_motion_target(
         &self,
         row: u32,
