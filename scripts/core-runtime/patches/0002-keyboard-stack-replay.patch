@@ -1,4 +1,6 @@
 diff --git a/crates/ghostty-vt/src/keyboard_replay.rs b/crates/ghostty-vt/src/keyboard_replay.rs
+new file mode 100644
+index 0000000..49042be
 --- /dev/null
 +++ b/crates/ghostty-vt/src/keyboard_replay.rs
 @@ -0,0 +1,30 @@
@@ -33,6 +35,8 @@ diff --git a/crates/ghostty-vt/src/keyboard_replay.rs b/crates/ghostty-vt/src/ke
 +    }
 +}
 diff --git a/crates/ghostty-vt/src/keyboard_tests.rs b/crates/ghostty-vt/src/keyboard_tests.rs
+new file mode 100644
+index 0000000..bd1bf0c
 --- /dev/null
 +++ b/crates/ghostty-vt/src/keyboard_tests.rs
 @@ -0,0 +1,75 @@
@@ -112,18 +116,19 @@ diff --git a/crates/ghostty-vt/src/keyboard_tests.rs b/crates/ghostty-vt/src/key
 +    }
 +}
 diff --git a/crates/ghostty-vt/src/lib.rs b/crates/ghostty-vt/src/lib.rs
+index 02e0b5d..a747870 100644
 --- a/crates/ghostty-vt/src/lib.rs
 +++ b/crates/ghostty-vt/src/lib.rs
-@@ -2,6 +2,8 @@
-
+@@ -3,6 +3,8 @@
  use std::ffi::c_void;
  use std::ptr;
-+
+ 
 +mod keyboard_replay;
-
++
  mod ffi {
      use std::ffi::c_void;
-@@ -189,6 +191,7 @@
+ 
+@@ -189,6 +191,7 @@ mod ffi {
          pub fn ghostty_terminal_free(t: Terminal);
          pub fn ghostty_terminal_set(t: Terminal, opt: i32, value: *const c_void) -> i32;
          pub fn ghostty_terminal_get(t: Terminal, data: i32, out: *mut c_void) -> i32;
@@ -131,7 +136,7 @@ diff --git a/crates/ghostty-vt/src/lib.rs b/crates/ghostty-vt/src/lib.rs
          pub fn ghostty_terminal_vt_write(t: Terminal, data: *const u8, len: usize);
          pub fn ghostty_terminal_vt_write_until_ground(
              t: Terminal,
-@@ -731,9 +734,22 @@
+@@ -731,9 +734,22 @@ impl Terminal {
                  out.extend(b"\x1b[H\x1b[2J");
              }
          }
@@ -154,17 +159,19 @@ diff --git a/crates/ghostty-vt/src/lib.rs b/crates/ghostty-vt/src/lib.rs
          }
          if let Some(sel) = self.select(ffi::POINT_ACTIVE, (0, 0), last) {
              let screen = self.format(ffi::FORMAT_VT, Some(&sel), true);
-@@ -805,4 +821,6 @@
+@@ -824,5 +840,7 @@ fn alloc_call(f: impl FnOnce(*mut *mut u8, *mut usize) -> i32) -> Option<Vec<u8>
+     Some(bytes)
  }
-
- #[cfg(test)]
-+mod keyboard_tests;
+ 
 +#[cfg(test)]
++mod keyboard_tests;
+ #[cfg(test)]
  mod tests;
 diff --git a/crates/herdr-core/src/SKILL.md b/crates/herdr-core/src/SKILL.md
+index 8c40434..f3f7921 100644
 --- a/crates/herdr-core/src/SKILL.md
 +++ b/crates/herdr-core/src/SKILL.md
-@@ -151,7 +151,10 @@
+@@ -151,7 +151,10 @@ leadership. An ordered attach with `resumed: true` passively reads the current
  grid without claiming leadership, including when it is the only viewer; later
  explicit focus, input or resize activates it. Remote ordered attach is explicitly
  rejected, not downgraded.
@@ -173,24 +180,26 @@ diff --git a/crates/herdr-core/src/SKILL.md b/crates/herdr-core/src/SKILL.md
 +stack replay, including inactive screen state, dirty viewers and overflow. Binary
 +snapshot round trips retain both stacks. These extensions do not claim graphics
 +replay or failure-safe exact server restart.
-
+ 
  ```sh
  hc run cargo test                  # wait, stream output, return its exit code
 diff --git a/crates/herdr-core/src/api.rs b/crates/herdr-core/src/api.rs
+index 1cc8c2f..18c6766 100644
 --- a/crates/herdr-core/src/api.rs
 +++ b/crates/herdr-core/src/api.rs
-@@ -23,6 +23,7 @@
-     "automatic_input",
+@@ -25,6 +25,7 @@ pub const FEATURES: &[&str] = &[
      "restart_environment",
+     "put_chunks",
      "ordered_attach",
 +    "keyboard_stacks_v1",
  ];
  pub const FINISHED_LINES: usize = 1000;
  /// Terminal identity variables replaced by the core's defaults unless explicitly overridden.
 diff --git a/vendor/ghostty/include/ghostty/vt/terminal.h b/vendor/ghostty/include/ghostty/vt/terminal.h
+index 482b970..12e3307 100644
 --- a/vendor/ghostty/include/ghostty/vt/terminal.h
 +++ b/vendor/ghostty/include/ghostty/vt/terminal.h
-@@ -3314,6 +3314,13 @@
+@@ -3314,6 +3314,13 @@ GHOSTTY_API GhosttyResult ghostty_terminal_compress(
   *
   * @ingroup terminal
   */
@@ -205,9 +214,10 @@ diff --git a/vendor/ghostty/include/ghostty/vt/terminal.h b/vendor/ghostty/inclu
                                      GhosttyTerminalData data,
                                      void *out);
 diff --git a/vendor/ghostty/src/lib_vt.zig b/vendor/ghostty/src/lib_vt.zig
+index 517ccce..78e15eb 100644
 --- a/vendor/ghostty/src/lib_vt.zig
 +++ b/vendor/ghostty/src/lib_vt.zig
-@@ -329,6 +329,7 @@
+@@ -329,6 +329,7 @@ comptime {
          @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
          @export(&c.terminal_compress, .{ .name = "ghostty_terminal_compress" });
          @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
@@ -216,9 +226,10 @@ diff --git a/vendor/ghostty/src/lib_vt.zig b/vendor/ghostty/src/lib_vt.zig
          @export(&c.terminal_continuation_write, .{ .name = "ghostty_terminal_continuation_write" });
          @export(&c.terminal_continuation_buf, .{ .name = "ghostty_terminal_continuation_buf" });
 diff --git a/vendor/ghostty/src/terminal/c/main.zig b/vendor/ghostty/src/terminal/c/main.zig
+index 5248c2c..221d127 100644
 --- a/vendor/ghostty/src/terminal/c/main.zig
 +++ b/vendor/ghostty/src/terminal/c/main.zig
-@@ -192,6 +192,7 @@
+@@ -192,6 +192,7 @@ pub const terminal_scroll_viewport = terminal.scroll_viewport;
  pub const terminal_compression_activity = terminal.compression_activity;
  pub const terminal_compress = terminal.compress;
  pub const terminal_get = terminal.get;
@@ -227,12 +238,13 @@ diff --git a/vendor/ghostty/src/terminal/c/main.zig b/vendor/ghostty/src/termina
  pub const terminal_continuation_write = terminal.continuation_write;
  pub const terminal_continuation_buf = terminal.continuation_buf;
 diff --git a/vendor/ghostty/src/terminal/c/terminal.zig b/vendor/ghostty/src/terminal/c/terminal.zig
+index 06cab9b..ec99331 100644
 --- a/vendor/ghostty/src/terminal/c/terminal.zig
 +++ b/vendor/ghostty/src/terminal/c/terminal.zig
-@@ -1912,6 +1912,19 @@
+@@ -1912,6 +1912,19 @@ pub const TerminalData = enum(c_int) {
      }
  };
-
+ 
 +/// Local opt-in replay API: primary then alternate, each [index, flags x 8].
 +/// Fixed-size v1 output; no allocation or mutation of either screen.
 +pub fn keyboard_stacks_v1(terminal_: Terminal, out: *[18]u8) callconv(lib.calling_conv) void {

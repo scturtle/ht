@@ -1,8 +1,8 @@
 {
   "core": {
-    "commit": "f0828f1e40fac656a5bac077e20c605d38760164",
-    "url": "https://codeload.github.com/herdrdev/herdr-core/tar.gz/f0828f1e40fac656a5bac077e20c605d38760164",
-    "sha256": "7397373d761c8a1e03f5de524fef779423315d59d15b1b4915553a0aac8f17c7"
+    "commit": "6e2984629fcd600b0165f69b2e5b0bda5985ec1c",
+    "url": "https://codeload.github.com/herdrdev/herdr-core/tar.gz/refs/tags/v0.1.22",
+    "sha256": "f85c123cddca40e8e4fae7ea1b416fe8a022323ea956862759a9750f76154b53"
   },
   "ghostty": {
     "commit": "1e5cdb865807abc990181efb8ebfa9122955cce2",

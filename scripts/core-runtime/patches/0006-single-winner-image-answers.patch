@@ -348,7 +348,7 @@
 -            if body != b"OK" && !error {
 -                continue;
 -            }
--            let header = &sequence[3..sequence.iter().position(|b| *b == b';').unwrap()];
+-            let Some(header) = header(&sequence) else { continue };
 -            if header.split(|b| *b == b',').any(|f| !matches!(f.first(), Some(b'i' | b'I' | b'p'))) {
 -                continue;
 -            }
